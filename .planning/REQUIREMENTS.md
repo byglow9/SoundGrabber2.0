@@ -59,26 +59,26 @@
 
 | REQ-ID | Phase | Status |
 |--------|-------|--------|
-| CORE-01 | — | Pending |
-| CORE-02 | — | Pending |
-| CORE-03 | — | Pending |
-| CORE-04 | — | Pending |
-| CORE-05 | — | Pending |
-| CORE-06 | — | Pending |
-| ANALYSIS-01 | — | Pending |
-| ANALYSIS-02 | — | Pending |
-| ANALYSIS-03 | — | Pending |
-| ANALYSIS-04 | — | Pending |
-| UX-01 | — | Pending |
-| UX-02 | — | Pending |
-| UX-03 | — | Pending |
-| UX-04 | — | Pending |
-| VISUAL-01 | — | Pending |
-| VISUAL-02 | — | Pending |
-| VISUAL-03 | — | Pending |
-| VISUAL-04 | — | Pending |
-| VISUAL-05 | — | Pending |
+| CORE-01 | Phase 2 | Pending |
+| CORE-02 | Phase 2 | Pending |
+| CORE-03 | Phase 1 | Pending |
+| CORE-04 | Phase 1 | Pending |
+| CORE-05 | Phase 1 | Pending |
+| CORE-06 | Phase 2 | Pending |
+| ANALYSIS-01 | Phase 1 | Pending |
+| ANALYSIS-02 | Phase 1 | Pending |
+| ANALYSIS-03 | Phase 1 | Pending |
+| ANALYSIS-04 | Phase 1 | Pending |
+| UX-01 | Phase 4 | Pending |
+| UX-02 | Phase 4 | Pending |
+| UX-03 | Phase 3 | Pending |
+| UX-04 | Phase 3 | Pending |
+| VISUAL-01 | Phase 5 | Pending |
+| VISUAL-02 | Phase 5 | Pending |
+| VISUAL-03 | Phase 5 | Pending |
+| VISUAL-04 | Phase 5 | Pending |
+| VISUAL-05 | Phase 5 | Pending |
 
 ---
 
-*Last updated: 2026-04-29 após questioning e pesquisa de domínio*
+*Last updated: 2026-04-29 — traceability mapped to roadmap phases*
