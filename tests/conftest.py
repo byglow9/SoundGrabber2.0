@@ -55,3 +55,18 @@ def youtube_test_urls() -> dict[str, str]:
         # not used; this is a static beat upload). Replace if it becomes unavailable.
         "lofi_house": "https://www.youtube.com/watch?v=jfKfPfyJRdk",
     }
+
+
+@pytest.fixture
+def api_client():
+    """FastAPI TestClient with Celery in eager mode (no broker required for unit tests)."""
+    from fastapi.testclient import TestClient
+    from api.tasks import celery_app
+    from api.main import app
+
+    celery_app.conf.task_always_eager = True
+    celery_app.conf.task_eager_propagates = True
+    client = TestClient(app)
+    yield client
+    celery_app.conf.task_always_eager = False
+    celery_app.conf.task_eager_propagates = False
