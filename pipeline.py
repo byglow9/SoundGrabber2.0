@@ -436,3 +436,64 @@ def analyze_audio(wav_path: Path) -> dict[str, Any]:
         "duration_sec": round(float(duration_sec), 1),
         "wav_path": str(wav_path),
     }
+
+
+# CLI entry point (D-04). JSON output per D-05.
+if __name__ == "__main__":
+    import os
+    import sys
+
+    def _emit_error(error_type: str, message: str) -> None:
+        """Print a JSON error envelope to stdout (NOT stderr — D-05 says JSON on stdout).
+        Exit code 1 is set by the caller via sys.exit."""
+        print(json.dumps({"error": message, "type": error_type}))
+
+    if len(sys.argv) < 2:
+        _emit_error("usage_error", "Usage: python pipeline.py <youtube_url>")
+        sys.exit(1)
+
+    url = sys.argv[1]
+    cookies_path = os.environ.get("YTDLP_COOKIES_FILE", "")
+    po_token = os.environ.get("YTDLP_PO_TOKEN", "")
+
+    # Up-front config check — fail fast with a clear envelope rather than a Python traceback.
+    if not cookies_path:
+        _emit_error("config_error", "YTDLP_COOKIES_FILE env var is not set. See .env.example.")
+        sys.exit(1)
+    if not Path(cookies_path).exists():
+        _emit_error("config_error", f"YTDLP_COOKIES_FILE does not exist: {cookies_path}")
+        sys.exit(1)
+    # po_token is allowed to be empty (cookies-only flow); pipeline.download_audio handles it.
+    # We log a warning to stderr if missing — does NOT affect JSON output.
+    if not po_token:
+        print(
+            "WARNING: YTDLP_PO_TOKEN is empty. Datacenter IPs typically require a PO Token. "
+            "If downloads fail with 'Sign in to confirm you're not a bot', set YTDLP_PO_TOKEN.",
+            file=sys.stderr,
+        )
+
+    try:
+        # Stage 0: pre-download duration check (CORE-05, D-10)
+        info = check_duration(url, cookies_path)
+        # Stage 1: download + WAV conversion (CORE-03, CORE-04)
+        wav_path = download_audio(url, cookies_path, po_token)
+        # Stage 2-5: validate + bpm + key + camelot + half/double (ANALYSIS-01..04)
+        result = analyze_audio(wav_path)
+        # Prefer YouTube's reported duration over ffprobe's (whole-second integer is the user-facing value).
+        result["duration_sec"] = float(info.get("duration", result["duration_sec"]))
+        print(json.dumps(result))
+        sys.exit(0)
+    except ValueError as e:
+        # Validation errors: duration > 15min, missing duration metadata, ffprobe failure on WAV
+        _emit_error("validation_error", str(e))
+        sys.exit(1)
+    except RuntimeError as e:
+        # Download errors: yt-dlp DownloadError, network failure, expired PO Token
+        _emit_error("download_error", str(e))
+        sys.exit(1)
+    except FileNotFoundError as e:
+        _emit_error("download_error", str(e))
+        sys.exit(1)
+    except Exception as e:  # noqa: BLE001 — last-resort envelope so stdout is always JSON
+        _emit_error("internal_error", f"{type(e).__name__}: {e}")
+        sys.exit(1)
