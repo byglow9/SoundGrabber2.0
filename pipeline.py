@@ -23,6 +23,8 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+import librosa
+import numpy as np
 import yt_dlp
 
 
@@ -244,19 +246,96 @@ def validate_wav(wav_path: Path) -> float:
     return duration
 
 
-# [PLAN 03] — Analysis stubs (NOT implemented here; Plan 03 fills these in)
-# These stubs exist so that Plan 02 unit tests for Plan 03 behaviour can use
-# patch.object() without AttributeError. Calling any of these directly will
-# raise NotImplementedError.
+# Krumhansl-Schmuckler tone profiles for key detection (ANALYSIS-02).
+# Reference values from Krumhansl & Kessler (1982); standard MIR practice.
+# Source: librosa documentation + classic MIR literature.
+_MAJOR_PROFILE = [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88]
+_MINOR_PROFILE = [6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17]
+_NOTES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 
+
+# Stage 3: BPM detection (ANALYSIS-01)
 def detect_bpm(wav_path: Path, total_duration: float) -> float:
-    """Stub — implemented in Plan 03."""
-    raise NotImplementedError("detect_bpm is implemented in Plan 03")
+    """Detect BPM using librosa.feature.tempo (NOT beat_track — Pattern 4 rationale).
+
+    Production parameters:
+      sr=22050      — mono downsampling, ~4x less RAM than 44100 stereo
+      duration=90.0 — 90s window is sufficient for stable autocorrelation
+      offset=20%    — skip intros that often lack percussion (capped at 30s)
+
+    Args:
+        wav_path: Path to the WAV file.
+        total_duration: Total duration of the file (seconds), as returned by validate_wav.
+                        Used to compute the offset; passed in to avoid a redundant ffprobe call.
+
+    Returns:
+        BPM as a Python float (NOT numpy.ndarray — Pitfall 3 mitigation). Rounded to 1 decimal.
+    """
+    offset = min(total_duration * 0.20, 30.0)
+    y, sr = librosa.load(
+        str(wav_path),
+        sr=22050,
+        mono=True,
+        duration=90.0,
+        offset=offset,
+    )
+    tempo = librosa.feature.tempo(y=y, sr=sr)
+    # Pitfall 3: librosa returns an ndarray even for scalar tempo. Coerce to Python float.
+    if hasattr(tempo, "__len__") and len(tempo) > 0:
+        bpm = float(tempo[0])
+    else:
+        bpm = float(tempo)
+    return round(bpm, 1)
+
+
+# Stage 4: Key detection (ANALYSIS-02)
+def _detect_key_from_chroma(chroma: "np.ndarray") -> str:
+    """Internal helper: run Krumhansl-Schmuckler correlation on a chroma matrix.
+
+    Returns: '<NOTE> <major|minor>' string with the highest correlation across all 24 profiles.
+    """
+    chroma_mean = chroma.mean(axis=1)
+
+    major_corrs = [
+        float(np.corrcoef(np.roll(_MAJOR_PROFILE, i), chroma_mean)[0, 1])
+        for i in range(12)
+    ]
+    minor_corrs = [
+        float(np.corrcoef(np.roll(_MINOR_PROFILE, i), chroma_mean)[0, 1])
+        for i in range(12)
+    ]
+
+    best_major_idx = int(np.argmax(major_corrs))
+    best_minor_idx = int(np.argmax(minor_corrs))
+
+    if major_corrs[best_major_idx] >= minor_corrs[best_minor_idx]:
+        return f"{_NOTES[best_major_idx]} major"
+    return f"{_NOTES[best_minor_idx]} minor"
 
 
 def detect_key(wav_path: Path) -> str:
-    """Stub — implemented in Plan 03."""
-    raise NotImplementedError("detect_key is implemented in Plan 03")
+    """Detect musical key using Krumhansl-Schmuckler correlation on chroma_cqt mean.
+
+    Loads up to 120s of audio (Pitfall 4: chroma needs sufficient harmonic content).
+    For shorter files (e.g., the 5s test fixture), librosa truncates `duration` silently —
+    the function still works; accuracy is lower than on full tracks, which is expected
+    for a unit test on a pure tone. Real accuracy is verified by e2e tests in Plan 04.
+
+    Args:
+        wav_path: Path to the WAV file.
+
+    Returns:
+        Key as '<NOTE> <major|minor>' string (e.g., 'F# minor', 'C major').
+        NOTE uses sharp accidentals (#) — CAMELOT table maps both # and b spellings.
+    """
+    y, sr = librosa.load(
+        str(wav_path),
+        sr=22050,
+        mono=True,
+        duration=120.0,
+    )
+    chroma = librosa.feature.chroma_cqt(y=y, sr=sr)
+    return _detect_key_from_chroma(chroma)
 
 
 # Camelot wheel — 24-entry static table (ANALYSIS-04, Pattern 6 in RESEARCH.md).
@@ -293,10 +372,15 @@ _CAMELOT: dict[str, str] = {
 }
 
 
+# Public alias for the Camelot table — plan contract requires `from pipeline import CAMELOT`.
+# _CAMELOT is the canonical dict; CAMELOT is the exported name (same object, no copy).
+CAMELOT: dict[str, str] = _CAMELOT
+
+
 def key_to_camelot(key: str) -> str:
     """Convert a key string (e.g. 'F# minor') to its Camelot wheel code (e.g. '11A').
 
-    Uses the 24-entry static _CAMELOT table. Returns '?' for unrecognised keys
+    Uses the 24-entry static CAMELOT table. Returns '?' for unrecognised keys
     (e.g. if a future librosa version returns an unexpected spelling).
 
     Args:
@@ -305,38 +389,111 @@ def key_to_camelot(key: str) -> str:
     Returns:
         Camelot code string, e.g. '11A', or '?' if not found.
     """
-    return _CAMELOT.get(key, "?")
+    return CAMELOT.get(key, "?")
 
 
-def analyze_audio(wav_path: Path) -> dict:
-    """Run full audio analysis: ffprobe validation → BPM → key → Camelot.
+# Stage 6: Top-level analysis orchestrator (ANALYSIS-01..04 + D-05 output shape)
+def analyze_audio(wav_path: Path) -> dict[str, Any]:
+    """Run the full analysis pipeline on an existing WAV and return the D-05 JSON shape.
 
-    Routing skeleton wired here (Plan 02) so test stubs using patch.object on
-    detect_bpm / detect_key / validate_wav can exercise the result shape.
-    Real implementations of detect_bpm, detect_key, key_to_camelot are filled
-    in by Plan 03.
+    Pipeline order:
+      1. validate_wav  — ffprobe sanity check + duration retrieval (Plan 02).
+      2. detect_bpm    — librosa.feature.tempo on a 90s window (offset 20%).
+      3. detect_key    — librosa.feature.chroma_cqt + Krumhansl-Schmuckler on a 120s window.
+      4. key_to_camelot — O(1) lookup in the static CAMELOT table.
+      5. Compute bpm_half = bpm/2, bpm_double = bpm*2 (D-06 — pure arithmetic, no second analysis).
+
+    The WAV is NOT deleted by this function — Phase 2 owns the WAV lifecycle (D-09).
 
     Args:
-        wav_path: Path to a .wav file on disk.
+        wav_path: Path to a WAV file produced by download_audio (or any other source).
 
     Returns:
-        dict with keys: bpm, bpm_half, bpm_double, key, camelot,
-                        duration_sec, wav_path.
+        Dict with exactly these keys (all JSON-native types — Pitfall 3 mitigation):
+            bpm           (float)  — primary detected BPM
+            bpm_half      (float)  — bpm / 2
+            bpm_double    (float)  — bpm * 2
+            key           (str)    — '<NOTE> <major|minor>' (e.g., 'F# minor')
+            camelot       (str)    — Camelot wheel code (e.g., '11A') or '?' if unmapped
+            duration_sec  (float)  — file duration as reported by ffprobe
+            wav_path      (str)    — string form of the input path (NOT a Path object)
 
     Raises:
-        NotImplementedError: Until Plan 03 implements detect_bpm and detect_key.
-        ValueError: If validate_wav rejects the file.
+        ValueError: If validate_wav fails (file missing, corrupt, or ffprobe error).
     """
     wav_path = Path(wav_path)
     duration_sec = validate_wav(wav_path)
     bpm = detect_bpm(wav_path, total_duration=duration_sec)
     key = detect_key(wav_path)
+    camelot = key_to_camelot(key)
+
     return {
-        "bpm": bpm,
-        "bpm_half": round(bpm / 2, 1),
-        "bpm_double": round(bpm * 2, 1),
-        "key": key,
-        "camelot": key_to_camelot(key),
-        "duration_sec": round(duration_sec, 1),
+        "bpm": float(bpm),
+        "bpm_half": round(float(bpm) / 2, 1),
+        "bpm_double": round(float(bpm) * 2, 1),
+        "key": str(key),
+        "camelot": str(camelot),
+        "duration_sec": round(float(duration_sec), 1),
         "wav_path": str(wav_path),
     }
+
+
+# CLI entry point (D-04). JSON output per D-05.
+if __name__ == "__main__":
+    import os
+    import sys
+
+    def _emit_error(error_type: str, message: str) -> None:
+        """Print a JSON error envelope to stdout (NOT stderr — D-05 says JSON on stdout).
+        Exit code 1 is set by the caller via sys.exit."""
+        print(json.dumps({"error": message, "type": error_type}))
+
+    if len(sys.argv) < 2:
+        _emit_error("usage_error", "Usage: python pipeline.py <youtube_url>")
+        sys.exit(1)
+
+    url = sys.argv[1]
+    cookies_path = os.environ.get("YTDLP_COOKIES_FILE", "")
+    po_token = os.environ.get("YTDLP_PO_TOKEN", "")
+
+    # Up-front config check — fail fast with a clear envelope rather than a Python traceback.
+    if not cookies_path:
+        _emit_error("config_error", "YTDLP_COOKIES_FILE env var is not set. See .env.example.")
+        sys.exit(1)
+    if not Path(cookies_path).exists():
+        _emit_error("config_error", f"YTDLP_COOKIES_FILE does not exist: {cookies_path}")
+        sys.exit(1)
+    # po_token is allowed to be empty (cookies-only flow); pipeline.download_audio handles it.
+    # We log a warning to stderr if missing — does NOT affect JSON output.
+    if not po_token:
+        print(
+            "WARNING: YTDLP_PO_TOKEN is empty. Datacenter IPs typically require a PO Token. "
+            "If downloads fail with 'Sign in to confirm you're not a bot', set YTDLP_PO_TOKEN.",
+            file=sys.stderr,
+        )
+
+    try:
+        # Stage 0: pre-download duration check (CORE-05, D-10)
+        info = check_duration(url, cookies_path)
+        # Stage 1: download + WAV conversion (CORE-03, CORE-04)
+        wav_path = download_audio(url, cookies_path, po_token)
+        # Stage 2-5: validate + bpm + key + camelot + half/double (ANALYSIS-01..04)
+        result = analyze_audio(wav_path)
+        # Prefer YouTube's reported duration over ffprobe's (whole-second integer is the user-facing value).
+        result["duration_sec"] = float(info.get("duration", result["duration_sec"]))
+        print(json.dumps(result))
+        sys.exit(0)
+    except ValueError as e:
+        # Validation errors: duration > 15min, missing duration metadata, ffprobe failure on WAV
+        _emit_error("validation_error", str(e))
+        sys.exit(1)
+    except RuntimeError as e:
+        # Download errors: yt-dlp DownloadError, network failure, expired PO Token
+        _emit_error("download_error", str(e))
+        sys.exit(1)
+    except FileNotFoundError as e:
+        _emit_error("download_error", str(e))
+        sys.exit(1)
+    except Exception as e:  # noqa: BLE001 — last-resort envelope so stdout is always JSON
+        _emit_error("internal_error", f"{type(e).__name__}: {e}")
+        sys.exit(1)
