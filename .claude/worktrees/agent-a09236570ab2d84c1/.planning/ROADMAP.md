@@ -4,7 +4,7 @@
 **Milestone:** v1 — Public launch
 **Granularity:** Standard
 **Coverage:** 19/19 requirements mapped
-**Last updated:** 2026-04-30
+**Last updated:** 2026-04-29
 
 ---
 
@@ -41,11 +41,7 @@
   2. GET /jobs/{id} polled every 2 seconds returns status transitions (queued → downloading → converting → analyzing → done) and, when done, includes BPM, key, and a download URL
   3. GET /files/{id} streams the WAV to disk without loading the entire file into server memory
   4. Three concurrent curl jobs submitted simultaneously all complete without the API becoming unresponsive
-**Plans:** 3 plans
-Plans:
-- [x] 02-01-PLAN.md — Wave 1 foundation: install Redis, pin FastAPI/Celery/Redis deps, scaffold `api/` package (config, tasks, main) with route stubs, and create test stubs covering CORE-01, CORE-02, CORE-06
-- [ ] 02-02-PLAN.md — Wave 2: implement POST /jobs (YouTube allowlist validator + Redis Set tracking) and process_job (full pipeline orchestration with custom Celery states + sanitized JobFailure per D-05/D-06)
-- [ ] 02-03-PLAN.md — Wave 3: implement GET /jobs/{id} (state mapping + 404 for unknown via Redis Set), GET /files/{id} (FileResponse streaming + path-traversal defense), sweeper daemon thread, and manual UAT for 3 concurrent jobs
+**Plans**: TBD
 
 ### Phase 3: Hardening
 **Goal**: The API safely handles abuse, malformed input, and resource exhaustion before users reach it
@@ -89,8 +85,8 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Processing Pipeline | 4/4 | Done | 2026-04-30 |
-| 2. API Layer | 0/3 | Planned | - |
+| 1. Processing Pipeline | 0/? | Not started | - |
+| 2. API Layer | 0/? | Not started | - |
 | 3. Hardening | 0/? | Not started | - |
 | 4. Frontend | 0/? | Not started | - |
 | 5. Visual Identity | 0/? | Not started | - |

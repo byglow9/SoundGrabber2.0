@@ -1,0 +1,25 @@
+# Secrets - NEVER commit
+cookies.txt
+.env
+*.cookies
+
+# Pipeline temp output (D-08)
+/tmp/sg_*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+.DS_Store

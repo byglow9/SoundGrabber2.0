@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(rm -rf .git/worktrees/agent-a09236570ab2d84c1 .git/worktrees/agent-acc190e5bb996c244 .git/worktrees/agent-ae8def2021453890b)",
+      "Bash(git worktree *)"
+    ]
+  }
+}
