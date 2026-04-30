@@ -12,7 +12,11 @@ O produtor cola um link do YouTube e recebe o beat em WAV com BPM e nota identif
 
 ### Validated
 
-(None yet — ship to validate)
+- [x] Sistema baixa o áudio do vídeo do YouTube via yt-dlp com cookies + PO Token — Validado na Fase 1
+- [x] Sistema converte o áudio para formato WAV via FFmpeg — Validado na Fase 1
+- [x] Sistema detecta e exibe o BPM do beat (librosa.feature.tempo) — Validado na Fase 1
+- [x] Sistema detecta e exibe a tonalidade musical em notação padrão e Camelot — Validado na Fase 1
+- [x] Sistema rejeita vídeos com mais de 15 minutos — Validado na Fase 1
 
 ### Active
 
@@ -73,4 +77,4 @@ Este documento evolui a cada transição de fase e marco de milestone.
 4. Atualizar Context com o estado atual
 
 ---
-*Last updated: 2026-04-29 após inicialização*
+*Last updated: 2026-04-30 — Fase 1 completa (pipeline de processamento implementado)*
