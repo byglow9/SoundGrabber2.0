@@ -23,6 +23,8 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+import librosa
+import numpy as np
 import yt_dlp
 
 
@@ -293,10 +295,15 @@ _CAMELOT: dict[str, str] = {
 }
 
 
+# Public alias for the Camelot table — plan contract requires `from pipeline import CAMELOT`.
+# _CAMELOT is the canonical dict; CAMELOT is the exported name (same object, no copy).
+CAMELOT: dict[str, str] = _CAMELOT
+
+
 def key_to_camelot(key: str) -> str:
     """Convert a key string (e.g. 'F# minor') to its Camelot wheel code (e.g. '11A').
 
-    Uses the 24-entry static _CAMELOT table. Returns '?' for unrecognised keys
+    Uses the 24-entry static CAMELOT table. Returns '?' for unrecognised keys
     (e.g. if a future librosa version returns an unexpected spelling).
 
     Args:
@@ -305,7 +312,7 @@ def key_to_camelot(key: str) -> str:
     Returns:
         Camelot code string, e.g. '11A', or '?' if not found.
     """
-    return _CAMELOT.get(key, "?")
+    return CAMELOT.get(key, "?")
 
 
 def analyze_audio(wav_path: Path) -> dict:
