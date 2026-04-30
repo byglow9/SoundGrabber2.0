@@ -392,35 +392,47 @@ def key_to_camelot(key: str) -> str:
     return CAMELOT.get(key, "?")
 
 
-def analyze_audio(wav_path: Path) -> dict:
-    """Run full audio analysis: ffprobe validation → BPM → key → Camelot.
+# Stage 6: Top-level analysis orchestrator (ANALYSIS-01..04 + D-05 output shape)
+def analyze_audio(wav_path: Path) -> dict[str, Any]:
+    """Run the full analysis pipeline on an existing WAV and return the D-05 JSON shape.
 
-    Routing skeleton wired here (Plan 02) so test stubs using patch.object on
-    detect_bpm / detect_key / validate_wav can exercise the result shape.
-    Real implementations of detect_bpm, detect_key, key_to_camelot are filled
-    in by Plan 03.
+    Pipeline order:
+      1. validate_wav  — ffprobe sanity check + duration retrieval (Plan 02).
+      2. detect_bpm    — librosa.feature.tempo on a 90s window (offset 20%).
+      3. detect_key    — librosa.feature.chroma_cqt + Krumhansl-Schmuckler on a 120s window.
+      4. key_to_camelot — O(1) lookup in the static CAMELOT table.
+      5. Compute bpm_half = bpm/2, bpm_double = bpm*2 (D-06 — pure arithmetic, no second analysis).
+
+    The WAV is NOT deleted by this function — Phase 2 owns the WAV lifecycle (D-09).
 
     Args:
-        wav_path: Path to a .wav file on disk.
+        wav_path: Path to a WAV file produced by download_audio (or any other source).
 
     Returns:
-        dict with keys: bpm, bpm_half, bpm_double, key, camelot,
-                        duration_sec, wav_path.
+        Dict with exactly these keys (all JSON-native types — Pitfall 3 mitigation):
+            bpm           (float)  — primary detected BPM
+            bpm_half      (float)  — bpm / 2
+            bpm_double    (float)  — bpm * 2
+            key           (str)    — '<NOTE> <major|minor>' (e.g., 'F# minor')
+            camelot       (str)    — Camelot wheel code (e.g., '11A') or '?' if unmapped
+            duration_sec  (float)  — file duration as reported by ffprobe
+            wav_path      (str)    — string form of the input path (NOT a Path object)
 
     Raises:
-        NotImplementedError: Until Plan 03 implements detect_bpm and detect_key.
-        ValueError: If validate_wav rejects the file.
+        ValueError: If validate_wav fails (file missing, corrupt, or ffprobe error).
     """
     wav_path = Path(wav_path)
     duration_sec = validate_wav(wav_path)
     bpm = detect_bpm(wav_path, total_duration=duration_sec)
     key = detect_key(wav_path)
+    camelot = key_to_camelot(key)
+
     return {
-        "bpm": bpm,
-        "bpm_half": round(bpm / 2, 1),
-        "bpm_double": round(bpm * 2, 1),
-        "key": key,
-        "camelot": key_to_camelot(key),
-        "duration_sec": round(duration_sec, 1),
+        "bpm": float(bpm),
+        "bpm_half": round(float(bpm) / 2, 1),
+        "bpm_double": round(float(bpm) * 2, 1),
+        "key": str(key),
+        "camelot": str(camelot),
+        "duration_sec": round(float(duration_sec), 1),
         "wav_path": str(wav_path),
     }
