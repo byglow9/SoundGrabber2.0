@@ -109,6 +109,26 @@ pytest tests/ -m "not e2e" -q
 pytest tests/ -q
 ```
 
+## Rodando localmente (Phase 2)
+
+Três terminais — sem Docker (D-07):
+
+Terminal 1 — Redis:
+```bash
+sudo service redis-server start
+redis-cli ping  # PONG
+```
+
+Terminal 2 — Celery worker (concorrência cap de 3 workers — STATE.md):
+```bash
+celery -A api.tasks worker --loglevel=info --concurrency=3
+```
+
+Terminal 3 — FastAPI:
+```bash
+uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
+```
+
 ## File Layout
 
 | File | Role |
