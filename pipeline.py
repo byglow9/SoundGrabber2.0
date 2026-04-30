@@ -246,19 +246,96 @@ def validate_wav(wav_path: Path) -> float:
     return duration
 
 
-# [PLAN 03] — Analysis stubs (NOT implemented here; Plan 03 fills these in)
-# These stubs exist so that Plan 02 unit tests for Plan 03 behaviour can use
-# patch.object() without AttributeError. Calling any of these directly will
-# raise NotImplementedError.
+# Krumhansl-Schmuckler tone profiles for key detection (ANALYSIS-02).
+# Reference values from Krumhansl & Kessler (1982); standard MIR practice.
+# Source: librosa documentation + classic MIR literature.
+_MAJOR_PROFILE = [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88]
+_MINOR_PROFILE = [6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17]
+_NOTES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 
+
+# Stage 3: BPM detection (ANALYSIS-01)
 def detect_bpm(wav_path: Path, total_duration: float) -> float:
-    """Stub — implemented in Plan 03."""
-    raise NotImplementedError("detect_bpm is implemented in Plan 03")
+    """Detect BPM using librosa.feature.tempo (NOT beat_track — Pattern 4 rationale).
+
+    Production parameters:
+      sr=22050      — mono downsampling, ~4x less RAM than 44100 stereo
+      duration=90.0 — 90s window is sufficient for stable autocorrelation
+      offset=20%    — skip intros that often lack percussion (capped at 30s)
+
+    Args:
+        wav_path: Path to the WAV file.
+        total_duration: Total duration of the file (seconds), as returned by validate_wav.
+                        Used to compute the offset; passed in to avoid a redundant ffprobe call.
+
+    Returns:
+        BPM as a Python float (NOT numpy.ndarray — Pitfall 3 mitigation). Rounded to 1 decimal.
+    """
+    offset = min(total_duration * 0.20, 30.0)
+    y, sr = librosa.load(
+        str(wav_path),
+        sr=22050,
+        mono=True,
+        duration=90.0,
+        offset=offset,
+    )
+    tempo = librosa.feature.tempo(y=y, sr=sr)
+    # Pitfall 3: librosa returns an ndarray even for scalar tempo. Coerce to Python float.
+    if hasattr(tempo, "__len__") and len(tempo) > 0:
+        bpm = float(tempo[0])
+    else:
+        bpm = float(tempo)
+    return round(bpm, 1)
+
+
+# Stage 4: Key detection (ANALYSIS-02)
+def _detect_key_from_chroma(chroma: "np.ndarray") -> str:
+    """Internal helper: run Krumhansl-Schmuckler correlation on a chroma matrix.
+
+    Returns: '<NOTE> <major|minor>' string with the highest correlation across all 24 profiles.
+    """
+    chroma_mean = chroma.mean(axis=1)
+
+    major_corrs = [
+        float(np.corrcoef(np.roll(_MAJOR_PROFILE, i), chroma_mean)[0, 1])
+        for i in range(12)
+    ]
+    minor_corrs = [
+        float(np.corrcoef(np.roll(_MINOR_PROFILE, i), chroma_mean)[0, 1])
+        for i in range(12)
+    ]
+
+    best_major_idx = int(np.argmax(major_corrs))
+    best_minor_idx = int(np.argmax(minor_corrs))
+
+    if major_corrs[best_major_idx] >= minor_corrs[best_minor_idx]:
+        return f"{_NOTES[best_major_idx]} major"
+    return f"{_NOTES[best_minor_idx]} minor"
 
 
 def detect_key(wav_path: Path) -> str:
-    """Stub — implemented in Plan 03."""
-    raise NotImplementedError("detect_key is implemented in Plan 03")
+    """Detect musical key using Krumhansl-Schmuckler correlation on chroma_cqt mean.
+
+    Loads up to 120s of audio (Pitfall 4: chroma needs sufficient harmonic content).
+    For shorter files (e.g., the 5s test fixture), librosa truncates `duration` silently —
+    the function still works; accuracy is lower than on full tracks, which is expected
+    for a unit test on a pure tone. Real accuracy is verified by e2e tests in Plan 04.
+
+    Args:
+        wav_path: Path to the WAV file.
+
+    Returns:
+        Key as '<NOTE> <major|minor>' string (e.g., 'F# minor', 'C major').
+        NOTE uses sharp accidentals (#) — CAMELOT table maps both # and b spellings.
+    """
+    y, sr = librosa.load(
+        str(wav_path),
+        sr=22050,
+        mono=True,
+        duration=120.0,
+    )
+    chroma = librosa.feature.chroma_cqt(y=y, sr=sr)
+    return _detect_key_from_chroma(chroma)
 
 
 # Camelot wheel — 24-entry static table (ANALYSIS-04, Pattern 6 in RESEARCH.md).
