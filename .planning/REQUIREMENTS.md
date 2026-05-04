@@ -22,8 +22,8 @@
 
 - [ ] **UX-01**: Barra de progresso exibe a etapa atual do processamento (baixando → convertendo → analisando)
 - [ ] **UX-02**: Sistema exibe o tamanho estimado do arquivo WAV antes do download
-- [ ] **UX-03**: Sistema exibe mensagens de erro claras e compreensíveis quando o YouTube bloqueia o download ou a URL é inválida
-- [ ] **UX-04**: Sistema informa o limite de duração de vídeo aceito (15 minutos) antes de o usuário submeter
+- [x] **UX-03**: Sistema exibe mensagens de erro claras e compreensíveis quando o YouTube bloqueia o download ou a URL é inválida
+- [x] **UX-04**: Sistema informa o limite de duração de vídeo aceito (15 minutos) antes de o usuário submeter
 
 ### VISUAL — Identidade e Estética
 
@@ -71,8 +71,8 @@
 | ANALYSIS-04 | Phase 1 | Pending |
 | UX-01 | Phase 4 | Pending |
 | UX-02 | Phase 4 | Pending |
-| UX-03 | Phase 3 | Pending |
-| UX-04 | Phase 3 | Pending |
+| UX-03 | Phase 3 | Complete |
+| UX-04 | Phase 3 | Complete |
 | VISUAL-01 | Phase 5 | Pending |
 | VISUAL-02 | Phase 5 | Pending |
 | VISUAL-03 | Phase 5 | Pending |

@@ -12,7 +12,7 @@
 
 - [ ] **Phase 1: Processing Pipeline** - Prove yt-dlp + FFmpeg + librosa work end-to-end from the target host before building anything else
 - [ ] **Phase 2: API Layer** - Wrap the working pipeline in FastAPI + Celery + Redis with a job-queue HTTP contract
-- [ ] **Phase 3: Hardening** - Rate limiting, URL validation, duration caps, and disk safety before public exposure
+- [x] **Phase 3: Hardening** - Rate limiting, URL validation, duration caps, and disk safety before public exposure
 - [ ] **Phase 4: Frontend** - Browser-based user flow built against the real, hardened API
 - [ ] **Phase 5: Visual Identity** - Y2K / phpBB / Tibia authentic 2000s aesthetic applied to the complete frontend
 

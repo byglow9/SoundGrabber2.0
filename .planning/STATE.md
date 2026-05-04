@@ -24,7 +24,7 @@ progress:
 
 **Current milestone:** v1 — Public launch (5 phases)
 
-**Current focus:** Phase 3 — hardening (executing)
+**Current focus:** Phase 4 — frontend (planned)
 
 ---
 
