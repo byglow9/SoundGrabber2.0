@@ -82,9 +82,20 @@ def api_client():
     from api.main import app
 
     # Flush rate-limit keys before each test to prevent cross-test contamination.
-    _r = redis_lib.from_url(os.environ.get("REDIS_URL", "redis://localhost:6380/0"))
-    for key in _r.keys("LIMITS:LIMITER*"):
-        _r.delete(key)
+    # WR-04: usa SCAN (não-bloqueante, O(1) por iteração) em vez de KEYS (O(N) bloqueante).
+    # decode_responses=True evita que as chaves retornadas sejam bytes, o que causaria
+    # falha silenciosa em _r.delete(key) com o cliente padrão sem decode.
+    _r = redis_lib.from_url(
+        os.environ.get("REDIS_URL", "redis://localhost:6380/0"),
+        decode_responses=True,
+    )
+    cursor = 0
+    while True:
+        cursor, keys = _r.scan(cursor, match="LIMITS:LIMITER*", count=100)
+        if keys:
+            _r.delete(*keys)
+        if cursor == 0:
+            break
 
     celery_app.conf.task_always_eager = True
     celery_app.conf.task_eager_propagates = False  # exceptions stored, not propagated
