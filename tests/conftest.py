@@ -1,10 +1,16 @@
 """Shared pytest fixtures for SoundGrabber pipeline tests."""
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 import pytest
+
+# Point Celery and the api module-level Redis client to the local dev Redis
+# (no auth, started on port 6380). Must run before any api.* import.
+os.environ.setdefault("REDIS_URL", "redis://localhost:6380/0")
 
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
@@ -59,14 +65,26 @@ def youtube_test_urls() -> dict[str, str]:
 
 @pytest.fixture
 def api_client():
-    """FastAPI TestClient with Celery in eager mode (no broker required for unit tests)."""
+    """FastAPI TestClient with Celery in eager mode (no broker required for unit tests).
+
+    task_eager_propagates=False: task exceptions are stored in the result backend so
+    POST /jobs always returns 202 even if the task fails immediately.  Individual tests
+    that want a specific failure mode (e.g. test_failed_job_returns_sanitized_error)
+    patch api.tasks.check_duration themselves, which overrides this fixture's mock.
+    """
     from fastapi.testclient import TestClient
     from api.tasks import celery_app
     from api.main import app
 
     celery_app.conf.task_always_eager = True
-    celery_app.conf.task_eager_propagates = True
+    celery_app.conf.task_eager_propagates = False  # exceptions stored, not propagated
+    celery_app.conf.task_store_eager_result = True  # persist results to backend so AsyncResult works
+
     client = TestClient(app)
-    yield client
+    # Prevent real yt-dlp network calls during unit tests; individual tests that need a
+    # specific failure (ValidationError, etc.) patch check_duration themselves.
+    with patch("api.tasks.check_duration", side_effect=RuntimeError("mock: no network in unit tests")):
+        yield client
+
     celery_app.conf.task_always_eager = False
     celery_app.conf.task_eager_propagates = False
