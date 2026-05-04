@@ -16,7 +16,6 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
-from slowapi.util import get_ipaddr
 from pydantic import BaseModel, field_validator
 
 from api.config import settings
@@ -33,10 +32,19 @@ JOB_REGISTRY_KEY = "sg:jobs"
 
 # Rate limiting — D-01/D-02/D-03 (Phase 3)
 # Redis backend obrigatorio: in-memory falha com multiplos workers Uvicorn (issue #226)
+# CR-01: usa request.client.host (IP real da conexão TCP) em vez de get_ipaddr, que lê
+# X-Forwarded-For sem verificação — qualquer cliente poderia rotacionar esse header e
+# burlar o limite. client.host é setado pelo ASGI layer a partir da conexão TCP e não
+# pode ser forjado pelo cliente.
+def _real_ip(request: Request) -> str:
+    """Retorna o IP real do cliente via conexão TCP — não spoofável."""
+    return request.client.host  # definido pelo ASGI layer, não pelo cliente
+
+
 limiter = Limiter(
-    key_func=get_ipaddr,               # Le X-Forwarded-For; fallback para client.host
-    storage_uri=settings.redis_url,    # Redis compartilhado entre todos os workers
-    headers_enabled=True,              # Injeta Retry-After, X-RateLimit-* automaticamente
+    key_func=_real_ip,               # IP da conexão TCP — não spoofável via header
+    storage_uri=settings.redis_url,  # Redis compartilhado entre todos os workers
+    headers_enabled=True,            # Injeta Retry-After, X-RateLimit-* automaticamente
 )
 
 
