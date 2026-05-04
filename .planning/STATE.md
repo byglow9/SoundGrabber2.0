@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-05-04T18:58:35Z"
+last_updated: "2026-05-04T19:04:09Z"
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 10
-  completed_plans: 7
-  percent: 70
+  completed_plans: 8
+  percent: 80
 ---
 
 # State — SoundGrabber
@@ -30,18 +30,18 @@ progress:
 
 ## Current Position
 
-Phase: 3 (hardening) — EXECUTING (plan 2/3 complete)
-**Status:** Phase 3 executing — 03-01 and 03-02 complete, 03-03 pending
+Phase: 3 (hardening) — COMPLETE (3/3 plans done)
+**Status:** Phase 3 complete — 03-01, 03-02, 03-03 all done; todos os 4 success criteria atendidos
 
 **Progress:**
 
 ```
 [Phase 1] [Phase 2] [Phase 3] [Phase 4] [Phase 5]
-[XXXXXXXX] [XXXXXXXX] [XXXX    ] [       ] [       ]
-  70%
+[XXXXXXXX] [XXXXXXXX] [XXXXXXXX] [       ] [       ]
+  80%
 ```
 
-**Phase completion:** 0/5 phases done (Phase 3 in progress)
+**Phase completion:** 1/5 phases done (Phase 3 complete; Phase 4 next)
 
 ---
 
@@ -53,11 +53,13 @@ Phase: 3 (hardening) — EXECUTING (plan 2/3 complete)
 | Phases complete | 0 |
 | Requirements covered | 19/19 |
 | Plans written | 10 |
-| Plans complete | 6 |
+| Plans complete | 8 |
 | 03-01 duration | 2min |
 | 03-01 completed | 2026-05-04 |
 | 03-02 duration | 2min |
 | 03-02 completed | 2026-05-04 |
+| 03-03 duration | 7min |
+| 03-03 completed | 2026-05-04 |
 
 ---
 
@@ -76,6 +78,9 @@ Phase: 3 (hardening) — EXECUTING (plan 2/3 complete)
 | TDD RED stubs before implementation | Nyquist protocol — each Phase 3 behavior has a failing test awaiting implementation in plans 02 and 03 |
 | RateLimitExceeded imported early | Imported in 03-02 without immediate use so Plan 03 does not need to reopen the import block |
 | sweep multi-pattern loop | for pattern in tuple of 3 globs — immutable, consistent with existing pure-function style |
+| response: Response in submit_job | slowapi sync_wrapper calls _inject_headers(kwargs.get("response"), ...) for 2xx; without it raises Exception |
+| exc.limit.limit.get_expiry() | exc.limit is Limit wrapper (slowapi); .limit is RateLimitItem (limits lib) with get_expiry() |
+| LIMITS:LIMITER* flush in conftest | Redis rate-limit counters persist across tests; flush prevents spurious 429 on second test |
 
 ### Known Risks
 
@@ -113,8 +118,8 @@ None.
 3. Check this file for active todos and known risks
 4. Run `/gsd-plan-phase` for the current phase
 
-**Last session:** 2026-05-04T18:58:35Z — Completed 03-02-PLAN.md (handler 422 normalizado + sweeper estendido + rate_limit_per_minute)
+**Last session:** 2026-05-04T19:04:09Z — Completed 03-03-PLAN.md (slowapi rate limiting: Limiter + handler 429 + decorator POST /jobs; Phase 3 complete)
 
 ---
 
-*Last updated: 2026-05-04 — 03-02 complete*
+*Last updated: 2026-05-04 — 03-03 complete; Phase 3 done*
