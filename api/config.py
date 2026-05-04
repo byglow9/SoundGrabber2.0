@@ -11,6 +11,7 @@ class Settings:
     cookies_path: str = os.environ.get("YTDLP_COOKIES_FILE", "")
     po_token: str = os.environ.get("YTDLP_PO_TOKEN", "")
     wav_ttl: int = int(os.environ.get("WAV_TTL_SECONDS", "900"))
+    rate_limit_per_minute: int = int(os.environ.get("RATE_LIMIT_PER_MINUTE", "3"))
 
 
 settings = Settings()
