@@ -200,3 +200,82 @@ def test_concurrent_jobs(api_client, youtube_test_urls):
             time.sleep(2)
         else:
             pytest.fail(f"job {jid} did not reach terminal state in 5 min")
+
+
+# -----------------------------------------------------------------------
+# UX-03: 422 body normalizado — Phase 3, Plan 02 torna verde
+# -----------------------------------------------------------------------
+
+def test_validation_error_format(api_client):
+    """422 body segue formato {error, error_type: 'validation_error'} sem prefixo Pydantic v2 (D-07)."""
+    response = api_client.post("/jobs", json={"youtube_url": "https://vimeo.com/12345"})
+    assert response.status_code == 422
+    body = response.json()
+    assert "error" in body, f"body deve ter chave 'error': {body}"
+    assert body.get("error_type") == "validation_error", f"error_type errado: {body}"
+    assert "detail" not in body, f"chave 'detail' nao deve existir no body: {body}"
+    assert not body["error"].startswith("Value error,"), (
+        f"prefixo Pydantic v2 nao deve vazar no body: {body['error']!r}"
+    )
+
+
+# -----------------------------------------------------------------------
+# UX-04: Rate limiting 429 — Phase 3, Plan 03 torna verde
+# -----------------------------------------------------------------------
+
+def test_rate_limit_returns_429(api_client):
+    """4a requisicao em 60s pelo mesmo IP retorna 429 com error_type rate_limit_error (D-01/D-03)."""
+    url = "https://www.youtube.com/watch?v=abc123"
+    for i in range(3):
+        r = api_client.post("/jobs", json={"youtube_url": url})
+        assert r.status_code == 202, f"requisicao {i+1}/3 esperada 202: {r.status_code} {r.text}"
+    r = api_client.post("/jobs", json={"youtube_url": url})
+    assert r.status_code == 429, f"4a requisicao deve retornar 429: {r.status_code} {r.text}"
+    body = r.json()
+    assert body.get("error_type") == "rate_limit_error", f"error_type errado: {body}"
+    assert "error" in body, f"body deve ter chave 'error': {body}"
+
+
+def test_rate_limit_retry_after_header(api_client):
+    """429 inclui header Retry-After com valor inteiro em segundos (D-04 / RFC 9110)."""
+    url = "https://www.youtube.com/watch?v=abc123"
+    for _ in range(3):
+        api_client.post("/jobs", json={"youtube_url": url})
+    r = api_client.post("/jobs", json={"youtube_url": url})
+    assert r.status_code == 429
+    assert "retry-after" in r.headers, (
+        f"header Retry-After ausente no 429: {dict(r.headers)}"
+    )
+    retry_val = r.headers["retry-after"]
+    assert retry_val.isdigit(), (
+        f"Retry-After deve ser inteiro em segundos (ex: '60'): {retry_val!r}"
+    )
+
+
+# -----------------------------------------------------------------------
+# SC-4 / D-05/D-06: Sweeper limpa .part e .ytdl — Phase 3, Plan 02 torna verde
+# -----------------------------------------------------------------------
+
+def test_sweeper_deletes_partial_files(tmp_path):
+    """sweep_expired_wavs deleta sg_*.part e sg_*.ytdl mais velhos que ttl; nao deleta frescos (D-05/D-06)."""
+    import os
+    from api.main import sweep_expired_wavs
+
+    old_part = tmp_path / "sg_abc.part"
+    old_ytdl = tmp_path / "sg_abc.ytdl"
+    new_part = tmp_path / "sg_xyz.part"
+
+    old_part.write_bytes(b"partial")
+    old_ytdl.write_bytes(b"state")
+    new_part.write_bytes(b"inprogress")
+
+    past = time.time() - 1200  # 20 min atras > ttl de 900s
+    os.utime(old_part, (past, past))
+    os.utime(old_ytdl, (past, past))
+    # new_part: mtime atual (fresco — nao deve ser deletado)
+
+    sweep_expired_wavs(tmp_path, ttl_seconds=900)
+
+    assert not old_part.exists(), "sweeper deve deletar sg_*.part expirado"
+    assert not old_ytdl.exists(), "sweeper deve deletar sg_*.ytdl expirado"
+    assert new_part.exists(), "sweeper NAO deve deletar sg_*.part fresco"
