@@ -71,10 +71,20 @@ def api_client():
     POST /jobs always returns 202 even if the task fails immediately.  Individual tests
     that want a specific failure mode (e.g. test_failed_job_returns_sanitized_error)
     patch api.tasks.check_duration themselves, which overrides this fixture's mock.
+
+    Rate limit keys (LIMITS:LIMITER*) are flushed before each test so that slowapi
+    counters do not leak across tests and cause 429s on the first request.
     """
+    import redis as redis_lib
+
     from fastapi.testclient import TestClient
     from api.tasks import celery_app
     from api.main import app
+
+    # Flush rate-limit keys before each test to prevent cross-test contamination.
+    _r = redis_lib.from_url(os.environ.get("REDIS_URL", "redis://localhost:6380/0"))
+    for key in _r.keys("LIMITS:LIMITER*"):
+        _r.delete(key)
 
     celery_app.conf.task_always_eager = True
     celery_app.conf.task_eager_propagates = False  # exceptions stored, not propagated

@@ -11,10 +11,12 @@ from urllib.parse import urlparse
 
 import redis as redis_lib
 from celery.result import AsyncResult
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
+from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_ipaddr
 from pydantic import BaseModel, field_validator
 
 from api.config import settings
@@ -28,6 +30,14 @@ JOB_ID_PATTERN = re.compile(r"^[a-zA-Z0-9-]{1,64}$")
 # Module-level Redis client — connection pool reused across requests.
 _redis = redis_lib.from_url(settings.redis_url, decode_responses=True)
 JOB_REGISTRY_KEY = "sg:jobs"
+
+# Rate limiting — D-01/D-02/D-03 (Phase 3)
+# Redis backend obrigatorio: in-memory falha com multiplos workers Uvicorn (issue #226)
+limiter = Limiter(
+    key_func=get_ipaddr,               # Le X-Forwarded-For; fallback para client.host
+    storage_uri=settings.redis_url,    # Redis compartilhado entre todos os workers
+    headers_enabled=True,              # Injeta Retry-After, X-RateLimit-* automaticamente
+)
 
 
 class JobRequest(BaseModel):
@@ -93,7 +103,34 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="SoundGrabber API", version="0.2.0", lifespan=lifespan)
+app = FastAPI(title="SoundGrabber API", version="0.3.0", lifespan=lifespan)
+
+app.state.limiter = limiter
+
+
+def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
+    """Formato unificado {error, error_type} com Retry-After header (D-04).
+
+    exc.limit e o wrapper Limit do slowapi; exc.limit.limit e o RateLimitItem da lib limits.
+    get_expiry() retorna o tamanho da janela em segundos (ex: 60 para "3/minute").
+    _inject_headers adiciona Retry-After, X-RateLimit-Limit, X-RateLimit-Remaining.
+    headers_enabled=True no Limiter e necessario para _inject_headers funcionar.
+    """
+    seconds = int(exc.limit.limit.get_expiry())
+    response = JSONResponse(
+        status_code=429,
+        content={
+            "error": f"Too many requests. Try again in {seconds} seconds.",
+            "error_type": "rate_limit_error",
+        },
+    )
+    response = request.app.state.limiter._inject_headers(
+        response, request.state.view_rate_limit
+    )
+    return response
+
+
+app.add_exception_handler(RateLimitExceeded, _rate_limit_handler)
 
 
 @app.exception_handler(RequestValidationError)
@@ -115,8 +152,9 @@ async def _validation_exception_handler(
 
 
 @app.post("/jobs", status_code=202)
-def submit_job(request: JobRequest) -> dict:
-    task = process_job.delay(request.youtube_url)
+@limiter.limit(f"{settings.rate_limit_per_minute}/minute")
+def submit_job(request: Request, request_body: JobRequest, response: Response) -> dict:
+    task = process_job.delay(request_body.youtube_url)
     _redis.sadd(JOB_REGISTRY_KEY, task.id)
     _redis.expire(JOB_REGISTRY_KEY, settings.wav_ttl)
     return {"job_id": task.id}
