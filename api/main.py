@@ -16,6 +16,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 from pydantic import BaseModel, field_validator
 
 from api.config import settings
@@ -132,13 +133,18 @@ def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONRespons
             "error_type": "rate_limit_error",
         },
     )
-    response = request.app.state.limiter._inject_headers(
-        response, request.state.view_rate_limit
-    )
+    # WR-01: guard para evitar AttributeError se view_rate_limit não estiver presente
+    if hasattr(request.state, "view_rate_limit"):
+        response = request.app.state.limiter._inject_headers(
+            response, request.state.view_rate_limit
+        )
     return response
 
 
 app.add_exception_handler(RateLimitExceeded, _rate_limit_handler)
+# WR-01: SlowAPIMiddleware necessário para que request.state.view_rate_limit seja
+# populado antes de _inject_headers ser chamado no handler de 429.
+app.add_middleware(SlowAPIMiddleware)
 
 
 @app.exception_handler(RequestValidationError)
