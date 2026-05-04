@@ -59,7 +59,7 @@ Plans:
 **Plans:** 3 plans
 Plans:
 - [x] 03-01-PLAN.md — Wave 0: instalar slowapi==0.1.9 em requirements.txt e adicionar 4 stubs de teste RED (test_validation_error_format, test_rate_limit_returns_429, test_rate_limit_retry_after_header, test_sweeper_deletes_partial_files)
-- [ ] 03-02-PLAN.md — Wave 1: handler 422 normalizado (D-07) + sweeper estendido para .part/.ytdl (D-05/D-06) + campo rate_limit_per_minute em api/config.py (D-03)
+- [x] 03-02-PLAN.md — Wave 1: handler 422 normalizado (D-07) + sweeper estendido para .part/.ytdl (D-05/D-06) + campo rate_limit_per_minute em api/config.py (D-03)
 - [ ] 03-03-PLAN.md — Wave 2: rate limiting slowapi (D-01/D-02/D-03/D-04) — Limiter com Redis backend, handler 429 customizado com Retry-After, decorator @limiter.limit em POST /jobs
 
 ### Phase 4: Frontend
@@ -95,7 +95,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 1. Processing Pipeline | 4/4 | Done | 2026-04-30 |
 | 2. API Layer | 0/3 | Planned | - |
-| 3. Hardening | 1/3 | Executing | - |
+| 3. Hardening | 2/3 | Executing | - |
 | 4. Frontend | 0/? | Not started | - |
 | 5. Visual Identity | 0/? | Not started | - |
 

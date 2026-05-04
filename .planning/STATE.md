@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-05-04T18:54:44Z"
+last_updated: "2026-05-04T18:58:35Z"
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 10
-  completed_plans: 6
-  percent: 60
+  completed_plans: 7
+  percent: 70
 ---
 
 # State — SoundGrabber
@@ -30,15 +30,15 @@ progress:
 
 ## Current Position
 
-Phase: 3 (hardening) — EXECUTING (plan 1/3 complete)
-**Status:** Phase 3 executing — 03-01 complete, 03-02 and 03-03 pending
+Phase: 3 (hardening) — EXECUTING (plan 2/3 complete)
+**Status:** Phase 3 executing — 03-01 and 03-02 complete, 03-03 pending
 
 **Progress:**
 
 ```
 [Phase 1] [Phase 2] [Phase 3] [Phase 4] [Phase 5]
-[XXXXXXXX] [XXXXXXXX] [XX      ] [       ] [       ]
-  60%
+[XXXXXXXX] [XXXXXXXX] [XXXX    ] [       ] [       ]
+  70%
 ```
 
 **Phase completion:** 0/5 phases done (Phase 3 in progress)
@@ -56,6 +56,8 @@ Phase: 3 (hardening) — EXECUTING (plan 1/3 complete)
 | Plans complete | 6 |
 | 03-01 duration | 2min |
 | 03-01 completed | 2026-05-04 |
+| 03-02 duration | 2min |
+| 03-02 completed | 2026-05-04 |
 
 ---
 
@@ -72,6 +74,8 @@ Phase: 3 (hardening) — EXECUTING (plan 1/3 complete)
 | Table-based layout (no flexbox/grid) | Authenticity requirement — the Y2K aesthetic is structural, not cosmetic; it must be built the way 2002 sites were built |
 | slowapi pinned with == not >= | Application dependency convention; version pinning prevents silent breakage from upstream releases |
 | TDD RED stubs before implementation | Nyquist protocol — each Phase 3 behavior has a failing test awaiting implementation in plans 02 and 03 |
+| RateLimitExceeded imported early | Imported in 03-02 without immediate use so Plan 03 does not need to reopen the import block |
+| sweep multi-pattern loop | for pattern in tuple of 3 globs — immutable, consistent with existing pure-function style |
 
 ### Known Risks
 
@@ -109,8 +113,8 @@ None.
 3. Check this file for active todos and known risks
 4. Run `/gsd-plan-phase` for the current phase
 
-**Last session:** 2026-05-04T18:54:44Z — Completed 03-01-PLAN.md (slowapi install + 4 RED stubs)
+**Last session:** 2026-05-04T18:58:35Z — Completed 03-02-PLAN.md (handler 422 normalizado + sweeper estendido + rate_limit_per_minute)
 
 ---
 
-*Last updated: 2026-05-04*
+*Last updated: 2026-05-04 — 03-02 complete*
