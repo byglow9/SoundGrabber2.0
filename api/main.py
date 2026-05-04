@@ -29,7 +29,8 @@ JOB_ID_PATTERN = re.compile(r"^[a-zA-Z0-9-]{1,64}$")
 
 # Module-level Redis client — connection pool reused across requests.
 _redis = redis_lib.from_url(settings.redis_url, decode_responses=True)
-JOB_REGISTRY_KEY = "sg:jobs"
+# WR-03: JOB_REGISTRY_KEY (shared set) substituído por chaves individuais sg:job:{id}.
+# Padrão de chave: sg:job:{job_id} — valor "1", TTL = wav_ttl segundos.
 
 # Rate limiting — D-01/D-02/D-03 (Phase 3)
 # Redis backend obrigatorio: in-memory falha com multiplos workers Uvicorn (issue #226)
@@ -169,8 +170,11 @@ async def _validation_exception_handler(
 @limiter.limit(f"{settings.rate_limit_per_minute}/minute")
 def submit_job(request: Request, request_body: JobRequest, response: Response) -> dict:
     task = process_job.delay(request_body.youtube_url)
-    _redis.sadd(JOB_REGISTRY_KEY, task.id)
-    _redis.expire(JOB_REGISTRY_KEY, settings.wav_ttl)
+    # WR-03: chave por job com TTL individual em vez de set compartilhado.
+    # _redis.expire(JOB_REGISTRY_KEY, ...) resetava o TTL do set inteiro a cada
+    # submit — jobs antigos podiam expirar prematuramente com alta carga, e jobs
+    # em andamento ficavam sem registro se o set expirasse por inatividade.
+    _redis.set(f"sg:job:{task.id}", "1", ex=settings.wav_ttl)
     return {"job_id": task.id}
 
 
@@ -180,7 +184,8 @@ def get_job(job_id: str) -> dict:
         raise HTTPException(status_code=404, detail="Job not found")
 
     # Pitfall 1 / D-02: PENDING is ambiguous between "in queue" and "never existed".
-    if not _redis.sismember(JOB_REGISTRY_KEY, job_id):
+    # WR-03: verifica chave por job em vez de sismember no set compartilhado.
+    if not _redis.exists(f"sg:job:{job_id}"):
         raise HTTPException(status_code=404, detail="Job not found")
 
     result = AsyncResult(job_id, app=celery_app)
