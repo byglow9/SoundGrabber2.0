@@ -4,7 +4,7 @@
 **Milestone:** v1 — Public launch
 **Granularity:** Standard
 **Coverage:** 19/19 requirements mapped
-**Last updated:** 2026-04-30
+**Last updated:** 2026-05-04
 
 ---
 
@@ -56,7 +56,11 @@ Plans:
   2. Submitting a YouTube URL for a video longer than 15 minutes is rejected before the download starts, with an error message stating the duration limit
   3. A single IP submitting more than 3 jobs per minute receives a 429 response with a human-readable message
   4. Killing a worker mid-job leaves no orphaned files in /tmp after the next background sweeper cycle (within 20 minutes)
-**Plans**: TBD
+**Plans:** 3 plans
+Plans:
+- [ ] 03-01-PLAN.md — Wave 0: instalar slowapi==0.1.9 em requirements.txt e adicionar 4 stubs de teste RED (test_validation_error_format, test_rate_limit_returns_429, test_rate_limit_retry_after_header, test_sweeper_deletes_partial_files)
+- [ ] 03-02-PLAN.md — Wave 1: handler 422 normalizado (D-07) + sweeper estendido para .part/.ytdl (D-05/D-06) + campo rate_limit_per_minute em api/config.py (D-03)
+- [ ] 03-03-PLAN.md — Wave 2: rate limiting slowapi (D-01/D-02/D-03/D-04) — Limiter com Redis backend, handler 429 customizado com Retry-After, decorator @limiter.limit em POST /jobs
 
 ### Phase 4: Frontend
 **Goal**: Users can complete the full workflow in a browser without using curl or reading API docs
@@ -91,7 +95,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 1. Processing Pipeline | 4/4 | Done | 2026-04-30 |
 | 2. API Layer | 0/3 | Planned | - |
-| 3. Hardening | 0/? | Not started | - |
+| 3. Hardening | 0/3 | Planned | - |
 | 4. Frontend | 0/? | Not started | - |
 | 5. Visual Identity | 0/? | Not started | - |
 
