@@ -12,7 +12,8 @@ O produtor cola um link do YouTube e recebe o beat em WAV com BPM e nota identif
 
 ### Validated
 
-(None yet — ship to validate)
+- [x] **UX-03**: Erros de URL inválida retornam mensagem clara sem internals do Pydantic — Validated in Phase 3: handler `_validation_exception_handler` com `removeprefix("Value error, ")`
+- [x] **UX-04**: Rate limiting 3/min por IP com 429 + Retry-After header — Validated in Phase 3: slowapi Limiter com Redis backend compartilhado entre workers
 
 ### Active
 
@@ -73,4 +74,4 @@ Este documento evolui a cada transição de fase e marco de milestone.
 4. Atualizar Context com o estado atual
 
 ---
-*Last updated: 2026-04-29 após inicialização*
+*Last updated: 2026-05-04 — Phase 3 complete; UX-03 e UX-04 validados*
