@@ -11,8 +11,10 @@ from urllib.parse import urlparse
 
 import redis as redis_lib
 from celery.result import AsyncResult
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import FileResponse, JSONResponse
+from slowapi.errors import RateLimitExceeded
 from pydantic import BaseModel, field_validator
 
 from api.config import settings
@@ -45,20 +47,25 @@ class JobRequest(BaseModel):
 
 
 def sweep_expired_wavs(directory: Path, ttl_seconds: int) -> int:
-    """Delete sg_*.wav files in `directory` older than `ttl_seconds`. Returns count deleted.
+    """Delete sg_*.wav, sg_*.part, sg_*.ytdl in `directory` older than `ttl_seconds`.
 
-    Pure function — testable without threads. The daemon loop calls this every 60 seconds.
+    Returns count deleted. Pure function — testable without threads.
     D-01: TTL matches the 15-minute WAV lifecycle decision.
+    D-05/D-06 (Phase 3): also cleans yt-dlp partial files left by SIGKILL'd workers.
+    Extensoes corretas confirmadas em yt_dlp/downloader/common.py:
+      .part = arquivo de download parcial (temp_name)
+      .ytdl = arquivo de estado/progresso (ytdl_filename)
     """
     deleted = 0
     now = time.time()
-    for wav in Path(directory).glob("sg_*.wav"):
-        try:
-            if now - wav.stat().st_mtime > ttl_seconds:
-                wav.unlink(missing_ok=True)
-                deleted += 1
-        except OSError:
-            continue
+    for pattern in ("sg_*.wav", "sg_*.part", "sg_*.ytdl"):
+        for f in Path(directory).glob(pattern):
+            try:
+                if now - f.stat().st_mtime > ttl_seconds:
+                    f.unlink(missing_ok=True)
+                    deleted += 1
+            except OSError:
+                continue
     return deleted
 
 
@@ -87,6 +94,24 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="SoundGrabber API", version="0.2.0", lifespan=lifespan)
+
+
+@app.exception_handler(RequestValidationError)
+async def _validation_exception_handler(
+    request: Request, exc: RequestValidationError
+) -> JSONResponse:
+    """Converte 422 Pydantic para formato {error, error_type} unificado (D-07).
+
+    Pydantic v2 prefixa mensagens de field_validator com "Value error, " automaticamente.
+    removeprefix() remove esse prefixo sem alterar o resto da mensagem.
+    """
+    errors = exc.errors()
+    msg = errors[0].get("msg", "Invalid request") if errors else "Invalid request"
+    msg = msg.removeprefix("Value error, ")
+    return JSONResponse(
+        status_code=422,
+        content={"error": msg, "error_type": "validation_error"},
+    )
 
 
 @app.post("/jobs", status_code=202)
