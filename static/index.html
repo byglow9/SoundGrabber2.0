@@ -6,16 +6,23 @@
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-
+<div id="wrapper">
   <table id="app" width="640" align="center" cellpadding="0" cellspacing="0">
 
     <!-- Header row: site title + tagline -->
     <tr>
       <td id="header">
-        <div id="site-title">SoundGrabber</div>
-        <div id="site-tagline">
-          Cole um link do YouTube. Baixe o beat em WAV.
-        </div>
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border:none">
+          <tr>
+            <td style="border:none;padding:0">
+              <div id="site-title">SoundGrabber</div>
+              <div id="site-tagline">Cole um link do YouTube. Baixe o beat em WAV.</div>
+            </td>
+            <td align="right" valign="bottom" style="border:none;padding:0">
+              <button type="button" id="clear-btn" title="Limpar">&#x21BA;</button>
+            </td>
+          </tr>
+        </table>
       </td>
     </tr>
 
@@ -82,16 +89,14 @@
             </td>
           </tr>
 
-          <!-- Size estimate + download button (full-width row) -->
+          <!-- Size estimate + download row -->
           <tr>
-            <td id="result-size" colspan="2">
+            <td id="result-size" width="50%" valign="bottom">
               <div class="label">Tamanho estimado</div>
               <div id="size-value"></div>
-              <div id="download-area">
-                <a id="download-link" download>
-                  BAIXAR WAV
-                </a>
-              </div>
+            </td>
+            <td id="result-download" width="50%" align="right" valign="bottom">
+              <a id="download-link" download>BAIXAR WAV</a>
             </td>
           </tr>
 
@@ -113,6 +118,7 @@
     </tr>
 
   </table>
+</div>
 
   <script src="/static/app.js"></script>
 </body>

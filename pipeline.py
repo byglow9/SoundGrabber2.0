@@ -49,12 +49,15 @@ def check_duration(url: str, cookies_path: str) -> dict[str, Any]:
         ValueError: If the video duration exceeds MAX_DURATION_SEC (15 minutes),
                     or if duration metadata is missing.
     """
-    ydl_opts = {
+    ydl_opts: dict[str, Any] = {
         "quiet": True,
         "no_warnings": True,
-        "cookiefile": cookies_path,
         "skip_download": True,
+        "socket_timeout": 30,
+        "noplaylist": True,
     }
+    if cookies_path:
+        ydl_opts["cookiefile"] = cookies_path
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=False)
 
@@ -114,7 +117,8 @@ def download_audio(url: str, cookies_path: str, po_token: str) -> Path:
         "outtmpl": outtmpl_base,  # NO %(ext)s — yt-dlp appends .wav after postprocessor (Pitfall 2)
         "quiet": True,
         "no_warnings": True,
-        "cookiefile": cookies_path,
+        "socket_timeout": 30,
+        "noplaylist": True,
         "extractor_args": extractor_args,
         "postprocessors": [{
             "key": "FFmpegExtractAudio",
@@ -122,6 +126,8 @@ def download_audio(url: str, cookies_path: str, po_token: str) -> Path:
         }],
         "http_chunk_size": 10485760,  # 10MB — avoids YouTube throttling on long downloads
     }
+    if cookies_path:
+        ydl_opts["cookiefile"] = cookies_path
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:

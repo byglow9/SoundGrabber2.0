@@ -171,11 +171,14 @@ async function pollStatus() {
 function showIdle() {
   $('url-input').classList.remove('sg-url-input--error');  // D-04: remove error highlight
   $('url-input').disabled = false;
+  $('url-input').value = '';
   $('submit-btn').disabled = false;
   $('submit-btn').textContent = 'Baixar Beat';
   $('submit-btn').hidden = false;
+  $('form-area').hidden = false;
   $('progress-area').hidden = true;
   $('result-card').hidden = true;
+  $('novo-area').hidden = true;
   $('error-area').hidden = true;
   $('validation-error').hidden = true;
 }
@@ -206,10 +209,10 @@ function showPolling(label) {
 }
 
 function showDone(data) {
-  $('url-input').disabled = false;
-  $('submit-btn').disabled = false;
-  $('submit-btn').textContent = 'Baixar Beat';
+  $('form-area').hidden = false;
   $('submit-btn').hidden = false;
+  $('submit-btn').disabled = true;
+  $('submit-btn').textContent = 'Concluído';
   $('progress-area').hidden = true;
   $('result-card').hidden = false;
   $('error-area').hidden = true;
@@ -223,8 +226,6 @@ function showDone(data) {
   $('camelot-value').textContent = data.camelot ?? '';
   $('size-value').textContent = formatSizeMB(estimateSizeMB(data.duration_sec ?? 0));
 
-  // Set download link href with open redirect defense (T-04-05, RESEARCH.md security domain)
-  // Verify download_url starts with '/files/' before using it; fallback to local construction
   const downloadHref = (data.download_url && data.download_url.startsWith('/files/'))
     ? data.download_url
     : '/files/' + jobId;
@@ -344,12 +345,22 @@ function init() {
     submitJob(url);
   });
 
+  // Wire clear button — reset to IDLE
+  $('clear-btn').addEventListener('click', () => {
+    setState('IDLE');
+  });
+
   // Wire retry button (ERROR_JOB state — D-06: reuse URL already in field, resubmit directly)
   $('retry-btn').addEventListener('click', () => {
     const url = $('url-input').value.trim();
     if (!url) return;
     setState('SUBMITTING');
     submitJob(url);
+  });
+
+  // Wire "Baixar outro beat" button (DONE state)
+  $('novo-btn').addEventListener('click', () => {
+    setState('IDLE');
   });
 
   // Enter key on input field triggers submit
