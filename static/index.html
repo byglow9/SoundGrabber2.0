@@ -1,107 +1,118 @@
-<!DOCTYPE html>
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
 <html lang="pt-BR">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
   <title>SoundGrabber</title>
+  <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
 
-  <div id="app" class="sg-app">
+  <table id="app" width="640" align="center" cellpadding="0" cellspacing="0">
 
-    <!-- Header area -->
-    <div id="header" class="sg-header">
-      <div id="site-title" class="sg-title">SoundGrabber</div>
-      <div id="site-tagline" class="sg-tagline">
-        Cole um link do YouTube. Baixe o beat em WAV.
-      </div>
-    </div>
+    <!-- Header row: site title + tagline -->
+    <tr>
+      <td id="header">
+        <div id="site-title">SoundGrabber</div>
+        <div id="site-tagline">
+          Cole um link do YouTube. Baixe o beat em WAV.
+        </div>
+      </td>
+    </tr>
 
-    <!-- Main form area -->
-    <div id="form-area" class="sg-form-area">
+    <!-- Form row: URL input + submit button -->
+    <tr>
+      <td id="form-area">
 
-      <!-- Duration hint — always visible (UX-04) -->
-      <div id="duration-hint" class="sg-hint">
-        Vídeos com mais de 15 minutos não são aceitos.
-      </div>
+        <!-- Duration hint — always visible (UX-04) -->
+        <div id="duration-hint">
+          Vídeos com mais de 15 minutos não são aceitos.
+        </div>
 
-      <!-- URL input -->
-      <div id="input-group" class="sg-input-group">
-        <input
-          type="text"
-          id="url-input"
-          class="sg-url-input"
-          placeholder="https://www.youtube.com/watch?v=..."
-          autocomplete="off"
-          spellcheck="false"
-        />
-        <button type="button" id="submit-btn" class="sg-submit-btn">
-          Baixar Beat
+        <!-- URL input group -->
+        <div id="input-group">
+          <input
+            type="text"
+            id="url-input"
+            placeholder="https://www.youtube.com/watch?v=..."
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <button type="button" id="submit-btn">
+            Baixar Beat
+          </button>
+        </div>
+
+        <!-- Inline validation error (ERROR_VALIDATION state) -->
+        <div id="validation-error" hidden>
+          <!-- populated by JS -->
+        </div>
+
+      </td>
+    </tr>
+
+    <!-- Progress row (POLLING state) -->
+    <tr>
+      <td id="progress-area" hidden>
+        <div id="progress-label">
+          <!-- populated by JS with stage text -->
+        </div>
+      </td>
+    </tr>
+
+    <!-- Result card row (DONE state) -->
+    <tr>
+      <td id="result-card" hidden>
+        <table width="100%" cellpadding="8" cellspacing="0">
+
+          <!-- BPM + Key columns (2-column row) -->
+          <tr>
+            <td id="result-bpm" width="50%" valign="top">
+              <div class="label">BPM</div>
+              <div id="bpm-value"></div>
+              <div class="label">Metade (÷2)</div>
+              <div id="bpm-half-value"></div>
+              <div class="label">Dobro (×2)</div>
+              <div id="bpm-double-value"></div>
+            </td>
+            <td id="result-key" width="50%" valign="top">
+              <div class="label">Tonalidade</div>
+              <div id="key-value"></div>
+              <div class="label">Camelot</div>
+              <div id="camelot-value"></div>
+            </td>
+          </tr>
+
+          <!-- Size estimate + download button (full-width row) -->
+          <tr>
+            <td id="result-size" colspan="2">
+              <div class="label">Tamanho estimado</div>
+              <div id="size-value"></div>
+              <div id="download-area">
+                <a id="download-link" download>
+                  BAIXAR WAV
+                </a>
+              </div>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+
+    <!-- Error row (ERROR_RATE_LIMIT, ERROR_JOB, ERROR_TIMEOUT) -->
+    <tr>
+      <td id="error-area" hidden>
+        <div id="error-message">
+          <!-- populated by JS -->
+        </div>
+        <!-- Retry button — only shown in ERROR_JOB state -->
+        <button type="button" id="retry-btn" hidden>
+          Tentar novamente
         </button>
-      </div>
+      </td>
+    </tr>
 
-      <!-- Inline validation error (ERROR_VALIDATION state) -->
-      <div id="validation-error" class="sg-error sg-error--inline" hidden>
-        <!-- populated by JS -->
-      </div>
-
-    </div>
-
-    <!-- Progress indicator (POLLING state) -->
-    <div id="progress-area" class="sg-progress-area" hidden>
-      <div id="progress-label" class="sg-progress-label">
-        <!-- populated by JS with stage text -->
-      </div>
-    </div>
-
-    <!-- Result card (DONE state) -->
-    <div id="result-card" class="sg-result-card" hidden>
-
-      <!-- BPM section -->
-      <div id="result-bpm" class="sg-result-section">
-        <div class="sg-result-label">BPM</div>
-        <div id="bpm-value" class="sg-result-value sg-result-value--primary"></div>
-        <div class="sg-result-label">Metade (÷2)</div>
-        <div id="bpm-half-value" class="sg-result-value"></div>
-        <div class="sg-result-label">Dobro (×2)</div>
-        <div id="bpm-double-value" class="sg-result-value"></div>
-      </div>
-
-      <!-- Key / Camelot section -->
-      <div id="result-key" class="sg-result-section">
-        <div class="sg-result-label">Tonalidade</div>
-        <div id="key-value" class="sg-result-value sg-result-value--primary"></div>
-        <div class="sg-result-label">Camelot</div>
-        <div id="camelot-value" class="sg-result-value"></div>
-      </div>
-
-      <!-- File size estimate -->
-      <div id="result-size" class="sg-result-section">
-        <div class="sg-result-label">Tamanho estimado</div>
-        <div id="size-value" class="sg-result-value"></div>
-      </div>
-
-      <!-- Download button -->
-      <div id="download-area" class="sg-download-area">
-        <a id="download-link" class="sg-download-btn" download>
-          Baixar WAV
-        </a>
-      </div>
-
-    </div>
-
-    <!-- Error display area (ERROR_RATE_LIMIT, ERROR_JOB, ERROR_TIMEOUT) -->
-    <div id="error-area" class="sg-error-area" hidden>
-      <div id="error-message" class="sg-error-message">
-        <!-- populated by JS -->
-      </div>
-      <!-- Retry button — only shown in ERROR_JOB state -->
-      <button type="button" id="retry-btn" class="sg-retry-btn" hidden>
-        Tentar novamente
-      </button>
-    </div>
-
-  </div>
+  </table>
 
   <script src="/static/app.js"></script>
 </body>
