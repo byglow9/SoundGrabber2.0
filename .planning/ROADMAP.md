@@ -89,7 +89,12 @@ Plans:
   3. Fonts render in a bitmap/pixel face (VT323, Fixedsys, or Courier New) with font-smoothing explicitly disabled; no Google Fonts CDN call introduces modern rendering
   4. The dark-mode color palette is expressed entirely in raw hex values (no hsl(), no rgba() with floats, no CSS variables) drawn from actual period references
   5. A developer unfamiliar with the project can open the HTML source and reasonably believe it was written in 2002
-**Plans**: TBD
+**Plans:** 4 plans
+Plans:
+- [ ] 05-01-PLAN.md — Wave 0: TDD RED stubs em tests/test_frontend.py — 4 novos testes (test_style_css_served, test_css_no_modern_properties, test_fonts_selfhosted, test_html_table_layout) + expandir test_html_required_ids_present de 16 para 27 IDs
+- [ ] 05-02-PLAN.md — Wave 1: download de DelaGothicOne-Regular.woff2 e Sligoil-Micro.woff2 para static/fonts/ (self-hosted, sem CDN)
+- [ ] 05-03-PLAN.md — Wave 2: criar static/style.css completo — @font-face, reset, tabelas, input, botões, hover/focus states, classe .sg-url-input--error; zero propriedades CSS3 proibidas
+- [ ] 05-04-PLAN.md — Wave 3: converter static/index.html de div para table layout preservando 27 IDs + adicionar <link> para style.css + checkpoint visual no browser
 **UI hint**: yes
 
 ---
@@ -102,7 +107,7 @@ Plans:
 | 2. API Layer | 0/3 | Planned | - |
 | 3. Hardening | 3/3 | Done | 2026-05-04 |
 | 4. Frontend | 4/4 | Done | 2026-05-08 |
-| 5. Visual Identity | 0/? | Not started | - |
+| 5. Visual Identity | 0/4 | Planned | - |
 
 ---
 
