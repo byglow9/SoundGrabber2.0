@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SoundGrabber</title>
+</head>
+<body>
+
+  <div id="app" class="sg-app">
+
+    <!-- Header area -->
+    <div id="header" class="sg-header">
+      <div id="site-title" class="sg-title">SoundGrabber</div>
+      <div id="site-tagline" class="sg-tagline">
+        Cole um link do YouTube. Baixe o beat em WAV.
+      </div>
+    </div>
+
+    <!-- Main form area -->
+    <div id="form-area" class="sg-form-area">
+
+      <!-- Duration hint — always visible (UX-04) -->
+      <div id="duration-hint" class="sg-hint">
+        Vídeos com mais de 15 minutos não são aceitos.
+      </div>
+
+      <!-- URL input -->
+      <div id="input-group" class="sg-input-group">
+        <input
+          type="text"
+          id="url-input"
+          class="sg-url-input"
+          placeholder="https://www.youtube.com/watch?v=..."
+          autocomplete="off"
+          spellcheck="false"
+        />
+        <button type="button" id="submit-btn" class="sg-submit-btn">
+          Baixar Beat
+        </button>
+      </div>
+
+      <!-- Inline validation error (ERROR_VALIDATION state) -->
+      <div id="validation-error" class="sg-error sg-error--inline" hidden>
+        <!-- populated by JS -->
+      </div>
+
+    </div>
+
+    <!-- Progress indicator (POLLING state) -->
+    <div id="progress-area" class="sg-progress-area" hidden>
+      <div id="progress-label" class="sg-progress-label">
+        <!-- populated by JS with stage text -->
+      </div>
+    </div>
+
+    <!-- Result card (DONE state) -->
+    <div id="result-card" class="sg-result-card" hidden>
+
+      <!-- BPM section -->
+      <div id="result-bpm" class="sg-result-section">
+        <div class="sg-result-label">BPM</div>
+        <div id="bpm-value" class="sg-result-value sg-result-value--primary"></div>
+        <div class="sg-result-label">Metade (÷2)</div>
+        <div id="bpm-half-value" class="sg-result-value"></div>
+        <div class="sg-result-label">Dobro (×2)</div>
+        <div id="bpm-double-value" class="sg-result-value"></div>
+      </div>
+
+      <!-- Key / Camelot section -->
+      <div id="result-key" class="sg-result-section">
+        <div class="sg-result-label">Tonalidade</div>
+        <div id="key-value" class="sg-result-value sg-result-value--primary"></div>
+        <div class="sg-result-label">Camelot</div>
+        <div id="camelot-value" class="sg-result-value"></div>
+      </div>
+
+      <!-- File size estimate -->
+      <div id="result-size" class="sg-result-section">
+        <div class="sg-result-label">Tamanho estimado</div>
+        <div id="size-value" class="sg-result-value"></div>
+      </div>
+
+      <!-- Download button -->
+      <div id="download-area" class="sg-download-area">
+        <a id="download-link" class="sg-download-btn" download>
+          Baixar WAV
+        </a>
+      </div>
+
+    </div>
+
+    <!-- Error display area (ERROR_RATE_LIMIT, ERROR_JOB, ERROR_TIMEOUT) -->
+    <div id="error-area" class="sg-error-area" hidden>
+      <div id="error-message" class="sg-error-message">
+        <!-- populated by JS -->
+      </div>
+      <!-- Retry button — only shown in ERROR_JOB state -->
+      <button type="button" id="retry-btn" class="sg-retry-btn" hidden>
+        Tentar novamente
+      </button>
+    </div>
+
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
