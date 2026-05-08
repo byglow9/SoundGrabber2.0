@@ -464,7 +464,7 @@ For completeness — what the JS must handle from each endpoint.
 
 ### POST /jobs
 
-Request: `{ "url": "{youtube_url}" }`
+Request: `{ "youtube_url": "..." }` — **campo obrigatório: `youtube_url`, NÃO `url`** (ver RESEARCH.md Pitfall 1)
 Success (202): `{ "job_id": "{uuid}" }` → start polling
 Error (422): `{ "error": str, "error_type": str }` → ERROR_VALIDATION state
 Error (429): header `Retry-After: {N}` → ERROR_RATE_LIMIT state + countdown

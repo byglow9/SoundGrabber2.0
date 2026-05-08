@@ -531,7 +531,7 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **`element.hidden` vs CSS `display:none`**
    - What we know: `element.hidden` seta o atributo HTML `hidden` que equivale a `display:none` via UA stylesheet
