@@ -9,6 +9,7 @@ let jobId = null;
 let pollTimer = null;
 let timeoutTimer = null;
 let countdownTimer = null;
+let isPolling = false;  // WR-03: flag de guarda contra chamadas concorrentes ao pollStatus
 
 // =============================================================================
 // Section 2: DOM refs
@@ -58,6 +59,11 @@ async function submitJob(url) {
 
     if (response.status === 202) {
       const data = await response.json();
+      if (!data.job_id) {
+        // WR-04: resposta malformada sem job_id — evitar polling em /jobs/undefined
+        setState('ERROR_JOB', { message: 'Algo deu errado. Tente novamente.' });
+        return;
+      }
       setState('POLLING', { label: 'Processando...' });
       startPolling(data.job_id);
       return;
@@ -111,9 +117,12 @@ function stopPolling() {
   clearTimeout(timeoutTimer);
   pollTimer = null;
   timeoutTimer = null;
+  isPolling = false;  // WR-03: resetar flag ao parar o polling
 }
 
 async function pollStatus() {
+  if (isPolling) return;  // WR-03: prevenir chamada concorrente
+  isPolling = true;
   try {
     const response = await fetch(`/jobs/${jobId}`);
     if (!response.ok) {
@@ -150,6 +159,8 @@ async function pollStatus() {
   } catch (err) {
     stopPolling();
     setState('ERROR_JOB', { message: 'Erro de conexão. Verifique sua internet e tente novamente.' });
+  } finally {
+    isPolling = false;  // WR-03: sempre liberar a flag ao concluir
   }
 }
 
@@ -175,6 +186,11 @@ function showSubmitting() {
   $('submit-btn').disabled = true;
   $('submit-btn').textContent = 'Enviando...';
   $('submit-btn').hidden = false;
+  // Ocultar todas as areas de conteudo durante o envio
+  $('progress-area').hidden = true;
+  $('result-card').hidden = true;
+  $('error-area').hidden = true;
+  $('validation-error').hidden = true;
 }
 
 function showPolling(label) {
@@ -263,6 +279,7 @@ function showErrorRateLimit(retryAfter) {
 }
 
 function showErrorJob(msg) {
+  $('url-input').classList.remove('sg-url-input--error');  // remover highlight de validacao
   $('url-input').disabled = false;
   $('submit-btn').hidden = true;
   $('retry-btn').hidden = false;
