@@ -41,6 +41,10 @@ _redis = redis_lib.from_url(settings.redis_url, decode_responses=True)
 # pode ser forjado pelo cliente.
 def _real_ip(request: Request) -> str:
     """Retorna o IP real do cliente via conexão TCP — não spoofável."""
+    if request.client is None:
+        # Fallback seguro: retorna string fixa para não quebrar o rate limiter.
+        # Isso é raro (proxy mal configurado) mas não deve causar 500.
+        return "unknown"
     return request.client.host  # definido pelo ASGI layer, não pelo cliente
 
 
