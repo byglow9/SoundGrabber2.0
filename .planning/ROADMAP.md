@@ -14,7 +14,7 @@
 - [ ] **Phase 2: API Layer** - Wrap the working pipeline in FastAPI + Celery + Redis with a job-queue HTTP contract
 - [x] **Phase 3: Hardening** - Rate limiting, URL validation, duration caps, and disk safety before public exposure
 - [x] **Phase 4: Frontend** - Browser-based user flow built against the real, hardened API
-- [ ] **Phase 5: Visual Identity** - Y2K / phpBB / Tibia authentic 2000s aesthetic applied to the complete frontend
+- [x] **Phase 5: Visual Identity** - Y2K / phpBB / Tibia authentic 2000s aesthetic applied to the complete frontend
 
 ---
 
@@ -91,10 +91,10 @@ Plans:
   5. A developer unfamiliar with the project can open the HTML source and reasonably believe it was written in 2002
 **Plans:** 4 plans
 Plans:
-- [ ] 05-01-PLAN.md — Wave 0: TDD RED stubs em tests/test_frontend.py — 4 novos testes (test_style_css_served, test_css_no_modern_properties, test_fonts_selfhosted, test_html_table_layout) + expandir test_html_required_ids_present de 16 para 27 IDs
-- [ ] 05-02-PLAN.md — Wave 1: download de DelaGothicOne-Regular.woff2 e Sligoil-Micro.woff2 para static/fonts/ (self-hosted, sem CDN)
-- [ ] 05-03-PLAN.md — Wave 2: criar static/style.css completo — @font-face, reset, tabelas, input, botões, hover/focus states, classe .sg-url-input--error; zero propriedades CSS3 proibidas
-- [ ] 05-04-PLAN.md — Wave 3: converter static/index.html de div para table layout preservando 27 IDs + adicionar <link> para style.css + checkpoint visual no browser
+- [x] 05-01-PLAN.md — Wave 0: TDD RED stubs em tests/test_frontend.py — 4 novos testes (test_style_css_served, test_css_no_modern_properties, test_fonts_selfhosted, test_html_table_layout) + expandir test_html_required_ids_present de 16 para 27 IDs
+- [x] 05-02-PLAN.md — Wave 1: download de DelaGothicOne-Regular.woff2 e Sligoil-Micro.woff2 para static/fonts/ (self-hosted, sem CDN)
+- [x] 05-03-PLAN.md — Wave 2: criar static/style.css completo — @font-face, reset, tabelas, input, botões, hover/focus states, classe .sg-url-input--error; zero propriedades CSS3 proibidas
+- [x] 05-04-PLAN.md — Wave 3: converter static/index.html de div para table layout preservando 27 IDs + adicionar <link> para style.css + checkpoint visual no browser
 **UI hint**: yes
 
 ---
@@ -107,7 +107,7 @@ Plans:
 | 2. API Layer | 0/3 | Planned | - |
 | 3. Hardening | 3/3 | Done | 2026-05-04 |
 | 4. Frontend | 4/4 | Done | 2026-05-08 |
-| 5. Visual Identity | 0/4 | Planned | - |
+| 5. Visual Identity | 4/4 | Done | 2026-05-08 |
 
 ---
 
