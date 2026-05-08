@@ -4,7 +4,7 @@
 **Milestone:** v1 — Public launch
 **Granularity:** Standard
 **Coverage:** 19/19 requirements mapped
-**Last updated:** 2026-05-04
+**Last updated:** 2026-05-08
 
 ---
 
@@ -71,7 +71,12 @@ Plans:
   2. Before clicking download, the page displays the estimated WAV file size so the user knows what to expect
   3. BPM, key, Camelot notation, and half-time/double-time values are all visible on the result card without scrolling
   4. The download button triggers a direct WAV file save with no account, no email, and no redirect to an external site
-**Plans**: TBD
+**Plans:** 4 plans
+Plans:
+- [ ] 04-01-PLAN.md — Wave 1: TDD RED stubs in tests/test_frontend.py (test_index_html_served, test_app_js_served, test_html_required_ids_present, test_wav_size_formula)
+- [ ] 04-02-PLAN.md — Wave 2: create static/index.html with all 16 required IDs and zero CSS (D-10/D-11)
+- [ ] 04-03-PLAN.md — Wave 3: create static/app.js — complete 8-state machine, polling, error recovery, WAV size estimation, download wiring
+- [ ] 04-04-PLAN.md — Wave 4: add GET / (FileResponse) + StaticFiles mount to api/main.py; human-verify browser smoke test
 **UI hint**: yes
 
 ### Phase 5: Visual Identity
@@ -96,7 +101,7 @@ Plans:
 | 1. Processing Pipeline | 4/4 | Done | 2026-04-30 |
 | 2. API Layer | 0/3 | Planned | - |
 | 3. Hardening | 3/3 | Done | 2026-05-04 |
-| 4. Frontend | 0/? | Not started | - |
+| 4. Frontend | 0/4 | Planned | - |
 | 5. Visual Identity | 0/? | Not started | - |
 
 ---
