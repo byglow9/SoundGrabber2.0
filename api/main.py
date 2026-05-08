@@ -14,6 +14,7 @@ from celery.result import AsyncResult
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
@@ -265,3 +266,23 @@ def download_file(job_id: str):
         media_type="audio/wav",
         filename=f"soundgrabber_{job_id[:8]}.wav",
     )
+
+
+# ── Static files ──────────────────────────────────────────────────────────────
+# Phase 4: serve index.html and app.js.
+# CRITICAL: define AFTER all API routes so GET /, GET /jobs/*, GET /files/*
+# take precedence. StaticFiles mount at "/static" does not shadow /jobs or /files.
+# VERIFIED: FastAPI 0.136.1 + Starlette 1.0.0 — routes defined before mount win.
+STATIC_DIR = Path(__file__).parent.parent / "static"
+
+
+@app.get("/")
+def serve_index():
+    """Serve index.html — browser entry point for Phase 4 frontend."""
+    return FileResponse(str(STATIC_DIR / "index.html"))
+
+
+# Mount after serve_index to avoid shadowing GET /.
+# StaticFiles lança RuntimeError se STATIC_DIR não existir ao iniciar.
+# static/ é criado no Plan 02; este Plan (04) deve ser executado depois.
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
