@@ -1,0 +1,750 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Sketch 002 — ASCII 3D | SoundGrabber</title>
+<link rel="stylesheet" href="../themes/default.css">
+<style>
+@font-face {
+  font-family: 'Dela Gothic One';
+  src: url('../../static/fonts/DelaGothicOne-Regular.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Sligoil';
+  src: url('../../static/fonts/Sligoil-Micro.woff2') format('woff2');
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding-top: 44px;
+  background: #000;
+  color: #ff8800;
+  font-family: 'Courier New', monospace;
+  font-size: 13px;
+  -webkit-font-smoothing: none;
+  text-rendering: optimizeSpeed;
+}
+
+/* ---- Nav ---- */
+#variant-nav {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 9998;
+  background: #0a0a0a; border-bottom: 1px solid #333;
+  padding: 7px 14px; display: flex; align-items: center; gap: 8px;
+  font-family: 'Courier New', monospace; font-size: 12px;
+}
+#variant-nav span { color: #555; }
+.vtab {
+  background: #111; color: #884400; border: 1px solid #442200;
+  padding: 4px 12px; cursor: pointer; font-family: 'Courier New', monospace; font-size: 12px;
+}
+.vtab.active { background: #ff8800; color: #000; border-color: #ff8800; font-weight: bold; }
+
+.variant { display: none; }
+.variant.active { display: block; }
+
+/* ================================================================
+   VARIANT A — Box-Drawing Frame + ░▒▓ Shadow
+   Painel: ╔═══╗ / ╚═══╝  |  sombra: tile de ░▒▓ offset
+   ================================================================ */
+#variant-a {
+  min-height: 100vh; background: #000;
+  display: flex; align-items: center; justify-content: center;
+  padding: 60px 20px;
+}
+.a-scene { position: relative; display: inline-block; }
+
+/* Sombra: camadas de chars offset */
+.a-shade3 {
+  position: absolute; top: 16px; left: 16px;
+  color: #1a0900; font-family: 'Courier New', monospace;
+  font-size: 13px; line-height: 13px; white-space: pre;
+  pointer-events: none; z-index: 0; overflow: hidden;
+}
+.a-shade2 {
+  position: absolute; top: 10px; left: 10px;
+  color: #2d1200; font-family: 'Courier New', monospace;
+  font-size: 13px; line-height: 13px; white-space: pre;
+  pointer-events: none; z-index: 1; overflow: hidden;
+}
+.a-shade1 {
+  position: absolute; top: 5px; left: 5px;
+  color: #552200; font-family: 'Courier New', monospace;
+  font-size: 13px; line-height: 13px; white-space: pre;
+  pointer-events: none; z-index: 2; overflow: hidden;
+}
+
+/* Painel principal */
+.a-panel {
+  position: relative; z-index: 3;
+  background: #000;
+  font-family: 'Courier New', monospace;
+  font-size: 13px;
+  line-height: 1.4;
+  width: 620px;
+}
+
+/* Linhas do frame desenhadas manualmente */
+.a-frame-row {
+  color: #ff8800;
+  white-space: pre;
+  display: block;
+  line-height: 13px;
+}
+.a-frame-corner { color: #ffcc66; }
+.a-frame-side   { color: #ff8800; }
+.a-frame-dim    { color: #442200; }
+
+/* Área de conteúdo interna (dentro do frame) */
+.a-inner {
+  border-left: 1px solid #ff8800;
+  border-right: 1px solid #ff8800;
+  padding: 12px 20px;
+  background: #000;
+}
+
+.a-title {
+  font-family: 'Dela Gothic One', sans-serif;
+  font-size: 46px;
+  color: #ff8800;
+  line-height: 1;
+  margin: 0 0 2px 0;
+}
+.a-title-shadow {
+  font-family: 'Dela Gothic One', sans-serif;
+  font-size: 46px;
+  color: #331a00;
+  line-height: 1;
+  margin-top: -46px;
+  margin-left: 4px;
+  margin-bottom: 2px;
+  pointer-events: none;
+  position: relative; z-index: -1;
+}
+.a-tagline { color: #804400; margin-bottom: 14px; }
+.a-hint { color: #664400; margin-bottom: 8px; }
+.a-input-row { display: flex; gap: 0; margin-bottom: 4px; }
+.a-input {
+  flex: 1; background: #000; color: #ff8800;
+  border: 1px solid #884400; border-right: none;
+  font-family: 'Courier New', monospace; font-size: 13px;
+  padding: 6px 8px; outline: none;
+}
+.a-input:focus { border-color: #ff8800; }
+.a-input::placeholder { color: #442200; }
+.a-btn {
+  background: #ff8800; color: #000; border: 1px solid #ff8800;
+  font-family: 'Courier New', monospace; font-size: 13px;
+  font-weight: bold; padding: 6px 14px; cursor: pointer;
+  letter-spacing: 1px; white-space: nowrap;
+}
+.a-btn:hover { background: #cc6600; color: #ffcc66; border-color: #cc6600; }
+.a-btn:active { background: #884400; }
+
+#a-progress { color: #664400; margin-top: 6px; min-height: 16px; }
+
+.a-result { display: none; margin-top: 10px; }
+.a-result.visible { display: block; }
+.a-result-row {
+  display: flex; gap: 0;
+  border: 1px solid #442200;
+}
+.a-result-cell {
+  flex: 1; padding: 8px 12px;
+  border-right: 1px solid #442200;
+}
+.a-result-cell:last-child { border-right: none; }
+.a-lbl { font-size: 11px; color: #664400; margin-bottom: 3px; text-transform: uppercase; letter-spacing: 1px; }
+.a-val { font-family: 'Dela Gothic One', sans-serif; font-size: 28px; color: #ff8800; line-height: 1; }
+.a-val-sub { font-size: 12px; color: #cc6600; margin-top: 2px; }
+.a-dl-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 8px 12px; border: 1px solid #442200; border-top: none;
+}
+.a-size { color: #664400; font-size: 12px; }
+.a-dl {
+  display: inline-block; background: #ff8800; color: #000;
+  text-decoration: none; font-family: 'Courier New', monospace;
+  font-size: 12px; font-weight: bold; padding: 5px 16px;
+  letter-spacing: 2px; border: 1px solid #ffcc66;
+}
+.a-dl:hover { background: #cc6600; color: #ffcc66; }
+
+/* ================================================================
+   VARIANT B — Block Art Title + Shade Wall
+   Título em ▄▀█ block chars, sombra lateral em ▓▒░
+   ================================================================ */
+#variant-b {
+  min-height: 100vh; background: #000;
+  display: flex; align-items: center; justify-content: center;
+  padding: 60px 20px;
+}
+.b-wrap { width: 640px; font-family: 'Courier New', monospace; font-size: 13px; }
+
+/* Bloco de título ASCII art */
+.b-ascii-title {
+  color: #ff8800;
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.1;
+  white-space: pre;
+  margin-bottom: 2px;
+  letter-spacing: 0;
+}
+.b-ascii-shadow {
+  color: #331a00;
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.1;
+  white-space: pre;
+  margin-top: -49px; /* overlay sobre o título */
+  margin-left: 3px;
+  pointer-events: none;
+  letter-spacing: 0;
+}
+
+/* Painel principal com borda simples */
+.b-scene { position: relative; }
+.b-shadow-wall {
+  position: absolute;
+  top: 8px; left: 8px; right: -8px; bottom: -8px;
+  background: #000;
+  font-family: 'Courier New', monospace; font-size: 13px;
+  line-height: 13px; white-space: pre-wrap; overflow: hidden;
+  pointer-events: none; z-index: 0;
+  color: #2d1200;
+  word-break: break-all;
+  border: 1px solid #221100;
+}
+
+.b-panel {
+  position: relative; z-index: 1;
+  border: 1px solid #ff8800;
+  background: #000;
+}
+.b-topbar {
+  background: #ff8800; padding: 3px 12px;
+  display: flex; justify-content: space-between; align-items: center;
+  border-bottom: 1px solid #884400;
+}
+.b-topbar-title { font-size: 11px; color: #000; font-weight: bold; letter-spacing: 2px; }
+.b-topbar-icons { font-size: 11px; color: #442200; letter-spacing: 3px; }
+
+.b-body { padding: 14px 16px; }
+.b-tagline { color: #664400; margin-bottom: 12px; font-size: 12px; }
+.b-hint { color: #553300; margin-bottom: 8px; font-size: 12px; }
+
+.b-input-row { display: flex; gap: 0; }
+.b-input {
+  flex: 1; background: #000; color: #ff8800;
+  border: 1px solid #884400; border-right: none;
+  font-family: 'Courier New', monospace; font-size: 13px;
+  padding: 7px 10px; outline: none;
+}
+.b-input:focus { border-color: #ff8800; }
+.b-input::placeholder { color: #442200; }
+.b-btn {
+  background: #ff8800; color: #000;
+  border: 1px solid #ff8800;
+  font-family: 'Courier New', monospace; font-size: 12px; font-weight: bold;
+  padding: 7px 14px; cursor: pointer; white-space: nowrap; letter-spacing: 1px;
+}
+.b-btn:hover { background: #cc6600; color: #ffcc66; }
+
+#b-progress { color: #553300; margin-top: 8px; min-height: 16px; font-size: 12px; }
+
+.b-result { display: none; margin-top: 10px; }
+.b-result.visible { display: block; }
+.b-stats { display: flex; border: 1px solid #442200; margin-bottom: 0; }
+.b-stat { flex: 1; padding: 10px 12px; border-right: 1px solid #442200; }
+.b-stat:last-child { border-right: none; }
+.b-lbl { font-size: 10px; color: #553300; margin-bottom: 3px; text-transform: uppercase; letter-spacing: 1px; }
+.b-val { font-family: 'Dela Gothic One', sans-serif; font-size: 28px; color: #ff8800; line-height: 1; }
+.b-val-sub { font-size: 12px; color: #cc6600; margin-top: 2px; }
+.b-dl-bar {
+  border: 1px solid #442200; border-top: none;
+  padding: 8px 12px; display: flex; justify-content: space-between; align-items: center;
+}
+.b-size { font-size: 11px; color: #553300; }
+.b-dl {
+  display: inline-block; background: #ff8800; color: #000;
+  text-decoration: none; font-family: 'Courier New', monospace;
+  font-size: 12px; font-weight: bold; padding: 5px 16px;
+  letter-spacing: 2px; border: 1px solid #ffcc66;
+}
+.b-dl:hover { background: #cc6600; color: #ffcc66; }
+
+/* ================================================================
+   VARIANT C — Full Terminal / BBS
+   Tudo parece um terminal: texto aparece como se estivesse sendo
+   digitado, barra de progresso BBS, box chars ┌─┐│└─┘
+   ================================================================ */
+#variant-c {
+  min-height: 100vh; background: #000;
+  display: flex; align-items: center; justify-content: center;
+  padding: 60px 20px;
+}
+.c-terminal { width: 640px; font-family: 'Courier New', monospace; font-size: 13px; position: relative; }
+
+/* Sombra: fundo laranja escuro offset */
+.c-shadow {
+  position: absolute; top: 6px; left: 6px;
+  width: 100%; height: 100%;
+  background: #1a0900; border: 1px solid #331a00;
+  z-index: 0;
+}
+
+/* Frame do terminal */
+.c-frame { position: relative; z-index: 1; background: #000; border: 1px solid #884400; }
+
+/* Barra de título terminal */
+.c-titlebar {
+  background: #0a0300; border-bottom: 1px solid #884400;
+  padding: 4px 10px;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.c-titlebar-text { color: #ff8800; letter-spacing: 2px; font-size: 12px; font-weight: bold; }
+.c-titlebar-icons { color: #442200; letter-spacing: 4px; font-size: 12px; }
+
+/* Conteúdo terminal */
+.c-screen { padding: 16px; background: #000; }
+
+/* Título digitado com cursor */
+.c-big-title {
+  font-family: 'Dela Gothic One', sans-serif;
+  font-size: 44px; color: #ff8800; line-height: 1;
+  margin-bottom: 2px;
+  text-shadow: 3px 3px 0 #331a00, 5px 5px 0 #1a0900;
+}
+.c-cursor {
+  display: inline-block; width: 3px; height: 44px;
+  background: #ff8800; vertical-align: middle;
+  animation: blink 1s step-end infinite;
+}
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+
+.c-tagline { color: #664400; margin-bottom: 16px; font-size: 12px; }
+.c-prompt-line { color: #553300; margin-bottom: 6px; font-size: 12px; }
+.c-prompt-line span { color: #ff8800; }
+
+.c-input-line { display: flex; align-items: center; gap: 0; margin-bottom: 4px; }
+.c-prompt-sym { color: #ff8800; margin-right: 6px; font-size: 13px; white-space: nowrap; }
+.c-input {
+  flex: 1; background: #000; color: #ff8800;
+  border: none; border-bottom: 1px solid #442200;
+  font-family: 'Courier New', monospace; font-size: 13px;
+  padding: 4px 0; outline: none;
+}
+.c-input::placeholder { color: #331a00; }
+.c-input:focus { border-bottom-color: #ff8800; }
+.c-submit-row { margin-top: 10px; }
+.c-btn {
+  background: #000; color: #ff8800;
+  border: 1px solid #884400;
+  font-family: 'Courier New', monospace; font-size: 12px;
+  padding: 5px 14px; cursor: pointer; letter-spacing: 1px;
+}
+.c-btn:hover { background: #ff8800; color: #000; border-color: #ff8800; }
+.c-btn:active { background: #cc6600; }
+
+/* Progress bar BBS style */
+#c-progress { margin-top: 10px; display: none; }
+.c-prog-label { color: #664400; font-size: 12px; margin-bottom: 3px; }
+.c-prog-bar-wrap {
+  display: flex; align-items: center; gap: 8px; font-size: 12px; color: #ff8800;
+}
+.c-prog-bar {
+  flex: 1; height: 13px; border: 1px solid #442200;
+  background: #000; overflow: hidden; position: relative;
+}
+.c-prog-fill {
+  height: 100%; background: #ff8800; width: 0%;
+  transition: width 0.3s;
+  font-size: 11px; color: #000; text-align: right; padding-right: 2px;
+  line-height: 11px;
+}
+.c-prog-pct { color: #884400; min-width: 36px; text-align: right; }
+
+.c-result { display: none; margin-top: 12px; }
+.c-result.visible { display: block; }
+.c-result-header {
+  color: #442200; font-size: 12px; margin-bottom: 6px;
+  border-top: 1px dashed #331a00; padding-top: 8px;
+}
+.c-stats { display: flex; gap: 0; border: 1px solid #442200; }
+.c-stat { flex: 1; padding: 10px 12px; border-right: 1px solid #331a00; }
+.c-stat:last-child { border-right: none; }
+.c-lbl { font-size: 10px; color: #553300; margin-bottom: 3px; text-transform: uppercase; letter-spacing: 1px; }
+.c-val { font-family: 'Dela Gothic One', sans-serif; font-size: 26px; color: #ff8800; line-height: 1; }
+.c-val-sub { font-size: 12px; color: #cc6600; margin-top: 2px; }
+.c-dl-row {
+  border: 1px solid #442200; border-top: none;
+  padding: 8px 12px; display: flex; justify-content: space-between; align-items: center;
+}
+.c-size { font-size: 11px; color: #553300; }
+.c-dl {
+  display: inline-block; background: #ff8800; color: #000;
+  text-decoration: none; font-family: 'Courier New', monospace;
+  font-size: 12px; font-weight: bold; padding: 5px 16px;
+  letter-spacing: 2px; border: 1px solid #ffcc66;
+}
+.c-dl:hover { background: #cc6600; color: #ffcc66; }
+
+/* Rodapé terminal */
+.c-statusbar {
+  border-top: 1px solid #221100; padding: 3px 10px;
+  font-size: 11px; color: #331a00; display: flex; justify-content: space-between;
+  background: #030100;
+}
+</style>
+</head>
+<body>
+
+<div id="variant-nav">
+  <span>Sketch 002 — ASCII 3D</span>
+  <button class="vtab active" onclick="showVariant('a',this)">A: Box-Drawing + ░▒▓</button>
+  <button class="vtab" onclick="showVariant('b',this)">B: Block Art Title</button>
+  <button class="vtab" onclick="showVariant('c',this)">C: BBS Terminal</button>
+</div>
+
+<!-- ================================================================
+     VARIANT A — Box-Drawing Frame + shade shadow
+     ================================================================ -->
+<div id="variant-a" class="variant active">
+  <div style="min-height:100vh;background:#000;display:flex;align-items:center;justify-content:center;padding:60px 20px">
+    <div class="a-scene">
+      <div class="a-shade3" id="a-shade3"></div>
+      <div class="a-shade2" id="a-shade2"></div>
+      <div class="a-shade1" id="a-shade1"></div>
+
+      <div class="a-panel" id="a-panel">
+        <!-- Top border: ╔═══════════════════════════════════════════════════════╗ -->
+        <div class="a-frame-row" id="a-top-border"></div>
+
+        <!-- Inner content -->
+        <div class="a-inner">
+          <div class="a-title">SoundGrabber</div>
+          <div class="a-tagline">Cole um link do YouTube. Baixe o beat em WAV.</div>
+          <div class="a-input-row">
+            <input class="a-input" id="a-url" type="text" placeholder="https://www.youtube.com/watch?v=..." autocomplete="off">
+            <button class="a-btn" onclick="aSubmit()">[ BAIXAR ]</button>
+          </div>
+          <div id="a-progress"></div>
+
+          <div class="a-result" id="a-result">
+            <div class="a-result-row">
+              <div class="a-result-cell">
+                <div class="a-lbl">BPM</div>
+                <div class="a-val">140</div>
+                <div class="a-val-sub">÷2 = 70  ×2 = 280</div>
+              </div>
+              <div class="a-result-cell">
+                <div class="a-lbl">Tonalidade</div>
+                <div class="a-val">F# Min</div>
+                <div class="a-val-sub">Camelot: 11A</div>
+              </div>
+            </div>
+            <div class="a-dl-row">
+              <span class="a-size">~42 MB · WAV 44.1kHz 16-bit</span>
+              <a href="#" class="a-dl" onclick="return false">[ BAIXAR WAV ]</a>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bottom border: ╚═══════════════════════════════════════════════════╝ -->
+        <div class="a-frame-row" id="a-bot-border"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ================================================================
+     VARIANT B — Block Art Title
+     ================================================================ -->
+<div id="variant-b" class="variant">
+  <div style="min-height:100vh;background:#000;display:flex;align-items:center;justify-content:center;padding:60px 20px">
+    <div class="b-wrap">
+
+      <!-- ASCII block art title -->
+      <div class="b-ascii-title" id="b-title-fg"></div>
+
+      <!-- Painel -->
+      <div class="b-scene">
+        <div class="b-shadow-wall" id="b-shadow-wall"></div>
+        <div class="b-panel">
+          <div class="b-topbar">
+            <span class="b-topbar-title">SOUNDGRABBER.EXE</span>
+            <span class="b-topbar-icons">[ _ ][ □ ][ × ]</span>
+          </div>
+          <div class="b-body">
+            <div class="b-tagline">Cole um link do YouTube. Baixe o beat em WAV.</div>
+            <div class="b-input-row">
+              <input class="b-input" id="b-url" type="text" placeholder="https://www.youtube.com/watch?v=..." autocomplete="off">
+              <button class="b-btn" onclick="bSubmit()">[ BAIXAR ]</button>
+            </div>
+            <div id="b-progress"></div>
+
+            <div class="b-result" id="b-result">
+              <div class="b-stats">
+                <div class="b-stat">
+                  <div class="b-lbl">BPM</div>
+                  <div class="b-val">140</div>
+                  <div class="b-val-sub">÷2 = 70  ×2 = 280</div>
+                </div>
+                <div class="b-stat">
+                  <div class="b-lbl">Tonalidade</div>
+                  <div class="b-val">F# Min</div>
+                  <div class="b-val-sub">Camelot: 11A</div>
+                </div>
+              </div>
+              <div class="b-dl-bar">
+                <span class="b-size">~42 MB · WAV 44.1kHz 16-bit</span>
+                <a href="#" class="b-dl" onclick="return false">[ BAIXAR WAV ]</a>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ================================================================
+     VARIANT C — BBS Terminal
+     ================================================================ -->
+<div id="variant-c" class="variant">
+  <div style="min-height:100vh;background:#000;display:flex;align-items:center;justify-content:center;padding:60px 20px">
+    <div class="c-terminal">
+      <div class="c-shadow"></div>
+      <div class="c-frame">
+
+        <div class="c-titlebar">
+          <span class="c-titlebar-text">▓▓ SOUNDGRABBER v1.0 ▓▓</span>
+          <span class="c-titlebar-icons">[_][□][×]</span>
+        </div>
+
+        <div class="c-screen">
+          <div class="c-big-title">SoundGrabber<span class="c-cursor"></span></div>
+          <div class="c-tagline">░ Cole um link do YouTube. Baixe o beat em WAV. ░</div>
+
+          <div class="c-prompt-line">C:\BEATS&gt; <span>soundgrabber.exe --download --format=wav</span></div>
+          <div class="c-prompt-line">Vídeos com mais de 15 minutos não são aceitos.</div>
+
+          <div class="c-input-line">
+            <span class="c-prompt-sym">URL&gt;</span>
+            <input class="c-input" id="c-url" type="text" placeholder="https://www.youtube.com/watch?v=..." autocomplete="off">
+          </div>
+          <div class="c-submit-row">
+            <button class="c-btn" onclick="cSubmit()">[ EXECUTAR ]</button>
+          </div>
+
+          <!-- Progress BBS -->
+          <div id="c-progress">
+            <div class="c-prog-label" id="c-prog-label">Aguardando...</div>
+            <div class="c-prog-bar-wrap">
+              <div class="c-prog-bar"><div class="c-prog-fill" id="c-prog-fill">█</div></div>
+              <span class="c-prog-pct" id="c-prog-pct">0%</span>
+            </div>
+          </div>
+
+          <!-- Resultado -->
+          <div class="c-result" id="c-result">
+            <div class="c-result-header">░░ ANÁLISE CONCLUÍDA ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░</div>
+            <div class="c-stats">
+              <div class="c-stat">
+                <div class="c-lbl">BPM</div>
+                <div class="c-val">140</div>
+                <div class="c-val-sub">÷2 = 70  ×2 = 280</div>
+              </div>
+              <div class="c-stat">
+                <div class="c-lbl">Tonalidade</div>
+                <div class="c-val">F# Min</div>
+                <div class="c-val-sub">Camelot: 11A</div>
+              </div>
+            </div>
+            <div class="c-dl-row">
+              <span class="c-size">~42 MB · WAV 44.1kHz 16-bit</span>
+              <a href="#" class="c-dl" onclick="return false">[ BAIXAR WAV ]</a>
+            </div>
+          </div>
+        </div>
+
+        <div class="c-statusbar">
+          <span id="c-status">Pronto.</span>
+          <span>soundgrabber.local · 2025</span>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Sketch toolbar -->
+<div id="sketch-tools"
+  style="position:fixed;bottom:12px;right:12px;z-index:9999;font-family:system-ui;font-size:11px;background:rgba(0,0,0,0.85);color:white;padding:8px 12px;border-radius:6px;opacity:0.35;transition:opacity 0.2s;border:1px solid #333;min-width:120px;"
+  onmouseenter="this.style.opacity='1'" onmouseleave="this.style.opacity='0.35'">
+  <div style="color:#888;margin-bottom:6px;font-size:10px">SKETCH TOOLS</div>
+  <div style="display:flex;gap:4px;justify-content:center">
+    <button onclick="setW('375px')" style="flex:1;background:#222;color:#aaa;border:1px solid #444;padding:3px;font-size:10px;cursor:pointer">📱</button>
+    <button onclick="setW('768px')" style="flex:1;background:#222;color:#aaa;border:1px solid #444;padding:3px;font-size:10px;cursor:pointer">💻</button>
+    <button onclick="setW('100%')"  style="flex:1;background:#222;color:#aaa;border:1px solid #444;padding:3px;font-size:10px;cursor:pointer">🖥</button>
+  </div>
+</div>
+
+<script>
+/* ---- Util ---- */
+function showVariant(id, btn) {
+  document.querySelectorAll('.variant').forEach(v => v.classList.remove('active'));
+  document.querySelectorAll('.vtab').forEach(t => t.classList.remove('active'));
+  document.getElementById('variant-' + id).classList.add('active');
+  btn.classList.add('active');
+}
+function setW(w) {
+  document.querySelectorAll('.variant > div').forEach(el => el.style.maxWidth = w);
+}
+
+/* ================================================================
+   VARIANT A — Box-drawing frame + shade shadow
+   ================================================================ */
+const COLS = 74; // chars wide for 620px panel at 13px courier
+
+function makeTopBorder() {
+  return '╔' + '═'.repeat(COLS) + '╗';
+}
+function makeBotBorder() {
+  return '╚' + '═'.repeat(COLS) + '╝';
+}
+function makeShadeBlock(char, w, h) {
+  return (char.repeat(w) + '\n').repeat(h);
+}
+
+function initVariantA() {
+  document.getElementById('a-top-border').textContent = makeTopBorder();
+  document.getElementById('a-bot-border').textContent = makeBotBorder();
+  // Measure panel after render
+  setTimeout(() => {
+    const panel = document.getElementById('a-panel');
+    const pw = panel.offsetWidth;
+    const ph = panel.offsetHeight;
+    const charW = 8; // approx char width at 13px Courier
+    const cols = Math.ceil(pw / charW) + 2;
+    const rows = Math.ceil(ph / 13) + 1;
+    document.getElementById('a-shade3').textContent = makeShadeBlock('░', cols, rows);
+    document.getElementById('a-shade2').textContent = makeShadeBlock('▒', cols, rows);
+    document.getElementById('a-shade1').textContent = makeShadeBlock('▓', cols, rows);
+    // size the shade divs
+    document.getElementById('a-shade3').style.width = pw + 'px';
+    document.getElementById('a-shade2').style.width = pw + 'px';
+    document.getElementById('a-shade1').style.width = pw + 'px';
+  }, 100);
+}
+initVariantA();
+
+const stA = ['Verificando duração...','Baixando áudio...','Convertendo para WAV...','Analisando BPM e tonalidade...'];
+function aSubmit() {
+  const url = document.getElementById('a-url').value.trim();
+  if (!url) { document.getElementById('a-url').style.borderColor = '#ff3300'; return; }
+  document.getElementById('a-url').style.borderColor = '#884400';
+  document.getElementById('a-result').classList.remove('visible');
+  const prog = document.getElementById('a-progress');
+  let i = 0;
+  const chars = ['░','▒','▓','█'];
+  function tick() {
+    if (i >= stA.length) { prog.textContent = ''; document.getElementById('a-result').classList.add('visible'); initVariantA(); return; }
+    prog.textContent = chars[i] + ' ' + stA[i];
+    i++; setTimeout(tick, 850);
+  }
+  tick();
+}
+
+/* ================================================================
+   VARIANT B — ASCII Block Art title
+   ================================================================ */
+// "SOUNDGRABBER" em block art usando ▄▀█ (5-line tall)
+const blockArt = [
+  "▄▄▄▄▄  ▄▄▄▄  ▄  ▄ ▄  ▄ ▄▄▄▄    ▄▄  ▄▄▄  ▄▄  ▄▄▄  ▄▄▄  ▄▄▄",
+  "█      █  █ █  █ █▐▌ █ █  █   █  █ █▄▄▄ █▄▄  █    █▄▄  █  █",
+  "█  ▄▄  ████ █▄▄█ █ █▄█ █  █   █▄▄█ █  █ █    █    █    █▄▄█",
+  "█  ▀▀  █  █ █  █ █     █  █   █  █ █▄▄▄ █    █    █    █  █",
+  "▀▀▀▀▀  ▀  ▀ ▀  ▀ ▀     ▀▀▀▀   ▀  ▀ ▀▀▀  ▀▀  ▀▀▀  ▀▀▀  ▀  ▀",
+];
+const blockArtShadow = blockArt.map(l => ' '.repeat(3) + l);
+
+function initVariantB() {
+  document.getElementById('b-title-fg').textContent = blockArt.join('\n');
+  // fill shadow wall with ▓ chars
+  setTimeout(() => {
+    const panel = document.querySelector('#variant-b .b-panel');
+    if (!panel) return;
+    const pw = panel.offsetWidth;
+    const ph = panel.offsetHeight;
+    const cols = Math.ceil(pw / 8) + 2;
+    const rows = Math.ceil(ph / 13) + 2;
+    const wall = document.getElementById('b-shadow-wall');
+    wall.textContent = ('▓'.repeat(cols) + '\n').repeat(rows);
+    wall.style.width = pw + 'px';
+  }, 100);
+}
+initVariantB();
+
+const stB = ['░ Verificando duração...','▒ Baixando áudio...','▓ Convertendo para WAV...','█ Analisando BPM e tonalidade...'];
+function bSubmit() {
+  const url = document.getElementById('b-url').value.trim();
+  if (!url) { document.getElementById('b-url').style.borderColor = '#ff3300'; return; }
+  document.getElementById('b-url').style.borderColor = '#884400';
+  document.getElementById('b-result').classList.remove('visible');
+  const prog = document.getElementById('b-progress');
+  let i = 0;
+  function tick() {
+    if (i >= stB.length) { prog.textContent = ''; document.getElementById('b-result').classList.add('visible'); initVariantB(); return; }
+    prog.textContent = stB[i++]; setTimeout(tick, 850);
+  }
+  tick();
+}
+
+/* ================================================================
+   VARIANT C — BBS Terminal
+   ================================================================ */
+const stagesC = [
+  { label: 'Verificando duração...', pct: 15 },
+  { label: 'Baixando áudio...', pct: 45 },
+  { label: 'Convertendo para WAV...', pct: 75 },
+  { label: 'Analisando BPM e tonalidade...', pct: 95 },
+  { label: 'Concluído.', pct: 100 },
+];
+
+function renderBar(pct) {
+  const filled = Math.round(pct / 100 * 40);
+  return '█'.repeat(filled) + '░'.repeat(40 - filled);
+}
+
+function cSubmit() {
+  const url = document.getElementById('c-url').value.trim();
+  if (!url) { document.getElementById('c-url').style.borderBottomColor = '#ff3300'; return; }
+  document.getElementById('c-url').style.borderBottomColor = '#442200';
+  document.getElementById('c-result').classList.remove('visible');
+  document.getElementById('c-progress').style.display = 'block';
+  document.getElementById('c-status').textContent = 'Processando...';
+
+  let i = 0;
+  function tick() {
+    if (i >= stagesC.length) {
+      document.getElementById('c-progress').style.display = 'none';
+      document.getElementById('c-result').classList.add('visible');
+      document.getElementById('c-status').textContent = 'Concluído. Arquivo pronto para download.';
+      return;
+    }
+    const s = stagesC[i++];
+    document.getElementById('c-prog-label').textContent = s.label;
+    document.getElementById('c-prog-fill').style.width = s.pct + '%';
+    document.getElementById('c-prog-pct').textContent = s.pct + '%';
+    document.getElementById('c-status').textContent = s.label;
+    setTimeout(tick, 900);
+  }
+  tick();
+}
+</script>
+</body>
+</html>

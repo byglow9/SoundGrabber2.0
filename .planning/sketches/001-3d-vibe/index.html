@@ -1,0 +1,1570 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Sketch 001 — 3D Vibe | SoundGrabber</title>
+<link rel="stylesheet" href="../themes/default.css">
+<style>
+/* ---- Sketch nav bar ---- */
+#variant-nav {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  z-index: 9998;
+  background: #111;
+  border-bottom: 1px solid #333;
+  padding: 8px 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: system-ui, sans-serif;
+  font-size: 12px;
+}
+#variant-nav span { color: #666; margin-right: 4px; }
+.vtab {
+  background: #222;
+  color: #aaa;
+  border: 1px solid #444;
+  padding: 5px 14px;
+  cursor: pointer;
+  font-family: system-ui, sans-serif;
+  font-size: 12px;
+  border-radius: 4px;
+}
+.vtab.active { background: #ff8800; color: #000; border-color: #ff8800; font-weight: bold; }
+.vtab.winner::after { content: ' ★'; }
+
+/* ---- Fonts from main site ---- */
+@font-face {
+  font-family: 'Dela Gothic One';
+  src: url('../../static/fonts/DelaGothicOne-Regular.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Sligoil';
+  src: url('../../static/fonts/Sligoil-Micro.woff2') format('woff2');
+}
+
+body {
+  margin: 0;
+  padding-top: 48px;
+  background: var(--color-bg);
+  color: var(--color-orange);
+  font-family: var(--font-body);
+  font-size: 13px;
+  -webkit-font-smoothing: none;
+}
+
+.variant { display: none; }
+.variant.active { display: block; }
+
+/* ============================================================
+   VARIANT A — Perspective Tilt
+   Painel principal em perspectiva 3D CSS, como uma tela inclinada
+   ============================================================ */
+#variant-a {
+  min-height: 100vh;
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+}
+
+.a-scene {
+  perspective: 900px;
+  perspective-origin: 50% 40%;
+}
+
+.a-panel {
+  width: var(--panel-width);
+  background: #000;
+  border: 2px solid #ff8800;
+  padding: 32px;
+  transform: rotateX(8deg) rotateY(-4deg);
+  transform-style: preserve-3d;
+  transition: transform 0.4s ease;
+  box-shadow:
+    8px 12px 0px #884400,
+    12px 18px 0px #442200,
+    0 0 60px rgba(255,136,0,0.15);
+  position: relative;
+}
+
+.a-panel:hover {
+  transform: rotateX(2deg) rotateY(0deg);
+}
+
+.a-panel-face {
+  position: absolute;
+  background: #331a00;
+  border: 2px solid #884400;
+}
+/* bottom face (extrusion) */
+.a-edge-bottom {
+  bottom: -14px; left: 8px; right: -8px; height: 14px;
+  transform: rotateX(-90deg);
+  transform-origin: top center;
+}
+/* right face */
+.a-edge-right {
+  right: -14px; top: 8px; bottom: -8px; width: 14px;
+  transform: rotateY(90deg);
+  transform-origin: left center;
+}
+
+.a-title {
+  font-family: var(--font-title);
+  font-size: 52px;
+  color: #ff8800;
+  margin: 0 0 4px 0;
+  line-height: 1;
+  text-shadow: 3px 3px 0 #442200;
+}
+.a-tagline {
+  font-family: var(--font-body);
+  font-size: 13px;
+  color: #804400;
+  margin: 0 0 24px 0;
+}
+.a-hint {
+  color: #804400;
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+.a-input-row { display: flex; gap: 8px; }
+.a-input {
+  flex: 1;
+  background: #000;
+  color: #ff8800;
+  border: 1px solid #ff8800;
+  font-family: var(--font-body);
+  font-size: 13px;
+  padding: 10px 12px;
+  outline: none;
+}
+.a-input:focus { border-color: #ffcc66; }
+.a-btn {
+  background: #ff8800;
+  color: #000;
+  border: none;
+  font-family: var(--font-title);
+  font-size: 15px;
+  padding: 10px 20px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.1s;
+  box-shadow: 3px 3px 0 #442200;
+}
+.a-btn:hover { background: #ffaa33; }
+.a-btn:active { box-shadow: 1px 1px 0 #442200; transform: translate(2px,2px); }
+
+/* result card inside panel */
+.a-result {
+  margin-top: 20px;
+  border: 1px solid #ff8800;
+  display: none;
+}
+.a-result.visible { display: block; }
+.a-result-row { display: flex; }
+.a-result-cell {
+  flex: 1;
+  padding: 12px;
+  border: 1px solid #ff8800;
+}
+.a-lbl { font-size: 11px; color: #804400; margin-bottom: 2px; }
+.a-val { font-size: 28px; color: #ff8800; font-family: var(--font-title); }
+.a-val-sub { font-size: 14px; color: #ff8800; }
+.a-dl {
+  display: block;
+  background: #ff8800;
+  color: #000;
+  text-decoration: none;
+  font-family: var(--font-title);
+  font-size: 15px;
+  padding: 10px 20px;
+  text-align: center;
+  margin: 12px;
+  box-shadow: 3px 3px 0 #442200;
+  transition: background 0.1s;
+}
+.a-dl:hover { background: #ffaa33; }
+
+/* ============================================================
+   VARIANT B — Win98 Bevel (CSS2-puro)
+   Sem CSS3. Efeito 3D pelo clássico border bicolor.
+   ============================================================ */
+#variant-b {
+  min-height: 100vh;
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+}
+
+.b-wrap {
+  width: var(--panel-width);
+}
+
+/* raised = border mais clara top+left, mais escura bottom+right */
+.b-raised {
+  border-style: solid;
+  border-width: 3px;
+  border-top-color: #ffcc66;
+  border-left-color: #ffcc66;
+  border-right-color: #442200;
+  border-bottom-color: #442200;
+  background: #0d0500;
+}
+
+/* inner inset for nested depth */
+.b-inset {
+  border-style: solid;
+  border-width: 2px;
+  border-top-color: #442200;
+  border-left-color: #442200;
+  border-right-color: #ff8800;
+  border-bottom-color: #ff8800;
+}
+
+.b-header {
+  padding: 20px 24px 16px;
+  border-bottom: 1px solid #ff8800;
+}
+.b-title {
+  font-family: var(--font-title);
+  font-size: 48px;
+  color: #ff8800;
+  margin: 0 0 2px 0;
+  line-height: 1;
+}
+.b-tagline { font-size: 12px; color: #804400; margin: 0; }
+
+.b-body { padding: 20px 24px; }
+.b-hint { color: #804400; font-size: 12px; margin-bottom: 10px; }
+.b-input-row { display: flex; gap: 0; }
+
+.b-input {
+  flex: 1;
+  background: #000;
+  color: #ff8800;
+  font-family: var(--font-body);
+  font-size: 13px;
+  padding: 8px 10px;
+  outline: none;
+  /* inset (sunken field) */
+  border-style: solid;
+  border-width: 2px;
+  border-top-color: #442200;
+  border-left-color: #442200;
+  border-right-color: #ff8800;
+  border-bottom-color: #ff8800;
+}
+.b-input::placeholder { color: #804400; }
+
+.b-btn {
+  background: #cc6600;
+  color: #000;
+  font-family: var(--font-title);
+  font-size: 14px;
+  padding: 8px 18px;
+  cursor: pointer;
+  white-space: nowrap;
+  /* raised button */
+  border-style: solid;
+  border-width: 2px;
+  border-top-color: #ffcc66;
+  border-left-color: #ffcc66;
+  border-right-color: #331100;
+  border-bottom-color: #331100;
+}
+.b-btn:active {
+  border-top-color: #331100;
+  border-left-color: #331100;
+  border-right-color: #ffcc66;
+  border-bottom-color: #ffcc66;
+  background: #aa5500;
+}
+
+.b-result {
+  margin-top: 16px;
+  display: none;
+}
+.b-result.visible { display: block; }
+
+.b-result-grid {
+  display: flex;
+}
+.b-result-cell {
+  flex: 1;
+  padding: 12px;
+  border-style: solid;
+  border-width: 1px;
+  border-top-color: #442200;
+  border-left-color: #442200;
+  border-right-color: #ff8800;
+  border-bottom-color: #ff8800;
+}
+.b-lbl { font-size: 11px; color: #804400; margin-bottom: 4px; }
+.b-val { font-size: 26px; color: #ff8800; font-family: var(--font-title); }
+.b-val-sub { font-size: 13px; color: #cc6600; }
+
+.b-dl {
+  display: block;
+  margin-top: 12px;
+  background: #cc6600;
+  color: #000;
+  text-decoration: none;
+  font-family: var(--font-title);
+  font-size: 14px;
+  padding: 8px 18px;
+  text-align: center;
+  border-style: solid;
+  border-width: 2px;
+  border-top-color: #ffcc66;
+  border-left-color: #ffcc66;
+  border-right-color: #331100;
+  border-bottom-color: #331100;
+}
+.b-dl:hover { background: #ff8800; }
+.b-dl:active {
+  border-top-color: #331100;
+  border-left-color: #331100;
+  border-right-color: #ffcc66;
+  border-bottom-color: #ffcc66;
+}
+
+/* ============================================================
+   VARIANT C — Extruded / Chunky 3D
+   Painel com espessura visível — efeito "bloco impresso"
+   Sombra dura em camadas de laranja
+   ============================================================ */
+#variant-c {
+  min-height: 100vh;
+  background: #0a0400;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 80px 20px;
+  background-image:
+    radial-gradient(ellipse 80% 60% at 50% 100%, rgba(255,136,0,0.07) 0%, transparent 70%);
+}
+
+.c-wrap {
+  position: relative;
+  width: var(--panel-width);
+}
+
+/* "Extrusion" — camadas de offset laranja por trás do painel */
+.c-layer1 {
+  position: absolute;
+  top: 8px; left: 8px;
+  width: 100%; height: 100%;
+  background: #331a00;
+  border: 2px solid #884400;
+}
+.c-layer2 {
+  position: absolute;
+  top: 16px; left: 16px;
+  width: 100%; height: 100%;
+  background: #1a0d00;
+  border: 2px solid #442200;
+}
+
+.c-panel {
+  position: relative;
+  z-index: 2;
+  background: #000;
+  border: 2px solid #ff8800;
+  box-shadow: 0 0 40px rgba(255,136,0,0.2);
+}
+
+.c-header {
+  background: #ff8800;
+  padding: 16px 24px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  border-bottom: 2px solid #884400;
+}
+.c-title {
+  font-family: var(--font-title);
+  font-size: 42px;
+  color: #000;
+  margin: 0;
+  line-height: 1;
+  letter-spacing: -1px;
+}
+.c-tagline-block { text-align: right; }
+.c-tagline {
+  font-family: var(--font-body);
+  font-size: 11px;
+  color: #442200;
+  display: block;
+}
+
+.c-body { padding: 24px; }
+.c-hint { color: #804400; font-size: 12px; margin-bottom: 10px; }
+
+.c-input-wrap {
+  border: 2px solid #ff8800;
+  display: flex;
+  margin-bottom: 12px;
+  box-shadow: 4px 4px 0 #442200;
+}
+.c-input {
+  flex: 1;
+  background: #000;
+  color: #ff8800;
+  border: none;
+  font-family: var(--font-body);
+  font-size: 13px;
+  padding: 10px 12px;
+  outline: none;
+}
+.c-input::placeholder { color: #804400; }
+.c-btn {
+  background: #ff8800;
+  color: #000;
+  border: none;
+  border-left: 2px solid #ff8800;
+  font-family: var(--font-title);
+  font-size: 14px;
+  padding: 10px 20px;
+  cursor: pointer;
+  transition: background 0.1s, transform 0.05s;
+}
+.c-btn:hover { background: #ffaa33; }
+.c-btn:active { transform: translate(2px, 2px); }
+
+.c-result { display: none; }
+.c-result.visible { display: block; }
+
+.c-result-grid { display: flex; gap: 12px; margin-bottom: 12px; }
+.c-stat-box {
+  flex: 1;
+  border: 2px solid #ff8800;
+  padding: 12px;
+  position: relative;
+  box-shadow: 3px 3px 0 #442200;
+}
+.c-stat-box::before {
+  content: '';
+  position: absolute;
+  top: -1px; left: -1px; right: -1px;
+  height: 3px;
+  background: #ffcc66;
+}
+.c-lbl { font-size: 11px; color: #804400; margin-bottom: 4px; text-transform: uppercase; }
+.c-val { font-size: 32px; color: #ff8800; font-family: var(--font-title); line-height: 1; }
+.c-val-sub { font-size: 12px; color: #cc6600; margin-top: 4px; }
+
+.c-dl-row { display: flex; justify-content: flex-end; align-items: center; gap: 12px; }
+.c-size { font-size: 12px; color: #804400; }
+.c-dl {
+  display: inline-block;
+  background: #ff8800;
+  color: #000;
+  text-decoration: none;
+  font-family: var(--font-title);
+  font-size: 14px;
+  padding: 10px 24px;
+  box-shadow: 4px 4px 0 #442200;
+  transition: box-shadow 0.05s, transform 0.05s;
+  letter-spacing: 0.5px;
+}
+.c-dl:hover { background: #ffaa33; }
+.c-dl:active { box-shadow: 1px 1px 0 #442200; transform: translate(3px,3px); }
+
+/* ============================================================
+   VARIANT D — Win2000 Dialog
+   Bevel duplo grosso, title bar, status bar, botão pressionável
+   100% CSS2 — sem transform, sem box-shadow
+   ============================================================ */
+#variant-d {
+  min-height: 100vh;
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+}
+.d-wrap { width: var(--panel-width); }
+
+/* Bevel externo (raised) — borda dupla grossa */
+.d-window {
+  /* outer ridge: claro top-left, escuro bottom-right */
+  border-style: solid;
+  border-width: 2px;
+  border-top-color: #ffee99;
+  border-left-color: #ffee99;
+  border-right-color: #221100;
+  border-bottom-color: #221100;
+  background: #0d0500;
+  padding: 2px;
+}
+/* inner inset: escuro top-left, claro bottom-right */
+.d-window-inner {
+  border-style: solid;
+  border-width: 2px;
+  border-top-color: #442200;
+  border-left-color: #442200;
+  border-right-color: #ff9933;
+  border-bottom-color: #ff9933;
+  background: #060200;
+}
+
+/* Title bar */
+.d-titlebar {
+  background: #ff8800;
+  padding: 4px 6px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #221100;
+  user-select: none;
+}
+.d-titlebar-text {
+  font-family: var(--font-title);
+  font-size: 14px;
+  color: #000;
+  letter-spacing: 1px;
+}
+.d-titlebar-btns { display: flex; gap: 3px; }
+.d-wbtn {
+  width: 18px; height: 18px;
+  font-family: 'Courier New', monospace;
+  font-size: 11px;
+  font-weight: bold;
+  background: #cc6600;
+  color: #000;
+  border-style: solid;
+  border-width: 2px;
+  border-top-color: #ffcc66;
+  border-left-color: #ffcc66;
+  border-right-color: #331100;
+  border-bottom-color: #331100;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+.d-wbtn:active {
+  border-top-color: #331100;
+  border-left-color: #331100;
+  border-right-color: #ffcc66;
+  border-bottom-color: #ffcc66;
+}
+
+/* Content area */
+.d-content { padding: 16px 18px 12px; }
+.d-site-name {
+  font-family: var(--font-title);
+  font-size: 44px;
+  color: #ff8800;
+  margin: 0 0 2px 0;
+  line-height: 1;
+}
+.d-site-tag { font-size: 12px; color: #804400; margin-bottom: 18px; }
+
+/* Group box (Win2000 "fieldset" style) */
+.d-groupbox {
+  border-style: solid;
+  border-width: 1px;
+  border-top-color: #442200;
+  border-left-color: #442200;
+  border-right-color: #ff9933;
+  border-bottom-color: #ff9933;
+  padding: 14px 12px 12px;
+  margin-bottom: 12px;
+  position: relative;
+}
+.d-groupbox-label {
+  position: absolute;
+  top: -9px; left: 8px;
+  background: #060200;
+  padding: 0 6px;
+  font-size: 11px;
+  color: #ff8800;
+  font-family: var(--font-body);
+}
+
+/* Input + button */
+.d-input-row { display: flex; gap: 6px; }
+.d-input {
+  flex: 1;
+  background: #000;
+  color: #ff8800;
+  font-family: var(--font-body);
+  font-size: 13px;
+  padding: 6px 8px;
+  outline: none;
+  border-style: solid;
+  border-width: 2px;
+  border-top-color: #221100;
+  border-left-color: #221100;
+  border-right-color: #ff9933;
+  border-bottom-color: #ff9933;
+}
+.d-input::placeholder { color: #804400; }
+.d-btn {
+  background: #884400;
+  color: #ffcc66;
+  font-family: var(--font-title);
+  font-size: 13px;
+  padding: 6px 16px;
+  cursor: pointer;
+  white-space: nowrap;
+  border-style: solid;
+  border-width: 2px;
+  border-top-color: #ffcc66;
+  border-left-color: #ffcc66;
+  border-right-color: #221100;
+  border-bottom-color: #221100;
+}
+.d-btn:active {
+  border-top-color: #221100;
+  border-left-color: #221100;
+  border-right-color: #ffcc66;
+  border-bottom-color: #ffcc66;
+  background: #663300;
+}
+
+/* Result cells */
+.d-result { margin-top: 10px; display: none; }
+.d-result.visible { display: block; }
+.d-result-row { display: flex; gap: 6px; margin-bottom: 6px; }
+.d-result-cell {
+  flex: 1;
+  padding: 8px 10px;
+  border-style: solid;
+  border-width: 2px;
+  border-top-color: #221100;
+  border-left-color: #221100;
+  border-right-color: #ff9933;
+  border-bottom-color: #ff9933;
+  background: #030100;
+}
+.d-lbl { font-size: 10px; color: #804400; margin-bottom: 3px; text-transform: uppercase; }
+.d-val { font-family: var(--font-title); font-size: 26px; color: #ff8800; line-height: 1; }
+.d-val-sub { font-size: 12px; color: #cc6600; margin-top: 2px; }
+.d-dl {
+  display: inline-block;
+  background: #884400;
+  color: #ffcc66;
+  text-decoration: none;
+  font-family: var(--font-title);
+  font-size: 13px;
+  padding: 6px 18px;
+  border-style: solid;
+  border-width: 2px;
+  border-top-color: #ffcc66;
+  border-left-color: #ffcc66;
+  border-right-color: #221100;
+  border-bottom-color: #221100;
+}
+.d-dl:hover { background: #aa5500; }
+.d-dl:active {
+  border-top-color: #221100;
+  border-left-color: #221100;
+  border-right-color: #ffcc66;
+  border-bottom-color: #ffcc66;
+}
+
+/* Status bar */
+.d-statusbar {
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #442200;
+  padding: 4px 10px;
+  font-size: 11px;
+  color: #804400;
+  display: flex;
+  gap: 12px;
+}
+.d-status-cell {
+  border-style: solid;
+  border-width: 1px;
+  border-top-color: #221100;
+  border-left-color: #221100;
+  border-right-color: #ff9933;
+  border-bottom-color: #ff9933;
+  padding: 1px 8px;
+}
+#d-progress { color: #804400; font-size: 12px; margin-top: 8px; display: none; }
+
+/* ============================================================
+   VARIANT E — NFO Shade Block
+   Frame construído com caracteres ░▒▓ — sombra ASCII pura
+   ============================================================ */
+#variant-e {
+  min-height: 100vh;
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+}
+.e-wrap { width: var(--panel-width); font-family: 'Courier New', monospace; }
+
+/* Linhas de caractere de sombra NFO — posicionadas atrás do panel */
+.e-shadow-frame {
+  position: relative;
+  margin-left: 10px;
+  margin-top: 10px;
+}
+/* A sombra é um <pre> absolutamente posicionado offset +8px +8px */
+.e-shadow {
+  position: absolute;
+  top: 8px; left: 8px;
+  right: -8px;
+  bottom: -8px;
+  font-family: 'Courier New', monospace;
+  font-size: 13px;
+  line-height: 1;
+  color: #442200;
+  overflow: hidden;
+  pointer-events: none;
+  white-space: pre;
+  /* fundo de ▓ para simular profundidade */
+  background-image: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 12px,
+    rgba(68,34,0,0.6) 12px,
+    rgba(68,34,0,0.6) 13px
+  );
+  background-color: #1a0900;
+  border: 1px solid #442200;
+}
+
+.e-panel {
+  position: relative;
+  z-index: 2;
+  border: 2px solid #ff8800;
+  background: #000;
+}
+
+/* Barra de título NFO-style: ═══ nome ═══ */
+.e-titlebar {
+  padding: 8px 16px 6px;
+  border-bottom: 1px solid #ff8800;
+  font-family: 'Courier New', monospace;
+  font-size: 13px;
+  color: #ff8800;
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+.e-title-line { color: #884400; flex: 1; overflow: hidden; font-size: 12px; }
+.e-title-text {
+  font-family: var(--font-title);
+  font-size: 42px;
+  color: #ff8800;
+  line-height: 1;
+  letter-spacing: -1px;
+}
+.e-title-sub { font-size: 11px; color: #884400; font-family: 'Courier New', monospace; margin-top: 2px; }
+
+/* NFO info header */
+.e-nfo-header {
+  padding: 6px 16px;
+  font-family: 'Courier New', monospace;
+  font-size: 11px;
+  color: #884400;
+  border-bottom: 1px solid #331a00;
+  display: flex;
+  justify-content: space-between;
+}
+
+.e-content { padding: 16px; }
+.e-hint { font-size: 11px; color: #804400; margin-bottom: 10px; font-family: 'Courier New', monospace; }
+
+.e-input-row { display: flex; gap: 0; margin-bottom: 2px; }
+.e-input {
+  flex: 1;
+  background: #0a0500;
+  color: #ff8800;
+  border: 1px solid #ff8800;
+  border-right: none;
+  font-family: 'Courier New', monospace;
+  font-size: 13px;
+  padding: 8px 10px;
+  outline: none;
+}
+.e-input::placeholder { color: #804400; }
+.e-btn {
+  background: #ff8800;
+  color: #000;
+  border: 1px solid #ff8800;
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  font-weight: bold;
+  padding: 8px 16px;
+  cursor: pointer;
+  white-space: nowrap;
+  letter-spacing: 1px;
+}
+.e-btn:hover { background: #cc6600; color: #ffcc66; }
+.e-btn:active { background: #884400; }
+
+/* NFO divider */
+.e-divider {
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  color: #442200;
+  padding: 4px 16px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.e-result { display: none; }
+.e-result.visible { display: block; }
+.e-result-grid { display: flex; padding: 0 16px; gap: 0; margin-bottom: 0; }
+.e-result-cell {
+  flex: 1;
+  padding: 10px 12px;
+  border: 1px solid #442200;
+}
+.e-result-cell + .e-result-cell { border-left: none; }
+.e-lbl { font-size: 10px; color: #884400; font-family: 'Courier New', monospace; margin-bottom: 3px; text-transform: uppercase; letter-spacing: 1px; }
+.e-val { font-family: var(--font-title); font-size: 28px; color: #ff8800; line-height: 1; }
+.e-val-sub { font-size: 12px; color: #cc6600; font-family: 'Courier New', monospace; margin-top: 3px; }
+
+.e-footer {
+  padding: 10px 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-top: 1px solid #331a00;
+}
+.e-size { font-size: 11px; color: #884400; font-family: 'Courier New', monospace; }
+.e-dl {
+  display: inline-block;
+  background: #ff8800;
+  color: #000;
+  text-decoration: none;
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  font-weight: bold;
+  padding: 7px 18px;
+  letter-spacing: 2px;
+  border: 1px solid #ffcc66;
+}
+.e-dl:hover { background: #cc6600; color: #ffcc66; }
+
+#e-progress { color: #884400; font-size: 11px; padding: 6px 16px; display: none; font-family: 'Courier New', monospace; }
+
+/* ============================================================
+   VARIANT F — Shadow Page 2001
+   O truque clássico: cópia offset atrás do painel principal
+   Estilo phpBB/portal pessoal 2001-2003
+   ============================================================ */
+#variant-f {
+  min-height: 100vh;
+  background: #050200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 70px 20px;
+}
+
+.f-page-wrap {
+  position: relative;
+  width: var(--panel-width);
+}
+
+/* Shadow "copy" — offset down-right, cor mais escura */
+.f-shadow-div {
+  position: absolute;
+  top: 10px; left: 10px;
+  width: 100%; height: 100%;
+  background: #331a00;
+  border: 1px solid #442200;
+  z-index: 0;
+}
+/* second deeper shadow */
+.f-shadow-div2 {
+  position: absolute;
+  top: 18px; left: 18px;
+  width: 100%; height: 100%;
+  background: #1a0d00;
+  border: 1px solid #221100;
+  z-index: 0;
+}
+
+.f-main {
+  position: relative;
+  z-index: 1;
+  background: #000;
+  border: 1px solid #ff8800;
+}
+
+/* Cabeçalho style "portal 2001" */
+.f-header {
+  background: #ff8800;
+  padding: 0;
+  border-bottom: 2px solid #221100;
+}
+.f-header-top {
+  padding: 14px 20px 10px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+}
+.f-title {
+  font-family: var(--font-title);
+  font-size: 46px;
+  color: #000;
+  line-height: 1;
+  margin: 0;
+  text-shadow: 2px 2px 0 #884400;
+}
+.f-tagline-block { text-align: right; }
+.f-tagline { font-family: var(--font-body); font-size: 11px; color: #442200; display: block; }
+
+/* Nav strip — aquela barra de links de 2001 */
+.f-nav-strip {
+  background: #884400;
+  padding: 4px 20px;
+  font-size: 11px;
+  font-family: 'Courier New', monospace;
+  color: #ffcc66;
+  border-top: 1px solid #cc6600;
+}
+.f-nav-strip a { color: #ffcc66; text-decoration: none; margin-right: 16px; }
+.f-nav-strip a:hover { text-decoration: underline; }
+
+/* Content */
+.f-content { padding: 20px; }
+.f-hint { font-size: 12px; color: #804400; margin-bottom: 12px; }
+
+.f-input-group {
+  background: #0a0500;
+  border: 1px solid #ff8800;
+  padding: 12px;
+  margin-bottom: 14px;
+}
+.f-input-label { font-size: 11px; color: #884400; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 1px; }
+.f-input-row { display: flex; gap: 8px; }
+.f-input {
+  flex: 1;
+  background: #000;
+  color: #ff8800;
+  border: 1px solid #ff8800;
+  font-family: var(--font-body);
+  font-size: 13px;
+  padding: 8px 10px;
+  outline: none;
+}
+.f-input::placeholder { color: #804400; }
+.f-input:focus { border-color: #ffcc66; }
+.f-btn {
+  background: #ff8800;
+  color: #000;
+  border: 1px solid #ff8800;
+  font-family: var(--font-title);
+  font-size: 14px;
+  padding: 8px 20px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.f-btn:hover { background: #cc6600; }
+.f-btn:active { background: #884400; color: #ffcc66; }
+
+.f-result { display: none; }
+.f-result.visible { display: block; }
+
+/* Tabela de resultado — dois cards irmãos */
+.f-result-table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
+.f-result-table td {
+  border: 1px solid #ff8800;
+  padding: 10px 14px;
+  vertical-align: top;
+  width: 50%;
+  background: #000;
+}
+.f-lbl { font-size: 10px; color: #884400; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 1px; }
+.f-val { font-family: var(--font-title); font-size: 28px; color: #ff8800; line-height: 1; }
+.f-val-sub { font-size: 12px; color: #cc6600; margin-top: 3px; }
+
+.f-dl-bar {
+  background: #0a0500;
+  border: 1px solid #ff8800;
+  padding: 10px 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.f-size { font-size: 12px; color: #804400; }
+.f-dl {
+  display: inline-block;
+  background: #ff8800;
+  color: #000;
+  text-decoration: none;
+  font-family: var(--font-title);
+  font-size: 14px;
+  padding: 8px 22px;
+  border: 1px solid #ffcc66;
+}
+.f-dl:hover { background: #cc6600; color: #ffcc66; border-color: #cc6600; }
+
+/* Footer bar */
+.f-footer {
+  background: #0a0500;
+  border-top: 1px solid #331a00;
+  padding: 6px 20px;
+  font-size: 11px;
+  color: #442200;
+  font-family: 'Courier New', monospace;
+  display: flex;
+  justify-content: space-between;
+}
+
+#f-progress { color: #804400; font-size: 12px; margin-top: 8px; display: none; }
+</style>
+</head>
+<body>
+
+<!-- ========== NAV BAR ========== -->
+<div id="variant-nav">
+  <span>Sketch 001 — 3D Vibe</span>
+  <button class="vtab active" onclick="showVariant('a',this)">A: Perspectiva 3D</button>
+  <button class="vtab" onclick="showVariant('b',this)">B: Bevel Win98</button>
+  <button class="vtab" onclick="showVariant('c',this)">C: Bloco Extrudado</button>
+  <span style="color:#555;margin:0 4px">|</span>
+  <button class="vtab" onclick="showVariant('d',this)" style="border-color:#884400;color:#cc6600">D: Win2000 Dialog ★</button>
+  <button class="vtab" onclick="showVariant('e',this)" style="border-color:#884400;color:#cc6600">E: NFO Shade Block ★</button>
+  <button class="vtab" onclick="showVariant('f',this)" style="border-color:#884400;color:#cc6600">F: Shadow Page 2001 ★</button>
+</div>
+
+<!-- ============================================================
+     VARIANT A — Perspectiva 3D
+     ============================================================ -->
+<div id="variant-a" class="variant active">
+  <div class="a-scene">
+    <div class="a-panel" id="a-panel-main">
+      <div class="a-title">SoundGrabber</div>
+      <div class="a-tagline">Cole um link do YouTube. Baixe o beat em WAV.</div>
+
+      <div class="a-hint">Vídeos com mais de 15 minutos não são aceitos.</div>
+      <div class="a-input-row">
+        <input class="a-input" type="text" id="a-url" placeholder="https://www.youtube.com/watch?v=..." autocomplete="off">
+        <button class="a-btn" onclick="aFakeSubmit()">Baixar Beat</button>
+      </div>
+
+      <div id="a-progress" style="display:none;margin-top:16px;color:#804400;font-size:12px;"></div>
+
+      <div class="a-result" id="a-result">
+        <div class="a-result-row">
+          <div class="a-result-cell">
+            <div class="a-lbl">BPM</div>
+            <div class="a-val">140</div>
+            <div class="a-lbl" style="margin-top:8px">Metade (÷2)</div>
+            <div class="a-val-sub">70</div>
+            <div class="a-lbl" style="margin-top:4px">Dobro (×2)</div>
+            <div class="a-val-sub">280</div>
+          </div>
+          <div class="a-result-cell">
+            <div class="a-lbl">Tonalidade</div>
+            <div class="a-val">F# Min</div>
+            <div class="a-lbl" style="margin-top:8px">Camelot</div>
+            <div class="a-val-sub">11A</div>
+          </div>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:12px;">
+          <span style="font-size:12px;color:#804400">~42 MB • WAV 44.1kHz</span>
+          <a href="#" class="a-dl" onclick="return false">BAIXAR WAV</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     VARIANT B — Win98 Bevel (CSS2 puro)
+     ============================================================ -->
+<div id="variant-b" class="variant">
+  <div>
+    <div class="b-wrap">
+      <div class="b-raised">
+        <div class="b-header">
+          <div class="b-title">SoundGrabber</div>
+          <div class="b-tagline">Cole um link do YouTube. Baixe o beat em WAV.</div>
+        </div>
+        <div class="b-body">
+          <div class="b-hint">Vídeos com mais de 15 minutos não são aceitos.</div>
+          <div class="b-input-row">
+            <input class="b-input" type="text" id="b-url" placeholder="https://www.youtube.com/watch?v=..." autocomplete="off">
+            <button class="b-btn" onclick="bFakeSubmit()">Baixar Beat</button>
+          </div>
+
+          <div id="b-progress" style="display:none;margin-top:12px;color:#804400;font-size:12px;"></div>
+
+          <div class="b-result" id="b-result">
+            <div class="b-result-grid">
+              <div class="b-result-cell">
+                <div class="b-lbl">BPM</div>
+                <div class="b-val">140</div>
+                <div class="b-lbl" style="margin-top:6px">Metade / Dobro</div>
+                <div class="b-val-sub">70 / 280</div>
+              </div>
+              <div class="b-result-cell">
+                <div class="b-lbl">Tonalidade</div>
+                <div class="b-val">F# Min</div>
+                <div class="b-lbl" style="margin-top:6px">Camelot</div>
+                <div class="b-val-sub">11A</div>
+              </div>
+              <div class="b-result-cell" style="flex:0.8">
+                <div class="b-lbl">Tamanho</div>
+                <div class="b-val-sub" style="font-size:15px;margin-top:4px">~42 MB</div>
+                <div class="b-val-sub" style="margin-top:2px">WAV 44.1kHz</div>
+              </div>
+            </div>
+            <a href="#" class="b-dl" onclick="return false">BAIXAR WAV</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     VARIANT C — Bloco Extrudado
+     ============================================================ -->
+<div id="variant-c" class="variant">
+  <div>
+    <div class="c-wrap">
+      <div class="c-layer2"></div>
+      <div class="c-layer1"></div>
+      <div class="c-panel">
+        <div class="c-header">
+          <div class="c-title">SoundGrabber</div>
+          <div class="c-tagline-block">
+            <span class="c-tagline">Cole um link do YouTube.</span>
+            <span class="c-tagline">Baixe o beat em WAV.</span>
+          </div>
+        </div>
+        <div class="c-body">
+          <div class="c-hint">Vídeos com mais de 15 minutos não são aceitos.</div>
+          <div class="c-input-wrap">
+            <input class="c-input" type="text" id="c-url" placeholder="https://www.youtube.com/watch?v=..." autocomplete="off">
+            <button class="c-btn" onclick="cFakeSubmit()">Baixar Beat</button>
+          </div>
+
+          <div id="c-progress" style="display:none;margin-bottom:12px;color:#804400;font-size:12px;"></div>
+
+          <div class="c-result" id="c-result">
+            <div class="c-result-grid">
+              <div class="c-stat-box">
+                <div class="c-lbl">BPM</div>
+                <div class="c-val">140</div>
+                <div class="c-val-sub">Metade: 70 · Dobro: 280</div>
+              </div>
+              <div class="c-stat-box">
+                <div class="c-lbl">Tonalidade</div>
+                <div class="c-val">F# Min</div>
+                <div class="c-val-sub">Camelot: 11A</div>
+              </div>
+            </div>
+            <div class="c-dl-row">
+              <span class="c-size">~42 MB · WAV 44.1kHz 16-bit</span>
+              <a href="#" class="c-dl" onclick="return false">BAIXAR WAV</a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     VARIANT D — Win2000 Dialog
+     ============================================================ -->
+<div id="variant-d" class="variant">
+  <div style="min-height:100vh;background:#000;display:flex;align-items:center;justify-content:center;padding:60px 20px;">
+    <div class="d-wrap">
+      <div class="d-window">
+        <div class="d-window-inner">
+
+          <!-- Title bar -->
+          <div class="d-titlebar">
+            <span class="d-titlebar-text">SoundGrabber</span>
+            <div class="d-titlebar-btns">
+              <button class="d-wbtn" title="Minimizar">_</button>
+              <button class="d-wbtn" title="Maximizar">□</button>
+              <button class="d-wbtn" title="Fechar" style="background:#884400;">✕</button>
+            </div>
+          </div>
+
+          <!-- Content -->
+          <div class="d-content">
+            <div class="d-site-name">SoundGrabber</div>
+            <div class="d-site-tag">Cole um link do YouTube. Baixe o beat em WAV.</div>
+
+            <!-- Group box: URL -->
+            <div class="d-groupbox">
+              <span class="d-groupbox-label">URL do vídeo</span>
+              <div style="font-size:11px;color:#804400;margin-bottom:8px;">Vídeos com mais de 15 minutos não são aceitos.</div>
+              <div class="d-input-row">
+                <input class="d-input" type="text" id="d-url" placeholder="https://www.youtube.com/watch?v=..." autocomplete="off">
+                <button class="d-btn" onclick="dFakeSubmit()">Baixar Beat</button>
+              </div>
+              <div id="d-progress"></div>
+            </div>
+
+            <!-- Result group box -->
+            <div class="d-result" id="d-result">
+              <div class="d-groupbox">
+                <span class="d-groupbox-label">Análise</span>
+                <div class="d-result-row">
+                  <div class="d-result-cell">
+                    <div class="d-lbl">BPM</div>
+                    <div class="d-val">140</div>
+                    <div class="d-lbl" style="margin-top:6px">Metade / Dobro</div>
+                    <div class="d-val-sub">70 / 280</div>
+                  </div>
+                  <div class="d-result-cell">
+                    <div class="d-lbl">Tonalidade</div>
+                    <div class="d-val">F# Min</div>
+                    <div class="d-lbl" style="margin-top:6px">Camelot</div>
+                    <div class="d-val-sub">11A</div>
+                  </div>
+                  <div class="d-result-cell" style="flex:0.7">
+                    <div class="d-lbl">Tamanho</div>
+                    <div class="d-val-sub" style="font-size:15px;margin-top:4px">~42 MB</div>
+                    <div class="d-val-sub">WAV 44.1kHz</div>
+                  </div>
+                </div>
+                <div style="margin-top:10px;text-align:right;">
+                  <a href="#" class="d-dl" onclick="return false">BAIXAR WAV</a>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Status bar -->
+          <div class="d-statusbar">
+            <span class="d-status-cell" id="d-status">Pronto</span>
+            <span class="d-status-cell">soundgrabber.local</span>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     VARIANT E — NFO Shade Block
+     ============================================================ -->
+<div id="variant-e" class="variant">
+  <div style="min-height:100vh;background:#000;display:flex;align-items:center;justify-content:center;padding:60px 20px;">
+    <div class="e-wrap">
+      <div class="e-shadow-frame">
+        <!-- Sombra ASCII: div sólida offset atrás -->
+        <div class="e-shadow"></div>
+
+        <!-- Painel principal -->
+        <div class="e-panel">
+
+          <!-- Título NFO-style: ══════ SOUNDGRABBER ══════ -->
+          <div class="e-titlebar">
+            <div>
+              <div class="e-title-text">SoundGrabber</div>
+              <div class="e-title-sub">░░ Cole um link do YouTube. Baixe o beat em WAV. ░░</div>
+            </div>
+          </div>
+
+          <!-- Info strip NFO -->
+          <div class="e-nfo-header">
+            <span>[ TOOL: beat downloader / analyzer ]</span>
+            <span>[ FORMAT: WAV / 44.1kHz ]</span>
+            <span>[ LIMIT: 15min ]</span>
+          </div>
+
+          <!-- Content -->
+          <div class="e-content">
+            <div class="e-hint">» Vídeos com mais de 15 minutos não são aceitos.</div>
+            <div class="e-input-row">
+              <input class="e-input" type="text" id="e-url" placeholder="https://www.youtube.com/watch?v=..." autocomplete="off">
+              <button class="e-btn" onclick="eFakeSubmit()">[ BAIXAR ]</button>
+            </div>
+          </div>
+
+          <div id="e-progress"></div>
+
+          <div class="e-result" id="e-result">
+            <div class="e-divider">░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░</div>
+            <div class="e-result-grid">
+              <div class="e-result-cell">
+                <div class="e-lbl">BPM</div>
+                <div class="e-val">140</div>
+                <div class="e-val-sub">÷2 = 70  ×2 = 280</div>
+              </div>
+              <div class="e-result-cell">
+                <div class="e-lbl">Tonalidade</div>
+                <div class="e-val">F# Min</div>
+                <div class="e-val-sub">Camelot: 11A</div>
+              </div>
+            </div>
+            <div class="e-footer">
+              <span class="e-size">░ ~42 MB · WAV 44.1kHz 16-bit ░</span>
+              <a href="#" class="e-dl" onclick="return false">[ BAIXAR WAV ]</a>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     VARIANT F — Shadow Page 2001
+     ============================================================ -->
+<div id="variant-f" class="variant">
+  <div style="min-height:100vh;background:#050200;display:flex;align-items:center;justify-content:center;padding:70px 20px;">
+    <div class="f-page-wrap">
+      <!-- sombras offset atrás -->
+      <div class="f-shadow-div2"></div>
+      <div class="f-shadow-div"></div>
+
+      <!-- painel principal -->
+      <div class="f-main">
+
+        <!-- Header laranja estilo portal -->
+        <div class="f-header">
+          <div class="f-header-top">
+            <div class="f-title">SoundGrabber</div>
+            <div class="f-tagline-block">
+              <span class="f-tagline">Cole um link do YouTube.</span>
+              <span class="f-tagline">Baixe o beat em WAV.</span>
+            </div>
+          </div>
+          <!-- Nav strip de 2001 -->
+          <div class="f-nav-strip">
+            <a href="#" onclick="return false">inicio</a>
+            <a href="#" onclick="return false">como usar</a>
+            <a href="#" onclick="return false">formatos</a>
+            <a href="#" onclick="return false">contato</a>
+          </div>
+        </div>
+
+        <!-- Conteúdo -->
+        <div class="f-content">
+          <div class="f-hint">Vídeos com mais de 15 minutos não são aceitos.</div>
+          <div class="f-input-group">
+            <div class="f-input-label">URL do Vídeo</div>
+            <div class="f-input-row">
+              <input class="f-input" type="text" id="f-url" placeholder="https://www.youtube.com/watch?v=..." autocomplete="off">
+              <button class="f-btn" onclick="fFakeSubmit()">Baixar Beat</button>
+            </div>
+            <div id="f-progress"></div>
+          </div>
+
+          <div class="f-result" id="f-result">
+            <table class="f-result-table">
+              <tr>
+                <td>
+                  <div class="f-lbl">BPM</div>
+                  <div class="f-val">140</div>
+                  <div class="f-val-sub">Metade: 70 · Dobro: 280</div>
+                </td>
+                <td>
+                  <div class="f-lbl">Tonalidade</div>
+                  <div class="f-val">F# Min</div>
+                  <div class="f-val-sub">Camelot: 11A</div>
+                </td>
+              </tr>
+            </table>
+            <div class="f-dl-bar">
+              <span class="f-size">~42 MB · WAV 44.1kHz 16-bit</span>
+              <a href="#" class="f-dl" onclick="return false">BAIXAR WAV</a>
+            </div>
+          </div>
+        </div>
+
+        <!-- Footer 2001 -->
+        <div class="f-footer">
+          <span>SoundGrabber v1.0 · 2025</span>
+          <span>best viewed at 800x600</span>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ========== Sketch toolbar ========== -->
+<div id="sketch-tools"
+  style="position:fixed;bottom:12px;right:12px;z-index:9999;font-family:system-ui;font-size:11px;background:rgba(0,0,0,0.85);color:white;padding:8px 12px;border-radius:6px;opacity:0.35;transition:opacity 0.2s;border:1px solid #333;min-width:130px;"
+  onmouseenter="this.style.opacity='1'" onmouseleave="this.style.opacity='0.35'">
+  <div style="color:#888;margin-bottom:6px;font-size:10px;letter-spacing:0.5px">SKETCH TOOLS</div>
+  <div style="margin-bottom:6px">
+    <select onchange="document.querySelector('link[href*=themes]').href='../themes/'+this.value+'.css'"
+      style="background:#222;color:#fff;border:1px solid #444;padding:3px 6px;font-size:11px;width:100%">
+      <option value="default">Theme: default</option>
+    </select>
+  </div>
+  <div style="display:flex;gap:4px;justify-content:center">
+    <button onclick="setW('375px')" style="flex:1;background:#222;color:#aaa;border:1px solid #444;padding:3px;font-size:10px;cursor:pointer" title="Mobile">📱</button>
+    <button onclick="setW('768px')" style="flex:1;background:#222;color:#aaa;border:1px solid #444;padding:3px;font-size:10px;cursor:pointer" title="Tablet">💻</button>
+    <button onclick="setW('100%')" style="flex:1;background:#222;color:#aaa;border:1px solid #444;padding:3px;font-size:10px;cursor:pointer" title="Desktop">🖥</button>
+  </div>
+</div>
+
+<script>
+/* ---- Variant switching ---- */
+function showVariant(id, btn) {
+  document.querySelectorAll('.variant').forEach(v => v.classList.remove('active'));
+  document.querySelectorAll('.vtab').forEach(t => t.classList.remove('active'));
+  document.getElementById('variant-' + id).classList.add('active');
+  btn.classList.add('active');
+}
+
+/* ---- Viewport ---- */
+function setW(w) {
+  document.querySelectorAll('.variant > div').forEach(el => el.style.maxWidth = w);
+}
+
+/* ---- Variant A: fake submit ---- */
+const stagesA = ['Verificando duração...', 'Baixando áudio...', 'Convertendo para WAV...', 'Analisando BPM e tonalidade...'];
+function aFakeSubmit() {
+  const url = document.getElementById('a-url').value.trim();
+  if (!url) { document.getElementById('a-url').style.borderColor = '#ff3300'; return; }
+  document.getElementById('a-url').style.borderColor = '#ff8800';
+  document.getElementById('a-result').classList.remove('visible');
+  const prog = document.getElementById('a-progress');
+  prog.style.display = 'block';
+  let i = 0;
+  function tick() {
+    if (i >= stagesA.length) {
+      prog.style.display = 'none';
+      document.getElementById('a-result').classList.add('visible');
+      return;
+    }
+    prog.textContent = '▶ ' + stagesA[i++];
+    setTimeout(tick, 900);
+  }
+  tick();
+}
+
+/* ---- Variant B: fake submit ---- */
+const stagesB = ['Verificando duração...', 'Baixando áudio...', 'Convertendo para WAV...', 'Analisando BPM e tonalidade...'];
+function bFakeSubmit() {
+  const url = document.getElementById('b-url').value.trim();
+  if (!url) { document.getElementById('b-url').style.borderTopColor = '#ff3300'; return; }
+  document.getElementById('b-result').classList.remove('visible');
+  const prog = document.getElementById('b-progress');
+  prog.style.display = 'block';
+  let i = 0;
+  function tick() {
+    if (i >= stagesB.length) {
+      prog.style.display = 'none';
+      document.getElementById('b-result').classList.add('visible');
+      return;
+    }
+    prog.textContent = '[ ' + stagesB[i++] + ' ]';
+    setTimeout(tick, 900);
+  }
+  tick();
+}
+
+/* ---- Variant C: fake submit ---- */
+const stagesC = ['Verificando duração...', 'Baixando áudio...', 'Convertendo para WAV...', 'Analisando BPM e tonalidade...'];
+function cFakeSubmit() {
+  const url = document.getElementById('c-url').value.trim();
+  if (!url) { document.getElementById('c-url').closest('.c-input-wrap').style.borderColor = '#ff3300'; return; }
+  document.getElementById('c-url').closest('.c-input-wrap').style.borderColor = '#ff8800';
+  document.getElementById('c-result').classList.remove('visible');
+  const prog = document.getElementById('c-progress');
+  prog.style.display = 'block';
+  let i = 0;
+  function tick() {
+    if (i >= stagesC.length) {
+      prog.style.display = 'none';
+      document.getElementById('c-result').classList.add('visible');
+      return;
+    }
+    prog.textContent = '» ' + stagesC[i++];
+    setTimeout(tick, 900);
+  }
+  tick();
+}
+
+/* ---- Variant D: fake submit ---- */
+const stagesD = ['Verificando duração...', 'Baixando áudio...', 'Convertendo para WAV...', 'Analisando BPM e tonalidade...'];
+function dFakeSubmit() {
+  const url = document.getElementById('d-url').value.trim();
+  if (!url) { document.getElementById('d-url').style.borderTopColor = '#ff3300'; return; }
+  document.getElementById('d-result').classList.remove('visible');
+  const prog = document.getElementById('d-progress');
+  const status = document.getElementById('d-status');
+  prog.style.display = 'block';
+  let i = 0;
+  function tick() {
+    if (i >= stagesD.length) {
+      prog.style.display = 'none';
+      prog.textContent = '';
+      status.textContent = 'Concluído';
+      document.getElementById('d-result').classList.add('visible');
+      return;
+    }
+    prog.textContent = stagesD[i];
+    status.textContent = stagesD[i];
+    i++;
+    setTimeout(tick, 900);
+  }
+  tick();
+}
+
+/* ---- Variant E: fake submit ---- */
+const stagesE = ['░ Verificando duração...', '▒ Baixando áudio...', '▓ Convertendo para WAV...', '█ Analisando BPM e tonalidade...'];
+function eFakeSubmit() {
+  const url = document.getElementById('e-url').value.trim();
+  if (!url) { document.getElementById('e-url').style.borderColor = '#ff3300'; return; }
+  document.getElementById('e-url').style.borderColor = '#ff8800';
+  document.getElementById('e-result').classList.remove('visible');
+  const prog = document.getElementById('e-progress');
+  prog.style.display = 'block';
+  let i = 0;
+  function tick() {
+    if (i >= stagesE.length) {
+      prog.style.display = 'none';
+      document.getElementById('e-result').classList.add('visible');
+      return;
+    }
+    prog.textContent = stagesE[i++];
+    setTimeout(tick, 900);
+  }
+  tick();
+}
+
+/* ---- Variant F: fake submit ---- */
+const stagesF = ['Verificando duração...', 'Baixando áudio...', 'Convertendo para WAV...', 'Analisando BPM e tonalidade...'];
+function fFakeSubmit() {
+  const url = document.getElementById('f-url').value.trim();
+  if (!url) { document.getElementById('f-url').style.borderColor = '#ff3300'; return; }
+  document.getElementById('f-url').style.borderColor = '#ff8800';
+  document.getElementById('f-result').classList.remove('visible');
+  const prog = document.getElementById('f-progress');
+  prog.style.display = 'block';
+  let i = 0;
+  function tick() {
+    if (i >= stagesF.length) {
+      prog.style.display = 'none';
+      document.getElementById('f-result').classList.add('visible');
+      return;
+    }
+    prog.textContent = '» ' + stagesF[i++];
+    setTimeout(tick, 900);
+  }
+  tick();
+}
+</script>
+
+</body>
+</html>

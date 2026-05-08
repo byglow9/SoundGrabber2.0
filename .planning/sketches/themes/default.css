@@ -1,0 +1,27 @@
+/* SoundGrabber Sketch Theme — Y2K / NFO scene
+   Base visual vocabulary for all sketches
+*/
+:root {
+  --color-bg: #000000;
+  --color-surface: #0a0a0a;
+  --color-orange: #ff8800;
+  --color-orange-light: #ffcc66;
+  --color-orange-mid: #ff6600;
+  --color-orange-dark: #884400;
+  --color-orange-xdark: #442200;
+  --color-text: #ff8800;
+  --color-text-muted: #804400;
+  --color-danger: #ff3300;
+
+  --font-title: 'Dela Gothic One', sans-serif;
+  --font-body: 'Sligoil', 'Courier New', monospace;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  --panel-width: 620px;
+}
