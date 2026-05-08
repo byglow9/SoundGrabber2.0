@@ -13,7 +13,7 @@
 - [ ] **Phase 1: Processing Pipeline** - Prove yt-dlp + FFmpeg + librosa work end-to-end from the target host before building anything else
 - [ ] **Phase 2: API Layer** - Wrap the working pipeline in FastAPI + Celery + Redis with a job-queue HTTP contract
 - [x] **Phase 3: Hardening** - Rate limiting, URL validation, duration caps, and disk safety before public exposure
-- [ ] **Phase 4: Frontend** - Browser-based user flow built against the real, hardened API
+- [x] **Phase 4: Frontend** - Browser-based user flow built against the real, hardened API
 - [ ] **Phase 5: Visual Identity** - Y2K / phpBB / Tibia authentic 2000s aesthetic applied to the complete frontend
 
 ---
@@ -73,10 +73,10 @@ Plans:
   4. The download button triggers a direct WAV file save with no account, no email, and no redirect to an external site
 **Plans:** 4 plans
 Plans:
-- [ ] 04-01-PLAN.md — Wave 1: TDD RED stubs in tests/test_frontend.py (test_index_html_served, test_app_js_served, test_html_required_ids_present, test_wav_size_formula)
-- [ ] 04-02-PLAN.md — Wave 2: create static/index.html with all 16 required IDs and zero CSS (D-10/D-11)
-- [ ] 04-03-PLAN.md — Wave 3: create static/app.js — complete 8-state machine, polling, error recovery, WAV size estimation, download wiring
-- [ ] 04-04-PLAN.md — Wave 4: add GET / (FileResponse) + StaticFiles mount to api/main.py; human-verify browser smoke test
+- [x] 04-01-PLAN.md — Wave 1: TDD RED stubs in tests/test_frontend.py (test_index_html_served, test_app_js_served, test_html_required_ids_present, test_wav_size_formula)
+- [x] 04-02-PLAN.md — Wave 2: create static/index.html with all 16 required IDs and zero CSS (D-10/D-11)
+- [x] 04-03-PLAN.md — Wave 3: create static/app.js — complete 8-state machine, polling, error recovery, WAV size estimation, download wiring
+- [x] 04-04-PLAN.md — Wave 4: add GET / (FileResponse) + StaticFiles mount to api/main.py; human-verify browser smoke test
 **UI hint**: yes
 
 ### Phase 5: Visual Identity
@@ -101,7 +101,7 @@ Plans:
 | 1. Processing Pipeline | 4/4 | Done | 2026-04-30 |
 | 2. API Layer | 0/3 | Planned | - |
 | 3. Hardening | 3/3 | Done | 2026-05-04 |
-| 4. Frontend | 0/4 | Planned | - |
+| 4. Frontend | 4/4 | Done | 2026-05-08 |
 | 5. Visual Identity | 0/? | Not started | - |
 
 ---
