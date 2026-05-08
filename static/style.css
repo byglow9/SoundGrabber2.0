@@ -61,6 +61,11 @@ body {
   color: #ff8800;
 }
 
+#header {
+  border: none;
+  padding: 0 0 16px 0;
+}
+
 /* ============================================================
    Tables — border-collapse for authentic 1px borders
    ============================================================ */
