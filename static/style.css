@@ -1,0 +1,191 @@
+/* SoundGrabber — Visual Identity
+   Y2K / NFO scene aesthetic
+   CSS Level 2 only — no CSS3 properties
+   Palette: #000000 background / #ff8800 accent (monochromatic)
+   Fonts: Dela Gothic One (headers) + Sligoil (body)
+   Reference: NFO BeatMasters International 2000
+*/
+
+/* ============================================================
+   @font-face declarations
+   Both fonts self-hosted — no CDN calls
+   font-display: block — text stays invisible until font loads (no FOUT)
+   ============================================================ */
+
+@font-face {
+  font-family: 'Dela Gothic One';
+  src: url('/static/fonts/DelaGothicOne-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: block;
+}
+
+@font-face {
+  font-family: 'Sligoil';
+  src: url('/static/fonts/Sligoil-Micro.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: block;
+}
+
+/* ============================================================
+   Reset / body
+   font-smoothing disabled globally — bitmap rendering
+   ============================================================ */
+
+body {
+  background-color: #000000;
+  color: #ff8800;
+  font-family: 'Sligoil', 'Courier New', monospace;
+  font-size: 13px;
+  margin: 0;
+  padding: 32px 0;
+  -webkit-font-smoothing: none;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeSpeed;
+}
+
+/* ============================================================
+   Site title and tagline
+   ============================================================ */
+
+#site-title {
+  font-family: 'Dela Gothic One', sans-serif;
+  font-size: 48px;
+  line-height: 1.1;
+  color: #ff8800;
+}
+
+#site-tagline {
+  font-size: 13px;
+  color: #ff8800;
+}
+
+/* ============================================================
+   Tables — border-collapse for authentic 1px borders
+   ============================================================ */
+
+table {
+  border-collapse: collapse;
+}
+
+td {
+  color: #ff8800;
+  padding: 8px;
+  border: 1px solid #ff8800;
+}
+
+/* ============================================================
+   URL input field
+   ============================================================ */
+
+#url-input {
+  background-color: #000000;
+  color: #ff8800;
+  border: 1px solid #ff8800;
+  font-family: 'Sligoil', 'Courier New', monospace;
+  font-size: 13px;
+  padding: 8px;
+  width: 100%;
+  cursor: text;
+  outline: none;
+}
+
+#url-input:focus {
+  border-color: #ff6600;
+}
+
+::-webkit-input-placeholder {
+  color: #804400;
+}
+
+::placeholder {
+  color: #804400;
+}
+
+/* Error state on input — used by app.js classList.add('sg-url-input--error')
+   CRITICAL: do not remove this class — app.js depends on it */
+.sg-url-input--error {
+  border-color: #ff3300 !important;
+}
+
+/* ============================================================
+   Buttons — submit and download (primary actions)
+   Inverted: orange background, black text
+   ============================================================ */
+
+#submit-btn,
+#download-link {
+  background-color: #ff8800;
+  color: #000000;
+  border: 1px solid #ff8800;
+  font-family: 'Dela Gothic One', sans-serif;
+  font-size: 16px;
+  line-height: 1.0;
+  padding: 8px 16px;
+  cursor: pointer;
+}
+
+#submit-btn:hover,
+#download-link:hover {
+  background-color: #ff6600;
+  border-color: #ff6600;
+  color: #000000;
+}
+
+/* ============================================================
+   Retry button (secondary action)
+   Default: black background, orange border + text
+   Hover: inverted (orange background, black text)
+   ============================================================ */
+
+#retry-btn {
+  background-color: #000000;
+  color: #ff8800;
+  border: 1px solid #ff8800;
+  font-family: 'Sligoil', 'Courier New', monospace;
+  font-size: 13px;
+  padding: 8px 16px;
+  cursor: pointer;
+}
+
+#retry-btn:hover {
+  background-color: #ff8800;
+  color: #000000;
+  border-color: #ff8800;
+}
+
+/* ============================================================
+   Result values — BPM and Key (large display)
+   ============================================================ */
+
+#bpm-value,
+#key-value {
+  font-size: 32px;
+  line-height: 1.2;
+  color: #ff8800;
+}
+
+/* ============================================================
+   Labels — uppercase small text
+   ============================================================ */
+
+.label {
+  font-size: 13px;
+  color: #ff8800;
+}
+
+/* ============================================================
+   Informational text — hints, progress, errors
+   All use Sligoil monospace, 13px, orange
+   ============================================================ */
+
+#duration-hint,
+#validation-error,
+#progress-label,
+#error-message,
+#size-value {
+  font-family: 'Sligoil', 'Courier New', monospace;
+  font-size: 13px;
+  color: #ff8800;
+}
