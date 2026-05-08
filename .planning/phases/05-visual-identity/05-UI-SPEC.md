@@ -1,7 +1,8 @@
 ---
 phase: 05
 slug: visual-identity
-status: draft
+status: approved
+reviewed_at: 2026-05-08
 shadcn_initialized: false
 preset: none
 created: 2026-05-08
@@ -56,9 +57,9 @@ Exceptions: Touch targets não se aplicam (desktop-only, fixed 640px). Atributos
 | Site title (`#site-title`) | Dela Gothic One | 48px | Regular (400 — único peso disponível) | 1.1 | disabled |
 | Button text (`#submit-btn`, `#download-link`) | Dela Gothic One | 16px | Regular | 1.0 | disabled |
 | BPM / Key values primários (`#bpm-value`, `#key-value`) | Sligoil | 32px | Regular (400) | 1.2 | disabled |
-| Tagline (`#site-tagline`) | Sligoil | 14px | Regular | 1.4 | disabled |
-| Body / UI text geral | Sligoil | 13px | Regular | 1.4 | disabled |
-| Labels uppercase (`BPM`, `TONALIDADE`, etc.) | Sligoil | 11px | Regular — `text-transform: uppercase` | 1.3 | disabled |
+| Tagline (`#site-tagline`), body / UI text geral, labels uppercase (`BPM`, `TONALIDADE`, etc.) | Sligoil | 13px | Regular — labels usam `text-transform: uppercase` | 1.4 | disabled |
+
+**Nota de consolidação:** Tagline (originalmente 14px) e labels uppercase (originalmente 11px) foram unificados em 13px. A diferença de 1px entre tagline e body é imperceptível; o efeito visual de smallcaps nos labels é obtido via `text-transform: uppercase`, não por redução de tamanho.
 
 ### Font smoothing — regra global obrigatória
 
@@ -88,7 +89,7 @@ body {
 
 `font-display: block` — texto permanece invisível até a fonte carregar. Sem FOUT.
 
-**Source:** 05-CONTEXT.md §2 (locked)
+**Source:** 05-CONTEXT.md §2 (locked) — consolidação aplicada pelo checker (Dimension 4, máximo 4 tamanhos)
 
 ---
 
@@ -217,7 +218,7 @@ Todos os textos abaixo são os valores exatos para a interface. Fonte: index.htm
 | Progress — downloading | `Baixando...` |
 | Progress — converting | `Convertendo...` |
 | Progress — analyzing | `Analisando...` |
-| Label BPM | `BPM` (uppercase, 11px) |
+| Label BPM | `BPM` (uppercase, 13px via `text-transform: uppercase`) |
 | Label BPM metade | `Metade (÷2)` |
 | Label BPM dobro | `Dobro (×2)` |
 | Label tonalidade | `Tonalidade` |
@@ -225,7 +226,9 @@ Todos os textos abaixo são os valores exatos para a interface. Fonte: index.htm
 | Label tamanho | `Tamanho estimado` |
 | Retry button | `Tentar novamente` |
 | Erro de validação | Populado pelo JS (mensagem da API) |
+| Erro de validação (fallback) | `URL inválida ou não suportada. Verifique o link e tente novamente.` |
 | Erro geral (error-message) | Populado pelo JS (mensagem da API) |
+| Erro geral (fallback) | `Não foi possível processar o link. Tente novamente.` |
 
 **Ação destrutiva:** Nenhuma ação destrutiva nesta fase. O botão "Tentar novamente" reinicia o fluxo sem destruir dados persistidos (não há dados persistidos — tool é stateless).
 
