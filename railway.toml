@@ -8,9 +8,6 @@
 #
 # Schema reference: https://docs.railway.com/config-as-code/reference
 
-[build]
-builder = "NIXPACKS"
-
 [deploy]
 startCommand = "uvicorn api.main:app --host 0.0.0.0 --port $PORT --limit-concurrency 100 --timeout-keep-alive 5"
 healthcheckPath = "/health"
