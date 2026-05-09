@@ -2,8 +2,8 @@
 
 **Fonte de verdade dos controles de seguranca ativos.** Atualizar sempre que um novo controle for adicionado ou removido. Esta checklist eh referenciada por `CLAUDE.md > Security Gate` e deve estar verde antes de cada deploy de producao.
 
-**Ultima atualizacao:** Phase 6 (Application Security)
-**Proxima revisao:** Phase 7 (Infrastructure Security) — SEC-INFRA-01..04
+**Ultima atualizacao:** Phase 7 (Infrastructure Security)
+**Proxima revisao:** v1.2 (CSP sem `'unsafe-inline'`)
 
 ## Como usar
 
@@ -137,21 +137,58 @@
 
 ---
 
-## 6. Threats NAO mitigados nesta fase (deferidos)
+## 6. Infrastructure Security (Phase 7)
 
-Estes itens estao escopados para Phase 7 (Infrastructure Security) ou v1.2:
+### SEC-INFRA-01 — Redis exige autenticacao em producao
 
-- **SEC-INFRA-01** — Redis com senha obrigatoria em producao (Phase 7)
-- **SEC-INFRA-02** — Uvicorn em 127.0.0.1 + nginx reverse proxy (Phase 7)
-- **SEC-INFRA-03** — HTTPS via Let's Encrypt + redirect 301 HTTP -> HTTPS (Phase 7)
-- **SEC-INFRA-04** — HSTS header `max-age=31536000` (Phase 7)
+- [ ] `api/main.py::_check_redis_auth(redis_url, dev_mode)` levanta `RuntimeError` quando `"@" not in redis_url` e `dev_mode=False`
+- [ ] `api/main.py:lifespan` chama `_check_redis_auth(settings.redis_url, settings.dev_mode)` antes de iniciar a sweeper thread
+- [ ] `api/config.py::Settings` tem campo `dev_mode: bool` lido da env var `DEV_MODE` (default `False`)
+- [ ] Producao Railway: `DEV_MODE` NAO eh definido nas env vars do servico (D-14)
+- [ ] Producao Railway: `REDIS_URL` injetado pelo servico Railway Redis tem formato `redis://default:<senha>@redis.railway.internal:6379` (D-08)
+- **Verificacao:** `pytest tests/test_security.py::test_redis_auth_required tests/test_security.py::test_redis_auth_bypass_dev_mode tests/test_security.py::test_redis_auth_passes_with_password -x`
+- **Verificacao runtime:** apos deploy Railway, logs do servico nao mostram `RuntimeError`; o servico fica em estado "Active" e responde 200 em `/health`
+- **Threat:** Elevation of Privilege — Redis sem senha exposto na rede privada Railway permitiria acesso de outros servicos comprometidos
+
+### SEC-INFRA-02 — Uvicorn nao exposto diretamente a internet
+
+- [ ] `railway.toml::[deploy]::startCommand` usa `--host 0.0.0.0 --port $PORT` (necessario para o proxy Railway acessar o container; D-11)
+- [ ] Railway PaaS isola o container do acesso direto da internet — todas as requisicoes passam pelo edge proxy Railway que termina TLS e faz forwarding para o container privado
+- [ ] `start.sh` (desenvolvimento local) eh separado de `railway.toml` (producao); start.sh roda em `0.0.0.0:8000` na maquina local, fora do escopo do controle de producao (D-12)
+- **Verificacao:** `grep -E '^startCommand.*0\.0\.0\.0.*\$PORT' railway.toml`
+- **Verificacao runtime:** apos deploy, tentar conexao TCP direta na porta interna do container falha (apenas o subdomain HTTPS Railway responde)
+- **Threat:** Spoofing / Tampering — exposicao direta permitiria bypass de TLS e dos headers de seguranca aplicados pelo edge
+
+### SEC-INFRA-03 — HTTPS via Railway (HTTP -> HTTPS 301)
+
+- [ ] Railway PaaS faz HTTPS termination automatico para `*.up.railway.app` (D-04, D-10)
+- [ ] Railway PaaS faz redirect 301 HTTP -> HTTPS automatico para GET requests (D-05)
+- [ ] Nenhuma configuracao manual necessaria (sem nginx, sem certbot, sem cron de renovacao)
+- **Verificacao runtime:** `curl -s -o /dev/null -w "%{http_code}\n" http://<app>.up.railway.app/` retorna `301`
+- **Verificacao runtime:** `curl -sI https://<app>.up.railway.app/` retorna `200` com `Server: railway-edge` ou similar
+- **Threat:** Tampering (MITM) — HTTPS obrigatorio impede injecao de conteudo em transito
+
+### SEC-INFRA-04 — HSTS header em todas as respostas
+
+- [ ] `api/main.py::_security_headers` injeta `Strict-Transport-Security: max-age=31536000; includeSubDomains` em todas as respostas
+- [ ] Header presente em todas as rotas (testado via TestClient em test_hsts_header)
+- **Verificacao:** `pytest tests/test_security.py::test_hsts_header -x`
+- **Verificacao runtime:** `curl -sI https://<app>.up.railway.app/health | grep -i strict-transport-security` retorna `Strict-Transport-Security: max-age=31536000; includeSubDomains`
+- **Threat:** Tampering (downgrade HTTPS->HTTP) — apos primeira visita HTTPS, browser refuta HTTP por 1 ano
+
+---
+
+## 7. Threats NAO mitigados nesta fase (deferidos)
+
+Estes itens estao escopados para v1.2 ou versoes futuras:
+
 - **CSP sem `'unsafe-inline'`** — requer remover inline styles do HTML Y2K (v1.2)
 - **Private /tmp directory por job** — `/tmp/sg_{id}/` com `os.mkdir(mode=0o700)` (v2)
 - **Job cancellation endpoint** — DELETE /jobs/{id} com auth (v2)
 
 ---
 
-## 7. Verificacao end-to-end (rodar antes de cada deploy)
+## 8. Verificacao end-to-end (rodar antes de cada deploy)
 
 Bloco de comandos shell para validar a checklist completa antes de deploy. Cada bloco em fence bash.
 
@@ -170,6 +207,11 @@ pip-audit -r requirements.txt
 ls -l start.sh                     # esperado: -rwxr-x---
 stat -c '%a' /tmp/sg_*.wav 2>/dev/null | sort -u  # esperado: 600
 
+# 4.5 Verificar railway.toml e HSTS local
+test -f railway.toml && echo "railway.toml OK" || echo "railway.toml MISSING"
+grep -q 'startCommand.*0.0.0.0.*$PORT' railway.toml && echo "Railway startCommand OK"
+pytest tests/test_security.py::test_hsts_header -q
+
 # 5. Smoke test do health endpoint (com server up)
 curl -s http://localhost:8000/health
 
@@ -184,10 +226,10 @@ done
 
 ---
 
-## 8. Historico de mudancas
+## 9. Historico de mudancas
 
 | Data | Phase | Controles adicionados |
 |------|-------|----------------------|
 | Phase 3 | Hardening | Body size, security headers, docs disabled, queue depth, rate limit POST /jobs |
 | Phase 6 | Application Security | WAV chmod 0o600, start.sh chmod 750, rate limit GET /jobs e /files, /health endpoint, pip-audit policy, este checklist |
-| Phase 7 (planned) | Infrastructure Security | Redis auth, nginx reverse proxy, HTTPS, HSTS |
+| Phase 7 | Infrastructure Security | Redis auth enforcement (DEV_MODE bypass), HSTS via FastAPI middleware, Railway PaaS deploy (railway.toml), HTTPS automatico Railway |
