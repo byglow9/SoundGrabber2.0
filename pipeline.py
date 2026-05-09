@@ -23,6 +23,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+import essentia.standard as es
 import librosa
 import numpy as np
 import yt_dlp
@@ -260,7 +261,38 @@ _MINOR_PROFILE = [6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.
 _NOTES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 
 
-# Stage 3: BPM detection (ANALYSIS-01)
+# Stage 3a: Tuning detection (TUNING-01, TUNING-02)
+def detect_tuning(wav_path: Path) -> float | None:
+    """Detecta frequência de referência (concert pitch) do beat via HPSS + librosa.estimate_tuning.
+
+    Aplica Harmonic-Percussive Source Separation (HPSS) para isolar o componente harmônico.
+    Se a razão de energia harmônica for < 0.2 (beat puramente percussivo), retorna None —
+    o resultado seria ruído, não um concert pitch mensurável.
+
+    Args:
+        wav_path: Path para o arquivo WAV.
+
+    Returns:
+        Frequência de afinação em Hz (float), ou None se o beat for essencialmente percussivo.
+        Exemplo: 440.0 para A=440 padrão, 432.0 para A=432, None para trap sem melodia.
+    """
+    y, sr = librosa.load(str(wav_path), sr=None, mono=True)
+    # margin=2.0: HPSS mais restritivo — ruído branco (ratio ~0.05 < 0.2) → None corretamente;
+    # sinal harmônico puro (ratio ~1.0) → passa o gate sem degradação.
+    y_harmonic, _ = librosa.effects.hpss(y, margin=2.0)
+
+    total_energy = float(np.sum(y**2))
+    harm_energy = float(np.sum(y_harmonic**2))
+    ratio = harm_energy / (total_energy + 1e-10)  # 1e-10: evita divisão por zero em silêncio puro
+
+    if ratio < 0.2:
+        return None  # beat puramente percussivo — tuning seria ruído
+
+    raw_tuning = librosa.estimate_tuning(y=y_harmonic, sr=sr, resolution=0.01)
+    return float(librosa.tuning_to_A4(raw_tuning))
+
+
+# Stage 3b: BPM detection (ANALYSIS-01)
 def detect_bpm(wav_path: Path, total_duration: float) -> float:
     """Detect BPM using librosa.feature.tempo (NOT beat_track — Pattern 4 rationale).
 
