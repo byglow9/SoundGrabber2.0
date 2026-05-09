@@ -193,29 +193,6 @@ td {
    Hover: inverted (orange background, black text)
    ============================================================ */
 
-#download-area {
-  margin-top: 6px;
-}
-
-#novo-area {
-  margin-top: 8px;
-}
-
-#novo-btn {
-  background-color: #000000;
-  color: #ff8800;
-  border: 1px solid #ff8800;
-  font-family: 'Sligoil', 'Courier New', monospace;
-  font-size: 13px;
-  padding: 6px 12px;
-  cursor: pointer;
-}
-
-#novo-btn:hover {
-  background-color: #ff8800;
-  color: #000000;
-}
-
 #retry-btn {
   background-color: #000000;
   color: #ff8800;
@@ -256,6 +233,84 @@ td {
    Informational text — hints, progress, errors
    All use Sligoil monospace, 13px, orange
    ============================================================ */
+
+#info-btn {
+  display: inline-block;
+  margin-top: 6px;
+  margin-right: 4px;
+  background-color: #000000;
+  color: #ff8800;
+  border: 1px solid #ff8800;
+  font-size: 16px;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  cursor: pointer;
+  vertical-align: top;
+}
+
+#info-btn:hover {
+  background-color: #ff8800;
+  color: #000000;
+}
+
+/* ============================================================
+   Modal de aviso legal
+   ============================================================ */
+
+#info-modal {
+  position: fixed;
+  width: 240px;
+  border: 2px solid #ff8800;
+  background-color: #000000;
+  z-index: 100;
+}
+
+
+#info-modal-title {
+  font-family: 'Dela Gothic One', sans-serif;
+  font-size: 13px;
+  color: #000000;
+  background-color: #ff8800;
+  padding: 6px 10px;
+  letter-spacing: 1px;
+}
+
+#info-modal-body {
+  padding: 14px 12px;
+  font-family: 'Sligoil', 'Courier New', monospace;
+  font-size: 12px;
+  color: #ff8800;
+}
+
+#info-modal-body p {
+  margin: 0 0 12px 0;
+}
+
+#info-modal-body p:last-child {
+  margin-bottom: 0;
+}
+
+#info-modal-footer {
+  padding: 8px 12px;
+  border-top: 1px solid #ff8800;
+  text-align: right;
+}
+
+#info-close-btn {
+  background-color: #ff8800;
+  color: #000000;
+  border: 1px solid #ff8800;
+  font-family: 'Dela Gothic One', sans-serif;
+  font-size: 12px;
+  padding: 4px 16px;
+  cursor: pointer;
+}
+
+#info-close-btn:hover {
+  background-color: #ff6600;
+  border-color: #ff6600;
+}
 
 #duration-hint,
 #validation-error,

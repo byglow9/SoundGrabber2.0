@@ -178,7 +178,6 @@ function showIdle() {
   $('form-area').hidden = false;
   $('progress-area').hidden = true;
   $('result-card').hidden = true;
-  $('novo-area').hidden = true;
   $('error-area').hidden = true;
   $('validation-error').hidden = true;
 }
@@ -350,17 +349,33 @@ function init() {
     setState('IDLE');
   });
 
+  // Wire info button — open speech bubble aligned to button
+  $('info-btn').addEventListener('click', () => {
+    const modal = $('info-modal');
+    const btn = $('info-btn').getBoundingClientRect();
+    const app = $('app').getBoundingClientRect();
+
+    // Position bubble to the right of the app table, vertically centered on button
+    const left = app.right + 16;
+    const btnCenterY = btn.top + btn.height / 2;
+    const top = btnCenterY - 20;
+
+    modal.style.left = left + 'px';
+    modal.style.top = top + 'px';
+    modal.hidden = false;
+  });
+
+  // Wire close button — close speech bubble
+  $('info-close-btn').addEventListener('click', () => {
+    $('info-modal').hidden = true;
+  });
+
   // Wire retry button (ERROR_JOB state — D-06: reuse URL already in field, resubmit directly)
   $('retry-btn').addEventListener('click', () => {
     const url = $('url-input').value.trim();
     if (!url) return;
     setState('SUBMITTING');
     submitJob(url);
-  });
-
-  // Wire "Baixar outro beat" button (DONE state)
-  $('novo-btn').addEventListener('click', () => {
-    setState('IDLE');
   });
 
   // Enter key on input field triggers submit

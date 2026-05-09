@@ -253,14 +253,6 @@ def validate_wav(wav_path: Path) -> float:
     return duration
 
 
-# Krumhansl-Schmuckler tone profiles for key detection (ANALYSIS-02).
-# Reference values from Krumhansl & Kessler (1982); standard MIR practice.
-# Source: librosa documentation + classic MIR literature.
-_MAJOR_PROFILE = [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88]
-_MINOR_PROFILE = [6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17]
-_NOTES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
-
-
 # Stage 3a: Tuning detection (TUNING-01, TUNING-02)
 def detect_tuning(wav_path: Path) -> float | None:
     """Detecta frequência de referência (concert pitch) do beat via HPSS + librosa.estimate_tuning.
@@ -313,54 +305,31 @@ def detect_bpm(wav_path: Path) -> float:
     return float(bpm)  # float() defensivo: binding cp312 já retorna float, mas garante robustez futura
 
 
-# Stage 4: Key detection (ANALYSIS-02)
-def _detect_key_from_chroma(chroma: "np.ndarray") -> str:
-    """Internal helper: run Krumhansl-Schmuckler correlation on a chroma matrix.
+# Stage 3c: Key detection (PREC-02, PREC-03, PREC-05)
+def detect_key(wav_path: Path, tuning_hz: float | None) -> tuple[str, float]:
+    """Tonalidade via Essentia KeyExtractor(profileType='edma') com correção de tuning.
 
-    Returns: '<NOTE> <major|minor>' string with the highest correlation across all 24 profiles.
-    """
-    chroma_mean = chroma.mean(axis=1)
-
-    major_corrs = [
-        float(np.corrcoef(np.roll(_MAJOR_PROFILE, i), chroma_mean)[0, 1])
-        for i in range(12)
-    ]
-    minor_corrs = [
-        float(np.corrcoef(np.roll(_MINOR_PROFILE, i), chroma_mean)[0, 1])
-        for i in range(12)
-    ]
-
-    best_major_idx = int(np.argmax(major_corrs))
-    best_minor_idx = int(np.argmax(minor_corrs))
-
-    if major_corrs[best_major_idx] >= minor_corrs[best_minor_idx]:
-        return f"{_NOTES[best_major_idx]} major"
-    return f"{_NOTES[best_minor_idx]} minor"
-
-
-def detect_key(wav_path: Path) -> str:
-    """Detect musical key using Krumhansl-Schmuckler correlation on chroma_cqt mean.
-
-    Loads up to 120s of audio (Pitfall 4: chroma needs sufficient harmonic content).
-    For shorter files (e.g., the 5s test fixture), librosa truncates `duration` silently —
-    the function still works; accuracy is lower than on full tracks, which is expected
-    for a unit test on a pure tone. Real accuracy is verified by e2e tests in Plan 04.
+    CRÍTICO: tuning_hz deve ser passado APÓS detect_tuning() — não antes.
+    O parâmetro tuningFrequency é de instanciação: os bins HPCP são computados
+    uma única vez. Se tuning_hz for None (beat percussivo), usa 440.0 Hz como
+    fallback neutro — KeyExtractor ainda funciona, apenas sem correção de pitch.
 
     Args:
-        wav_path: Path to the WAV file.
+        wav_path: Path para o arquivo WAV.
+        tuning_hz: Frequência de referência em Hz retornada por detect_tuning(),
+                   ou None para beat percussivo. Nunca passar None sem verificação.
 
     Returns:
-        Key as '<NOTE> <major|minor>' string (e.g., 'F# minor', 'C major').
-        NOTE uses sharp accidentals (#) — CAMELOT table maps both # and b spellings.
+        Tuple de (key_string, confidence) onde key_string é '<NOTA> <major|minor>'
+        (ex: 'F# minor', 'A major') e confidence é float em [0.0, 1.0].
     """
-    y, sr = librosa.load(
-        str(wav_path),
-        sr=22050,
-        mono=True,
-        duration=120.0,
-    )
-    chroma = librosa.feature.chroma_cqt(y=y, sr=sr)
-    return _detect_key_from_chroma(chroma)
+    audio = es.MonoLoader(filename=str(wav_path), sampleRate=44100)()
+    freq = tuning_hz if tuning_hz is not None else 440.0
+    key, scale, strength = es.KeyExtractor(
+        profileType="edma",
+        tuningFrequency=freq,
+    )(audio)
+    return str(f"{key} {scale}"), float(strength)
 
 
 # Camelot wheel — 24-entry static table (ANALYSIS-04, Pattern 6 in RESEARCH.md).
@@ -419,47 +388,54 @@ def key_to_camelot(key: str) -> str:
 
 # Stage 6: Top-level analysis orchestrator (ANALYSIS-01..04 + D-05 output shape)
 def analyze_audio(wav_path: Path) -> dict[str, Any]:
-    """Run the full analysis pipeline on an existing WAV and return the D-05 JSON shape.
+    """Executa o pipeline completo de análise e retorna o dict JSON-serializable.
 
     Pipeline order:
-      1. validate_wav  — ffprobe sanity check + duration retrieval (Plan 02).
-      2. detect_bpm    — librosa.feature.tempo on a 90s window (offset 20%).
-      3. detect_key    — librosa.feature.chroma_cqt + Krumhansl-Schmuckler on a 120s window.
-      4. key_to_camelot — O(1) lookup in the static CAMELOT table.
-      5. Compute bpm_half = bpm/2, bpm_double = bpm*2 (D-06 — pure arithmetic, no second analysis).
+      1. validate_wav  — ffprobe sanity check + duration retrieval.
+      2. detect_tuning — librosa HPSS: concert pitch Hz ou None se percussivo.
+      3. detect_bpm    — Essentia RhythmExtractor2013(method='multifeature').
+      4. detect_key    — Essentia KeyExtractor(profileType='edma', tuningFrequency=tuning_hz).
+                         tuning_hz passado ANTES dos bins HPCP serem computados (PREC-03).
+      5. key_to_camelot — lookup O(1) na tabela estática.
+      6. Derivar bpm_half e bpm_double (aritmética pura).
 
-    The WAV is NOT deleted by this function — Phase 2 owns the WAV lifecycle (D-09).
+    O WAV NÃO é deletado por esta função — Phase 2 gerencia o ciclo de vida (D-09).
 
     Args:
-        wav_path: Path to a WAV file produced by download_audio (or any other source).
+        wav_path: Path para um arquivo WAV produzido por download_audio().
 
     Returns:
-        Dict with exactly these keys (all JSON-native types — Pitfall 3 mitigation):
-            bpm           (float)  — primary detected BPM
-            bpm_half      (float)  — bpm / 2
-            bpm_double    (float)  — bpm * 2
-            key           (str)    — '<NOTE> <major|minor>' (e.g., 'F# minor')
-            camelot       (str)    — Camelot wheel code (e.g., '11A') or '?' if unmapped
-            duration_sec  (float)  — file duration as reported by ffprobe
-            wav_path      (str)    — string form of the input path (NOT a Path object)
+        Dict com os seguintes campos (todos tipos Python nativos — JSON-safe):
+            bpm           (float)        — BPM primário detectado
+            bpm_half      (float)        — bpm / 2 arredondado a 1 decimal
+            bpm_double    (float)        — bpm * 2 arredondado a 1 decimal
+            key           (str)          — '<NOTA> <major|minor>' (ex: 'F# minor')
+            camelot       (str)          — código Camelot (ex: '11A') ou '?' se não mapeado
+            key_confidence (float)       — confiança do KeyExtractor em [0.0, 1.0]
+            tuning_hz     (float | None) — concert pitch em Hz, ou None se beat percussivo
+            duration_sec  (float)        — duração do arquivo em segundos (via ffprobe)
+            wav_path      (str)          — path do WAV como string (não Path object)
 
     Raises:
-        ValueError: If validate_wav fails (file missing, corrupt, or ffprobe error).
+        ValueError: Se validate_wav falhar (arquivo ausente, corrompido, ou erro de ffprobe).
     """
     wav_path = Path(wav_path)
     duration_sec = validate_wav(wav_path)
-    bpm = detect_bpm(wav_path)
-    key = detect_key(wav_path)
+    tuning_hz = detect_tuning(wav_path)           # Step 2: ANTES de detect_key (PREC-03)
+    bpm = detect_bpm(wav_path)                    # Step 3: Essentia
+    key, key_confidence = detect_key(wav_path, tuning_hz)  # Step 4: tuning_hz já calculado
     camelot = key_to_camelot(key)
 
     return {
-        "bpm": float(bpm),
-        "bpm_half": round(float(bpm) / 2, 1),
-        "bpm_double": round(float(bpm) * 2, 1),
-        "key": str(key),
-        "camelot": str(camelot),
-        "duration_sec": round(float(duration_sec), 1),
-        "wav_path": str(wav_path),
+        "bpm":            float(bpm),
+        "bpm_half":       round(float(bpm) / 2, 1),
+        "bpm_double":     round(float(bpm) * 2, 1),
+        "key":            str(key),
+        "camelot":        str(camelot),
+        "key_confidence": float(key_confidence),
+        "tuning_hz":      tuning_hz,    # float ou None — JSON-serializable (TUNING-03)
+        "duration_sec":   round(float(duration_sec), 1),
+        "wav_path":       str(wav_path),
     }
 
 

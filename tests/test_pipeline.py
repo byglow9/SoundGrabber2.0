@@ -141,10 +141,11 @@ def test_key_detection(sample_wav_path):
     A4 = 440Hz, so chroma should peak at A. Result should be 'A major' or 'A minor'.
     """
     pipeline = pytest.importorskip("pipeline", reason="pipeline.py not yet implemented (Plan 03)")
-    key = pipeline.detect_key(sample_wav_path)
+    key, confidence = pipeline.detect_key(sample_wav_path, tuning_hz=None)
     assert isinstance(key, str), f"key must be str, got {type(key)}"
     assert key.startswith("A "), f"Expected key starting with 'A ' for 440Hz tone, got: {key!r}"
     assert key.endswith(("major", "minor")), f"key must end with 'major' or 'minor', got: {key!r}"
+    assert 0.0 <= confidence <= 1.0, f"confidence must be in [0,1], got {confidence}"
 
 
 # ---------------------------------------------------------------------------
@@ -159,7 +160,8 @@ def test_bpm_half_double_calculation():
     pipeline = pytest.importorskip("pipeline", reason="pipeline.py not yet implemented (Plan 03)")
     # Stub the underlying detection so we can verify only the half/double math
     with patch.object(pipeline, "detect_bpm", return_value=140.0), \
-         patch.object(pipeline, "detect_key", return_value="C major"), \
+         patch.object(pipeline, "detect_key", return_value=("C major", 1.0)), \
+         patch.object(pipeline, "detect_tuning", return_value=440.0), \
          patch.object(pipeline, "validate_wav", return_value=180.0):
         result = pipeline.analyze_audio(Path("/tmp/fake.wav"))
     assert result["bpm"] == 140.0
@@ -293,13 +295,14 @@ def test_json_output_shape():
     """analyze_audio() return value must serialize to JSON with all required fields per D-05."""
     pipeline = pytest.importorskip("pipeline", reason="pipeline.py not yet implemented (Plan 03)")
     with patch.object(pipeline, "detect_bpm", return_value=140.0), \
-         patch.object(pipeline, "detect_key", return_value="F# minor"), \
+         patch.object(pipeline, "detect_key", return_value=("F# minor", 1.0)), \
+         patch.object(pipeline, "detect_tuning", return_value=440.0), \
          patch.object(pipeline, "validate_wav", return_value=183.0):
         result = pipeline.analyze_audio(Path("/tmp/sg_abc123.wav"))
     # Must serialize without TypeError (Pitfall 3 — librosa may return ndarray)
     serialized = json.dumps(result)
     parsed = json.loads(serialized)
-    required = {"bpm", "key", "camelot", "bpm_half", "bpm_double", "wav_path", "duration_sec"}
+    required = {"bpm", "key", "camelot", "bpm_half", "bpm_double", "wav_path", "duration_sec", "tuning_hz"}
     assert required.issubset(parsed.keys()), f"Missing fields: {required - set(parsed.keys())}"
     assert parsed["camelot"] == "11A", f"F# minor -> 11A expected, got {parsed['camelot']!r}"
 

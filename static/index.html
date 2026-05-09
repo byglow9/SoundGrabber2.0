@@ -16,9 +16,10 @@
           <tr>
             <td style="border:none;padding:0">
               <div id="site-title">SoundGrabber</div>
-              <div id="site-tagline">Cole um link do YouTube. Baixe o beat em WAV.</div>
+              <div id="site-tagline">by @divineglowboy</div>
             </td>
             <td align="right" valign="bottom" style="border:none;padding:0">
+              <button type="button" id="info-btn" title="Aviso legal">?</button>
               <button type="button" id="clear-btn" title="Limpar">&#x21BA;</button>
             </td>
           </tr>
@@ -32,7 +33,7 @@
 
         <!-- Duration hint — always visible (UX-04) -->
         <div id="duration-hint">
-          Vídeos com mais de 15 minutos não são aceitos.
+          Cole o link do YouTube. Baixe o beat em WAV.
         </div>
 
         <!-- URL input group -->
@@ -119,6 +120,19 @@
 
   </table>
 </div>
+
+  <!-- Balão de fala — aviso legal -->
+  <div id="info-modal" hidden>
+    <div id="info-modal-title">AVISO LEGAL</div>
+    <div id="info-modal-body">
+      <p>Esta ferramenta foi desenvolvida para uso legítimo por produtores, artistas e entusiastas de música. Não somos afiliados ao YouTube ou ao Google.</p>
+      <p>Por exigência legal, não nos responsabilizamos pelo conteúdo baixado por meio desta plataforma. Todo o uso é de inteira responsabilidade do usuário. Registros de acesso são mantidos conforme exigido por lei.</p>
+      <p>Se você é titular de algum direito e tiver uma solicitação, pode nos contatar. Dito isso, aproveite a ferramenta.</p>
+    </div>
+    <div id="info-modal-footer">
+      <button type="button" id="info-close-btn">FECHAR</button>
+    </div>
+  </div>
 
   <script src="/static/app.js"></script>
 </body>
