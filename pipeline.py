@@ -40,7 +40,7 @@ WAV_TMP_DIR = Path("/tmp")
 
 
 # Stage 0: Duration check (CORE-05, D-10)
-def check_duration(url: str, cookies_path: str) -> dict[str, Any]:
+def check_duration(url: str, cookies_path: str, bgutil_base_url: str = "") -> dict[str, Any]:
     """Fetch yt-dlp metadata WITHOUT downloading; verify duration <= MAX_DURATION_SEC.
 
     Args:
@@ -62,8 +62,10 @@ def check_duration(url: str, cookies_path: str) -> dict[str, Any]:
         "noplaylist": True,
         "format": "bestaudio/best",
         "ffmpeg_location": _FFMPEG_PATH,
-        "extractor_args": {"youtube": ["player_client=android,web"]},
+        "extractor_args": {"youtube": ["player_client=web"]},
     }
+    if bgutil_base_url:
+        ydl_opts["extractor_args"]["youtubepot-bgutilhttp"] = [f"base_url={bgutil_base_url}"]
     if cookies_path:
         ydl_opts["cookiefile"] = cookies_path
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -86,7 +88,7 @@ def check_duration(url: str, cookies_path: str) -> dict[str, Any]:
 
 
 # Stage 1: Download + Conversion (CORE-03, CORE-04)
-def download_audio(url: str, cookies_path: str, po_token: str) -> Path:
+def download_audio(url: str, cookies_path: str, po_token: str, bgutil_base_url: str = "") -> Path:
     """Download YouTube audio and convert to WAV via yt-dlp's FFmpegExtractAudio postprocessor.
 
     Output: /tmp/sg_{12hex}.wav  (D-08). The intermediate audio file (webm/m4a) is
@@ -116,9 +118,11 @@ def download_audio(url: str, cookies_path: str, po_token: str) -> Path:
     # extractor_args MUST be a list of strings, NOT a nested dict.
     # Pitfall: nested dict format causes "Requested format is not available" error.
     # Correct format verified via: github.com/yt-dlp/yt-dlp/issues/14307
-    extractor_args: dict[str, list[str]] = {"youtube": ["player_client=android,web"]}
+    extractor_args: dict[str, list[str]] = {"youtube": ["player_client=web"]}
     if po_token:
         extractor_args["youtube"].append(f"po_token=web.gvs+{po_token}")
+    if bgutil_base_url:
+        extractor_args["youtubepot-bgutilhttp"] = [f"base_url={bgutil_base_url}"]
 
     ydl_opts: dict[str, Any] = {
         "format": "bestaudio/best",

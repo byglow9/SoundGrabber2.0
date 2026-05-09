@@ -54,17 +54,11 @@ def process_job(self, url: str) -> dict[str, Any]:
     try:
         # Stage 0: duration check — raises ValueError if > 900s (CORE-05)
         self.update_state(state="DOWNLOADING", meta={"stage": "checking_duration"})
-        import os
-        from pathlib import Path
-        _cp = settings.cookies_path
-        _exists = Path(_cp).exists() if _cp else False
-        _size = Path(_cp).stat().st_size if _exists else 0
-        logger.warning("DIAG cookies_path=%r exists=%s size=%d b64_set=%s", _cp, _exists, _size, bool(os.environ.get("YTDLP_COOKIES_B64")))
-        info = check_duration(url, settings.cookies_path)
+        info = check_duration(url, settings.cookies_path, settings.bgutil_base_url)
 
         # Stage 1: download + convert (yt-dlp FFmpegExtractAudio postprocessor produces WAV)
         self.update_state(state="DOWNLOADING", meta={"stage": "downloading"})
-        wav_path = download_audio(url, settings.cookies_path, settings.po_token)
+        wav_path = download_audio(url, settings.cookies_path, settings.po_token, settings.bgutil_base_url)
 
         # Stage 2: converting — discrete contract state (yt-dlp already produced the WAV,
         # but CONVERTING is part of the 5-state API contract from ROADMAP)
