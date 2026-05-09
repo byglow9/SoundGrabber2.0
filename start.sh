@@ -18,19 +18,19 @@ if [ -f "$PROJECT_DIR/.env" ]; then
     set +a
 fi
 
-# Verificar dependências críticas
-if ! python -c "import essentia.standard" &>/dev/null; then
-    log "Instalando essentia (necessário para BPM/key Essentia)..."
-    pip install -q essentia==2.1b6.dev1389
-fi
-
-# Cores
+# Cores e log() definidos ANTES de qualquer uso (WR-03: evita crash sob set -e)
 C_RESET='\033[0m'
 C_CELERY='\033[36m'   # ciano
 C_SERVER='\033[32m'   # verde
 C_START='\033[33m'    # amarelo
 
 log() { echo -e "${C_START}[start]${C_RESET} $1"; }
+
+# Verificar dependências críticas
+if ! python -c "import essentia.standard" &>/dev/null; then
+    log "Instalando essentia (necessário para BPM/key Essentia)..."
+    pip install -q essentia==2.1b6.dev1389
+fi
 
 if ! redis-cli ping &>/dev/null; then
     log "Iniciando Redis..."
