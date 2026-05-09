@@ -74,18 +74,24 @@ def test_startsh_permissions():
     chmod manualmente e verificando o resultado.
 
     NOTA: este teste APLICA o chmod 750 (mesmo comportamento do start.sh apos
-    Wave 1). Falhara se start.sh nao existir.
+    Wave 1). O modo original e restaurado no bloco finally para nao deixar
+    efeito colateral no filesystem apos a execucao do teste (WR-04).
+    Falhara se start.sh nao existir.
     """
     project_root = Path(__file__).resolve().parent.parent
     startsh = project_root / "start.sh"
     assert startsh.exists(), f"start.sh nao encontrado em {startsh}"
-    # Simula o auto-chmod que Wave 1 vai adicionar como primeira linha do script.
+    original_mode = stat.S_IMODE(os.stat(startsh).st_mode)
+    # Simula o auto-chmod que Wave 1 adicionou como primeira linha do script.
     # Apos Wave 1, qualquer execucao do start.sh garante 0o750.
     os.chmod(startsh, 0o750)
-    st = os.stat(startsh)
-    assert (st.st_mode & 0o777) == 0o750, (
-        f"start.sh deve ter modo 0o750, obtido {oct(st.st_mode & 0o777)}"
-    )
+    try:
+        st = os.stat(startsh)
+        assert (st.st_mode & 0o777) == 0o750, (
+            f"start.sh deve ter modo 0o750, obtido {oct(st.st_mode & 0o777)}"
+        )
+    finally:
+        os.chmod(startsh, original_mode)  # restaura — nao deixa efeito colateral
 
 
 # ---------------------------------------------------------------------------
