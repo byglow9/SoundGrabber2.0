@@ -1,0 +1,19 @@
+# Railway deployment configuration — SEC-INFRA-02, SEC-INFRA-03, SEC-INFRA-04 (Phase 7).
+#
+# Uvicorn binds to 0.0.0.0:$PORT — Railway injects $PORT per deploy and isolates the
+# container from direct internet access via its edge proxy (D-11). HTTPS termination
+# and HTTP->HTTPS 301 redirect happen at the Railway edge automatically (D-04, D-05).
+#
+# Use start.sh for local development; this file controls production deploys only (D-12).
+#
+# Schema reference: https://docs.railway.com/config-as-code/reference
+
+[build]
+builder = "NIXPACKS"
+
+[deploy]
+startCommand = "uvicorn api.main:app --host 0.0.0.0 --port $PORT --limit-concurrency 100 --timeout-keep-alive 5"
+healthcheckPath = "/health"
+healthcheckTimeout = 60
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
