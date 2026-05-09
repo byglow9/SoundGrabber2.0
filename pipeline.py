@@ -57,6 +57,7 @@ def check_duration(url: str, cookies_path: str) -> dict[str, Any]:
         "skip_download": True,
         "socket_timeout": 30,
         "noplaylist": True,
+        "format": "bestaudio/best",
     }
     if cookies_path:
         ydl_opts["cookiefile"] = cookies_path
