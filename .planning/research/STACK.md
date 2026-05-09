@@ -354,6 +354,132 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
 
 ---
 
+## Milestone v1.1 Stack Additions: Audio Analysis Precision
+
+**Researched:** 2026-05-09
+**Scope:** New library additions only for BPM precision, key precision, and tuning (A = X Hz) detection.
+
+### What Tunebat Actually Uses — Confirmed
+
+**Confidence: HIGH** (verified from Tunebat's own analyzer page + official essentia.js documentation)
+
+Tunebat's analyzer is "powered by industry leading technology developed by the Music Technology Group at UPF." The browser-based tool uses **essentia.js** — the WebAssembly port of Essentia's C++ library that runs entirely client-side. Files are never uploaded to a server.
+
+For our server-side Python pipeline, the direct equivalent is **Essentia's Python bindings** (`pip install essentia`). Same algorithms, same MTG origin, same accuracy profile. This is confirmed, not guessed.
+
+---
+
+### New Library: Essentia (replaces librosa for BPM + key)
+
+**pip install:** `pip install essentia`
+**Version:** 2.1b6.dev1389 (released July 2025 — this is the standard distribution; Essentia ships as beta dev releases by convention but is production-stable)
+**Python 3.11 on Linux x86_64:** YES — pre-built manylinux wheel confirmed: `essentia-2.1b6.dev1389-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl` (13.8 MB). No compilation required.
+**Coexistence with librosa:** No dependency conflicts. Both use numpy. Can be imported in the same process.
+
+**Do NOT install:** `essentia-tensorflow` — that variant adds TempoCNN (neural BPM) which requires TensorFlow. Not needed; `RhythmExtractor2013` does not require TF.
+
+#### BPM: RhythmExtractor2013 (multifeature mode)
+
+Essentia's primary recommendation for beat and tempo estimation. Uses multiple onset detection functions fused together, which makes it resistant to the half-tempo / double-tempo octave errors that are librosa's main failure mode on syncopated beats and trap music. Returns BPM, individual beat timestamps, and a confidence score.
+
+```python
+import essentia.standard as es
+
+audio = es.MonoLoader(filename=wav_path, sampleRate=44100)()
+rhythm_extractor = es.RhythmExtractor2013(method="multifeature")
+bpm, beats, beats_confidence, _, beats_intervals = rhythm_extractor(audio)
+```
+
+`method="multifeature"` is slower but more accurate than `"degara"`. For a background Celery task the extra 1-2 seconds is irrelevant.
+
+#### Key: KeyExtractor with edma profile
+
+Essentia's `KeyExtractor` computes HPCP (Harmonic Pitch Class Profile) across the full audio then correlates against a key template. HPCP uses spectral peaks with harmonic weighting and non-linear whitening, which is more robust than librosa's chroma_cqt for polyphonic material that does not follow classical voice-leading conventions (electronic, hip-hop, trap).
+
+**Profile selection for SoundGrabber's target domain (beats, electronic, hip-hop):**
+
+| Profile | Description | Use |
+|---------|-------------|-----|
+| `edma` | Extracted from corpus of electronic dance music. Outperforms generic profiles on EDM. | **Use this as primary** |
+| `edmm` | Same EDM corpus, manually tweaked. Reports poorly-represented major modes as minor. | Fallback if edma produces many false majors |
+| `bgate` | Default; generic. Less tuned for electronic music. | Do not use |
+| `krumhansl` | Classic academic profile; good for tonal Western. | Not EDM-optimized |
+
+Feed the tuning frequency (from the step below) into `KeyExtractor` so HPCP bins align to the actual concert pitch of the audio, not assumed A=440Hz. This matters for A=432Hz content.
+
+```python
+import essentia.standard as es
+
+# tuning_hz comes from the tuning detection step below
+audio = es.MonoLoader(filename=wav_path, sampleRate=44100)()
+key_extractor = es.KeyExtractor(profileType='edma', tuningFrequency=tuning_hz)
+key, scale, strength = key_extractor(audio)
+# key: "F#", scale: "minor", strength: 0.84 (0-1 confidence)
+```
+
+---
+
+### Tuning Detection: librosa (no new library needed)
+
+**Confidence: HIGH** (verified against official librosa 0.11.0 docs)
+
+librosa already has the exact functions needed. No new dependency required.
+
+The pipeline is two function calls:
+
+```python
+import librosa
+
+y, sr = librosa.load(wav_path, sr=None, mono=True)
+
+# Step 1: estimate tuning deviation in fractions of a bin (resolution=0.01 = cents)
+tuning = librosa.estimate_tuning(y=y, sr=sr, resolution=0.01)
+
+# Step 2: convert deviation to A4 reference frequency in Hz
+tuning_hz = librosa.tuning_to_A4(tuning)
+# tuning_hz is float, e.g. 440.0, 431.8, 444.2
+
+# For display: round to nearest integer
+a4_display = round(tuning_hz)  # e.g. "A = 432 Hz"
+```
+
+`librosa.tuning_to_A4` is confirmed present in librosa 0.10.2+ and 0.11.0. It converts a fractional bin deviation (what `estimate_tuning` returns) directly to the A4 reference frequency in Hz, assuming equal temperament. Example: tuning input of -0.318 returns approximately 431.992 Hz.
+
+**Execution order in the analysis task:** Run tuning detection FIRST, then pass `tuning_hz` to `KeyExtractor`. This ensures HPCP computation uses the audio's actual concert pitch.
+
+**Essentia TuningFrequency as a future upgrade:** Essentia has its own `TuningFrequency` algorithm that processes spectral peaks frame-by-frame and returns Hz + cents offset from 440. It is more rigorous for truly non-standard tunings. For v1.1, librosa's one-liner is sufficient. If testing shows tuning detection is unreliable on heavily percussive beats (sparse harmonic content), switch to Essentia's algorithm using the spectral peaks already computed during key detection.
+
+---
+
+### Libraries Evaluated and Rejected for v1.1
+
+| Library | Reason for rejection |
+|---------|----------------------|
+| madmom | PyPI release (0.16.1) declares `python<3.10`. Dev version from GitHub requires manual patches to `processors.py` for `MutableSequence`. Largely unmaintained (last PyPI release 2018). Not worth the maintenance debt. |
+| aubio | Last PyPI release: version 0.4.9, February 2019. Source distribution only — no wheels. Requires aubio C library as a system dependency. Unmaintained for 6+ years. |
+| beat_this (CPJKU) | Requires PyTorch >= 2 + torchaudio + einops + soxr + rotary-embedding-torch. A 2–3 GB dependency chain for a web service. The project's own issue tracker confirms its madmom dependency blocks Python 3.10+. Overkill for this use case. |
+| CREPE | Monophonic pitch tracker — estimates the fundamental frequency of a single melodic line. Cannot estimate concert pitch (A = X Hz) for polyphonic audio. Wrong category of tool entirely. |
+| KeyFinder (libKeyFinder) | No official Python bindings on PyPI. The `shaath` key profile from its author (Ibrahim Shaath) is available directly in Essentia's KeyExtractor. No integration complexity justified. |
+| essentia-tensorflow | TempoCNN variant requiring TensorFlow. RhythmExtractor2013 does not need TF. Adds ~2GB of dependencies for zero benefit in this use case. |
+
+---
+
+### v1.1 Integration: Revised Analysis Task Structure
+
+The existing Celery analysis task loads audio with librosa once. After v1.1 changes, the task flow is:
+
+1. FFmpeg produces WAV from download (unchanged)
+2. Load audio with librosa for tuning: `librosa.load(wav_path, sr=None, mono=True)`
+3. Detect tuning: `librosa.estimate_tuning()` → `librosa.tuning_to_A4()` → `tuning_hz`
+4. Load audio with Essentia: `es.MonoLoader(filename=wav_path, sampleRate=44100)()`
+5. Detect BPM: `es.RhythmExtractor2013(method="multifeature")(audio)` → `bpm`
+6. Detect key: `es.KeyExtractor(profileType='edma', tuningFrequency=tuning_hz)(audio)` → `key, scale, strength`
+7. Return: `{bpm, key, scale, strength, tuning_hz}` to the job result dict
+
+**Fallback principle:** If Essentia import fails at runtime (unlikely but defensive), fall back to the existing librosa-based BPM and key logic rather than returning no result.
+
+---
+
 ## Sources
 
 - [yt-dlp GitHub repository](https://github.com/yt-dlp/yt-dlp)
@@ -368,6 +494,16 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
 - [FastAPI background tasks documentation](https://fastapi.tiangolo.com/tutorial/background-tasks/)
 - [StemSplit BPM/key detection feature article (2025)](https://stemsplit.io/blog/bpm-key-detection-feature)
 - [Audet — librosa + Essentia BPM/key tool on GitHub](https://github.com/makalin/Audet)
+- [Tunebat Analyzer (essentia.js confirmation)](https://tunebat.com/Analyzer)
+- [essentia.js project page](https://mtg.github.io/essentia.js/)
+- [Essentia PyPI — Python 3.11 wheels confirmed](https://pypi.org/project/essentia/)
+- [Essentia installing docs](https://essentia.upf.edu/installing.html)
+- [Essentia TuningFrequency streaming reference](https://essentia.upf.edu/reference/streaming_TuningFrequency.html)
+- [librosa.estimate_tuning docs](https://librosa.org/doc/main/generated/librosa.estimate_tuning.html)
+- [librosa.tuning_to_A4 docs](https://librosa.org/doc/main/generated/librosa.tuning_to_A4.html)
+- [madmom Python 3.10+ issue (beat_this #9)](https://github.com/CPJKU/beat_this/issues/9)
+- [aubio PyPI — 2019, no wheels](https://pypi.org/project/aubio/)
+- [Essentia edma/edmm profile — MTG issue #744](https://github.com/MTG/essentia/issues/744)
 - [ARQ vs Celery comparison](https://leapcell.io/blog/celery-versus-arq-choosing-the-right-task-queue-for-python-applications)
 - [FastAPI BackgroundTasks vs ARQ + Redis](https://davidmuraya.com/blog/fastapi-background-tasks-arq-vs-built-in/)
 - [Render FastAPI deployment](https://render.com/articles/fastapi-deployment-options)
