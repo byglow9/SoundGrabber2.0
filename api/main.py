@@ -107,14 +107,39 @@ def _run_sweeper_loop() -> None:
         time.sleep(60)
 
 
+def _check_redis_auth(redis_url: str, dev_mode: bool) -> None:
+    """SEC-INFRA-01: Falha cedo se Redis sem senha em producao (D-06, D-07).
+
+    Em producao (Railway), o servico Railway Redis injeta REDIS_URL com formato
+    `redis://default:<senha>@redis.railway.internal:6379` (ver D-08), entao o
+    check `"@" in redis_url` confirma a presenca de credenciais.
+
+    DEV_MODE=true bypassa a checagem para desenvolvimento local com Redis sem auth.
+    DEV_MODE NAO eh definido em producao Railway (D-14).
+
+    Args:
+        redis_url: A URL completa do Redis (ex: redis://:senha@host:6379/0).
+        dev_mode: True para bypassar a validacao (apenas em dev local).
+
+    Raises:
+        RuntimeError: quando dev_mode=False e a URL nao contem '@' (sem credenciais).
+            Mensagem clara, sem stack trace, suficiente para o operador corrigir.
+    """
+    if dev_mode:
+        return
+    if "@" not in redis_url:
+        raise RuntimeError(
+            "REDIS_URL does not contain a password. "
+            "Set a Redis URL with credentials: redis://:password@host:port/db. "
+            "For local development only, set DEV_MODE=true."
+        )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    if "@" not in settings.redis_url:
-        logger.warning(
-            "Redis URL has no password (REDIS_URL=%s). "
-            "Do not expose Redis to the network without authentication.",
-            settings.redis_url,
-        )
+    # SEC-INFRA-01: Redis auth enforcement (D-06, D-07).
+    # _check_redis_auth levanta RuntimeError se sem senha e nao em DEV_MODE — startup falha cedo.
+    _check_redis_auth(settings.redis_url, settings.dev_mode)
     sweeper = threading.Thread(
         target=_run_sweeper_loop,
         daemon=True,
@@ -171,6 +196,9 @@ async def _security_headers(request: Request, call_next):
         "img-src 'self' data:; "
         "frame-ancestors 'none';"
     )
+    # SEC-INFRA-04: HSTS — Railway entrega TLS, mas nao adiciona o header. (D-09)
+    # Browsers ignoram este header em conexoes HTTP (RFC 6797), entao eh seguro em local.
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     return response
 
 
