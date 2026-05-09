@@ -31,6 +31,7 @@ import numpy as np
 import yt_dlp
 
 _FFMPEG_PATH = imageio_ffmpeg.get_ffmpeg_exe()
+_FFPROBE_PATH = str(Path(_FFMPEG_PATH).parent / "ffprobe")
 
 
 # Constants
@@ -226,7 +227,7 @@ def validate_wav(wav_path: Path) -> float:
     try:
         result = subprocess.run(
             [
-                "ffprobe",
+                _FFPROBE_PATH,
                 "-v", "error",
                 "-show_entries", "format=duration",
                 "-of", "json",
