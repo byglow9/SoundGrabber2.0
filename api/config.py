@@ -32,6 +32,10 @@ class Settings:
     job_poll_rate_limit_per_minute: int = field(default_factory=lambda: _safe_int("JOB_POLL_RATE_LIMIT_PER_MINUTE", 60))
     # SEC-API-02: rate limit para download de WAV (GET /files/{id}) — 10/min por IP
     file_download_rate_limit_per_minute: int = field(default_factory=lambda: _safe_int("FILE_DOWNLOAD_RATE_LIMIT_PER_MINUTE", 10))
+    # SEC-INFRA-01 (D-06): bypass para desenvolvimento local. Em producao (Railway),
+    # DEV_MODE NAO eh definido, e a validacao de Redis auth eh obrigatoria no lifespan.
+    # O default "false" (string) garante que esquecer de definir em producao = falha segura.
+    dev_mode: bool = field(default_factory=lambda: os.environ.get("DEV_MODE", "false").lower() == "true")
 
 
 settings = Settings()
