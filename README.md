@@ -173,6 +173,24 @@ analyze_audio()
 json.dumps(...) → stdout (D-05)
 ```
 
+## Pre-Deploy Security Audit
+
+**Obrigatorio antes de cada deploy** — auditoria de dependencias para CVEs conhecidos via [pip-audit](https://github.com/pypa/pip-audit) (PyPA, integra OSV + PyPI Advisory DB).
+
+```bash
+pip install pip-audit
+pip-audit -r requirements.txt
+```
+
+Se houver vulnerabilidades reportadas:
+
+1. Atualizar a dependencia afetada para a versao patcheada (ex: `pip install -U <pkg>` e atualizar pin em `requirements.txt`).
+2. Se nao houver patch disponivel, avaliar workaround ou aceitar risco com justificativa em `.planning/SECURITY-CHECKLIST.md`.
+3. **NAO fazer deploy** com vulnerabilidades de severidade HIGH ou CRITICAL sem decisao explicita.
+
+**Nota:** `pip-audit` eh ferramenta de auditoria, NAO runtime — nao precisa estar em `requirements.txt` de producao. Instalar sob demanda na maquina de deploy ou em CI.
+
+
 ## License
 
 Internal project. v1 ainda não é público.
