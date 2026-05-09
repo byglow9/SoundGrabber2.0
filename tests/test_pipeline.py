@@ -377,7 +377,8 @@ def _run_pipeline_e2e(url: str, expected_max_duration: int = 900) -> dict:
 
     assert "error" not in data, f"pipeline returned error envelope: {data}"
 
-    required = {"bpm", "key", "camelot", "bpm_half", "bpm_double", "wav_path", "duration_sec"}
+    required = {"bpm", "key", "camelot", "bpm_half", "bpm_double", "wav_path",
+                "duration_sec", "tuning_hz"}
     missing = required - set(data.keys())
     assert not missing, f"missing fields in JSON output: {missing}; got {data}"
 
