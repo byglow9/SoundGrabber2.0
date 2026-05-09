@@ -1,8 +1,21 @@
 """Settings via environment variables (12-factor). D-04 — single requirements.txt; D-07 — no Docker."""
 from __future__ import annotations
 
+import base64
 import os
 from dataclasses import dataclass, field
+from pathlib import Path
+
+
+def _resolve_cookies_path() -> str:
+    """Decode YTDLP_COOKIES_B64 env var to /tmp/sg_cookies.txt if set, else fall back to YTDLP_COOKIES_FILE."""
+    b64 = os.environ.get("YTDLP_COOKIES_B64", "")
+    if b64:
+        dest = Path("/tmp/sg_cookies.txt")
+        dest.write_bytes(base64.b64decode(b64))
+        dest.chmod(0o600)
+        return str(dest)
+    return os.environ.get("YTDLP_COOKIES_FILE", "")
 
 
 def _safe_int(env_key: str, default: int) -> int:
@@ -23,7 +36,7 @@ def _safe_int(env_key: str, default: int) -> int:
 @dataclass(frozen=True)
 class Settings:
     redis_url: str = field(default_factory=lambda: os.environ.get("REDIS_URL", "redis://localhost:6379/0"))
-    cookies_path: str = field(default_factory=lambda: os.environ.get("YTDLP_COOKIES_FILE", ""))
+    cookies_path: str = field(default_factory=_resolve_cookies_path)
     po_token: str = field(default_factory=lambda: os.environ.get("YTDLP_PO_TOKEN", ""))
     wav_ttl: int = field(default_factory=lambda: _safe_int("WAV_TTL_SECONDS", 900))
     rate_limit_per_minute: int = field(default_factory=lambda: _safe_int("RATE_LIMIT_PER_MINUTE", 3))
