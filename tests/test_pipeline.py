@@ -194,6 +194,98 @@ def test_camelot_mapping():
 
 
 # ---------------------------------------------------------------------------
+# TUNING-01: detect_tuning retorna Hz em sinal harmônico (Wave 0 RED stub)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.integration
+def test_detect_tuning_harmonic(sample_wav_path):
+    """detect_tuning() em WAV 440Hz deve retornar float próximo de 440 Hz.
+
+    O fixture sample.wav é um tom puro de 440Hz — energia harmônica dominante.
+    Espera tuning_hz entre 400 e 480 Hz (±10% de 440), não None, não numpy type.
+    TUNING-01.
+    """
+    pipeline = pytest.importorskip("pipeline", reason="pipeline.py não tem detect_tuning ainda (Plan 02)")
+    if not hasattr(pipeline, "detect_tuning"):
+        pytest.fail("pipeline.detect_tuning não existe — implementar no Plan 02")
+    result = pipeline.detect_tuning(sample_wav_path)
+    assert result is not None, "detect_tuning retornou None em sinal harmônico 440Hz — HPSS gate incorreto"
+    assert isinstance(result, float), f"detect_tuning deve retornar float nativo, got {type(result)}"
+    assert 400.0 < result < 480.0, f"tuning_hz fora do range esperado para 440Hz: {result}"
+
+
+# ---------------------------------------------------------------------------
+# TUNING-02: detect_tuning retorna None em sinal percussivo (Wave 0 RED stub)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.integration
+def test_detect_tuning_percussive(tmp_path):
+    """detect_tuning() em WAV de ruído branco deve retornar None.
+
+    Ruído branco tem ratio de energia harmônica ~0 (< 0.2), portanto o HPSS gate
+    deve ativar e retornar None. TUNING-02.
+    """
+    import numpy as np
+    import soundfile as sf
+
+    pipeline = pytest.importorskip("pipeline", reason="pipeline.py não tem detect_tuning ainda (Plan 02)")
+    if not hasattr(pipeline, "detect_tuning"):
+        pytest.fail("pipeline.detect_tuning não existe — implementar no Plan 02")
+
+    # Criar WAV de ruído branco puro (sem pitch) — 2 segundos a 22050 Hz
+    rng = np.random.default_rng(seed=42)
+    noise = rng.uniform(-1.0, 1.0, size=22050 * 2).astype(np.float32)
+    percussive_wav = tmp_path / "percussive.wav"
+    sf.write(str(percussive_wav), noise, 22050)
+
+    result = pipeline.detect_tuning(percussive_wav)
+    assert result is None, (
+        f"detect_tuning deve retornar None em ruído branco (sinal percussivo), got {result}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# PREC-03: detect_key passa tuning_hz para KeyExtractor (Wave 0 RED stub)
+# ---------------------------------------------------------------------------
+
+def test_detect_key_uses_tuning_hz():
+    """detect_key() deve instanciar KeyExtractor com tuningFrequency=tuning_hz.
+
+    Usa mock para capturar os kwargs de instanciação de KeyExtractor.
+    Verifica que PREC-03 está cumprido: o tuning_hz detectado é passado como
+    tuningFrequency antes que os bins HPCP sejam computados.
+    """
+    from unittest.mock import MagicMock, patch
+
+    pipeline = pytest.importorskip("pipeline", reason="pipeline.py não tem detect_key Essentia ainda (Plan 03)")
+    if not hasattr(pipeline, "detect_key"):
+        pytest.fail("pipeline.detect_key não existe")
+
+    captured_kwargs: dict = {}
+
+    def fake_key_extractor_factory(**kwargs):
+        captured_kwargs.update(kwargs)
+        mock_instance = MagicMock()
+        mock_instance.return_value = ("A", "minor", 0.85)
+        return mock_instance
+
+    with patch("essentia.standard.KeyExtractor", side_effect=fake_key_extractor_factory), \
+         patch("essentia.standard.MonoLoader") as mock_loader:
+        mock_loader.return_value.return_value = MagicMock()
+        pipeline.detect_key(Path("/tmp/fake.wav"), tuning_hz=432.0)
+
+    assert "tuningFrequency" in captured_kwargs, (
+        f"KeyExtractor não recebeu tuningFrequency. kwargs capturados: {captured_kwargs}"
+    )
+    assert abs(captured_kwargs["tuningFrequency"] - 432.0) < 0.01, (
+        f"tuningFrequency esperado 432.0, got {captured_kwargs['tuningFrequency']}"
+    )
+    assert captured_kwargs.get("profileType") == "edma", (
+        f"profileType deve ser 'edma', got {captured_kwargs.get('profileType')!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
 # D-05: JSON output shape (Plan 04, Wave 3)
 # ---------------------------------------------------------------------------
 
