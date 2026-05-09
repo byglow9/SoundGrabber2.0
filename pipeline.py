@@ -133,13 +133,13 @@ def download_audio(url: str, cookies_path: str, po_token: str) -> Path:
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
-    except yt_dlp.utils.DownloadError as e:
+    except yt_dlp.utils.YoutubeDLError as e:
         for f in WAV_TMP_DIR.glob(f"{TMP_PREFIX}{wav_id}*"):
             try:
                 f.unlink()
             except OSError:
                 pass
-        raise RuntimeError(f"yt-dlp download failed: {e}") from e
+        raise RuntimeError(f"yt-dlp failed: {e}") from e
     finally:
         # D-09: remove non-.wav intermediates that survived
         for f in WAV_TMP_DIR.glob(f"{TMP_PREFIX}{wav_id}*"):
