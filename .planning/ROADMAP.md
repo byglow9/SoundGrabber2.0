@@ -16,7 +16,7 @@
 - [x] **Phase 4: Frontend** - Browser-based user flow built against the real, hardened API
 - [x] **Phase 5: Visual Identity** - Y2K / phpBB / Tibia authentic 2000s aesthetic applied to the complete frontend
 - [ ] **Phase 6: Application Security** - File permissions, API rate limits, health endpoint, security tests, and policy documentation locked in
-- [ ] **Phase 7: Infrastructure Security** - nginx reverse proxy, HTTPS with Let's Encrypt, HSTS, and Redis auth enforcement at the deployment boundary
+- [ ] **Phase 7: Infrastructure Security** - Railway PaaS deploy (railway.toml), Redis auth enforcement on startup, HSTS via FastAPI middleware, HTTPS automatic via Railway edge
 
 ---
 
@@ -116,14 +116,20 @@ Plans:
 - [x] 06-03-PLAN.md — Wave 2: documentacao e politica — secao pip-audit pre-deploy em README.md (SEC-TEST-06), secao Security Gate em CLAUDE.md (SEC-POLICY-01), .planning/SECURITY-CHECKLIST.md cobrindo todos os 13 SEC-* controls (SEC-POLICY-02)
 
 ### Phase 7: Infrastructure Security
-**Goal**: The application is only reachable over HTTPS via nginx and Redis requires a password in all non-dev environments
+**Goal**: The application is deployed on Railway PaaS with HTTPS automatic, Redis auth enforced at startup, and HSTS header on all responses
 **Depends on**: Phase 6
 **Requirements**: SEC-INFRA-01, SEC-INFRA-02, SEC-INFRA-03, SEC-INFRA-04
 **Success Criteria** (what must be TRUE):
   1. Attempting to start the application with a Redis URL that has no password (and DEV_MODE not set) causes startup to fail immediately with a clear error message naming the missing credential
-  2. curl http://soundgrabber.example.com/ returns a 301 redirect to the HTTPS URL; no content is served over plain HTTP
-  3. curl -I https://soundgrabber.example.com/ shows Strict-Transport-Security: max-age=31536000 in the response headers
-  4. Uvicorn is bound to 127.0.0.1 and is unreachable directly from the internet; all traffic passes through nginx on ports 80 and 443
+  2. curl http://<app>.up.railway.app/ returns a 301 redirect to the HTTPS URL; no content is served over plain HTTP
+  3. curl -I https://<app>.up.railway.app/ shows Strict-Transport-Security: max-age=31536000; includeSubDomains in the response headers
+  4. Uvicorn binds to 0.0.0.0:$PORT inside the Railway container; the container is not exposed directly to the internet — all traffic passes through the Railway edge proxy
+**Plans:** 4 plans
+Plans:
+- [ ] 07-01-PLAN.md — Wave 0: TDD RED stubs em tests/test_security.py (test_redis_auth_required, test_redis_auth_bypass_dev_mode, test_redis_auth_passes_with_password, test_hsts_header) + DEV_MODE=true em conftest.py
+- [ ] 07-02-PLAN.md — Wave 1: campo dev_mode em api/config.py + funcao _check_redis_auth no lifespan + header HSTS no _security_headers (api/main.py); 4 testes RED viram GREEN
+- [ ] 07-03-PLAN.md — Wave 2: criar railway.toml na raiz com startCommand correto + atualizar SECURITY-CHECKLIST.md com SEC-INFRA-01..04
+- [ ] 07-04-PLAN.md — Wave 3: checkpoint humano — criar projeto Railway (web + celery-worker + Redis), configurar variaveis, deploy, smoke tests dos 4 SEC-INFRA-* e gerar 07-DEPLOY-LOG.md
 
 ---
 
@@ -137,7 +143,7 @@ Plans:
 | 4. Frontend | 4/4 | Done | 2026-05-08 |
 | 5. Visual Identity | 4/4 | Done | 2026-05-08 |
 | 6. Application Security | 0/3 | Planned | - |
-| 7. Infrastructure Security | 0/? | Not started | - |
+| 7. Infrastructure Security | 0/4 | Planned | - |
 
 ---
 
