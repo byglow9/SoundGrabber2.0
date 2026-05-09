@@ -427,7 +427,7 @@ def analyze_audio(wav_path: Path) -> dict[str, Any]:
     camelot = key_to_camelot(key)
 
     return {
-        "bpm":            round(float(bpm), 1),
+        "bpm":            round(float(bpm)),
         "bpm_half":       round(float(bpm) / 2, 1),
         "bpm_double":     round(float(bpm) * 2, 1),
         "key":            str(key),
