@@ -125,7 +125,7 @@ def test_bpm_accuracy(sample_wav_path):
     not numeric accuracy. Real BPM accuracy is verified in the e2e tests (D-07 URLs).
     """
     pipeline = pytest.importorskip("pipeline", reason="pipeline.py not yet implemented (Plan 03)")
-    bpm = pipeline.detect_bpm(sample_wav_path, total_duration=5.0)
+    bpm = pipeline.detect_bpm(sample_wav_path)
     assert isinstance(bpm, float), f"BPM must be float (json-serializable), got {type(bpm)}"
     assert 30.0 < bpm < 300.0, f"BPM out of plausible range: {bpm}"
 

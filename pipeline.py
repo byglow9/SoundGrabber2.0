@@ -292,38 +292,25 @@ def detect_tuning(wav_path: Path) -> float | None:
     return float(librosa.tuning_to_A4(raw_tuning))
 
 
-# Stage 3b: BPM detection (ANALYSIS-01)
-def detect_bpm(wav_path: Path, total_duration: float) -> float:
-    """Detect BPM using librosa.feature.tempo (NOT beat_track — Pattern 4 rationale).
+# Stage 3b: BPM detection (PREC-01)
+def detect_bpm(wav_path: Path) -> float:
+    """BPM via Essentia RhythmExtractor2013 multifeature — mesmo algoritmo do Tunebat.
 
-    Production parameters:
-      sr=22050      — mono downsampling, ~4x less RAM than 44100 stereo
-      duration=90.0 — 90s window is sufficient for stable autocorrelation
-      offset=20%    — skip intros that often lack percussion (capped at 30s)
+    Resistente a erros de octave (half-tempo trap): o modo multifeature funde múltiplas
+    funções de onset e é built-in octave-resistant.
+
+    CRÍTICO: sampleRate=44100 é obrigatório para RhythmExtractor2013. Valores incorretos
+    produzem BPM ~50% ou ~200% do real, sem Python exception.
 
     Args:
-        wav_path: Path to the WAV file.
-        total_duration: Total duration of the file (seconds), as returned by validate_wav.
-                        Used to compute the offset; passed in to avoid a redundant ffprobe call.
+        wav_path: Path para o arquivo WAV.
 
     Returns:
-        BPM as a Python float (NOT numpy.ndarray — Pitfall 3 mitigation). Rounded to 1 decimal.
+        BPM como Python float. Nunca numpy.float32 — float() defensivo aplicado.
     """
-    offset = min(total_duration * 0.20, 30.0)
-    y, sr = librosa.load(
-        str(wav_path),
-        sr=22050,
-        mono=True,
-        duration=90.0,
-        offset=offset,
-    )
-    tempo = librosa.feature.tempo(y=y, sr=sr)
-    # Pitfall 3: librosa returns an ndarray even for scalar tempo. Coerce to Python float.
-    if hasattr(tempo, "__len__") and len(tempo) > 0:
-        bpm = float(tempo[0])
-    else:
-        bpm = float(tempo)
-    return round(bpm, 1)
+    audio = es.MonoLoader(filename=str(wav_path), sampleRate=44100)()
+    bpm, _, _, _, _ = es.RhythmExtractor2013(method="multifeature")(audio)
+    return float(bpm)  # float() defensivo: binding cp312 já retorna float, mas garante robustez futura
 
 
 # Stage 4: Key detection (ANALYSIS-02)
@@ -461,7 +448,7 @@ def analyze_audio(wav_path: Path) -> dict[str, Any]:
     """
     wav_path = Path(wav_path)
     duration_sec = validate_wav(wav_path)
-    bpm = detect_bpm(wav_path, total_duration=duration_sec)
+    bpm = detect_bpm(wav_path)
     key = detect_key(wav_path)
     camelot = key_to_camelot(key)
 
