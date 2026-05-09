@@ -15,6 +15,14 @@ O produtor cola um link do YouTube e recebe o beat em WAV com BPM e nota identif
 - [x] **UX-03**: Erros de URL inválida retornam mensagem clara sem internals do Pydantic — Validated in Phase 3: handler `_validation_exception_handler` com `removeprefix("Value error, ")`
 - [x] **UX-04**: Rate limiting 3/min por IP com 429 + Retry-After header — Validated in Phase 3: slowapi Limiter com Redis backend compartilhado entre workers
 
+- [x] **SEC-FILE-01**: WAV files com chmod 0o600 após criação — Validated in Phase 6: `os.chmod(wav_path, 0o600)` em pipeline.py
+- [x] **SEC-FILE-02**: start.sh com chmod 750 self-applied — Validated in Phase 6: `chmod 750 "$(realpath "$0")"` em start.sh
+- [x] **SEC-API-01**: Rate limit em GET /jobs/{id} (60/min) — Validated in Phase 6: `@limiter.limit` em get_job
+- [x] **SEC-API-02**: Rate limit em GET /files/{id} (10/min) — Validated in Phase 6: `@limiter.limit` em download_file
+- [x] **SEC-API-03**: GET /health endpoint com Redis ping — Validated in Phase 6: rota health_check em api/main.py
+- [x] **SEC-POLICY-01**: Security Gate em CLAUDE.md — Validated in Phase 6: seção `## Security Gate` com 6 controles obrigatórios
+- [x] **SEC-POLICY-02**: SECURITY-CHECKLIST.md consolidando todos os controles — Validated in Phase 6: 13 controles SEC-*
+
 ### Active
 
 - [ ] Usuário pode colar um link do YouTube e iniciar o processamento
@@ -88,4 +96,4 @@ Este documento evolui a cada transição de fase e marco de milestone.
 4. Atualizar Context com o estado atual
 
 ---
-*Last updated: 2026-05-09 — Milestone v1.1 iniciado; Security Hardening (11 brechas corrigidas nesta sessão, 8 pendentes para este milestone)*
+*Last updated: 2026-05-09 — Phase 6 Application Security completa; 13 controles SEC-* validados (chmod WAV/start.sh, rate limits GET, /health, testes, policy docs)*
