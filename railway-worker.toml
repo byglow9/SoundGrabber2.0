@@ -1,0 +1,9 @@
+# Railway config para o serviço Celery Worker.
+# No dashboard do worker: Settings → Config-as-code → Railway Config File → railway-worker.toml
+#
+# Schema reference: https://docs.railway.com/config-as-code/reference
+
+[deploy]
+startCommand = "celery -A api.tasks worker --loglevel=info --concurrency=3"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
