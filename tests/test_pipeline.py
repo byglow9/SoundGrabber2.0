@@ -83,8 +83,8 @@ def test_download_opts_include_auth():
                 "cookies.txt",
                 "TESTTOKEN",
             )
-        except Exception:
-            pass  # We only care about the captured opts
+        except (FileNotFoundError, RuntimeError):
+            pass  # Expected: FakeYDL.download() creates a stub WAV but the path check may fail
 
     assert captured_opts.get("cookiefile") == "cookies.txt", "cookiefile not wired to ydl_opts"
     extractor_args = captured_opts.get("extractor_args", {})
