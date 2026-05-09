@@ -56,15 +56,6 @@ A estética retro dos anos 2000 (Tibia, phpBB, Orkut) é parte da identidade —
 | Estética Y2K/2000s internet | Identidade cultural da cena underground, diferenciação forte de ferramentas genéricas | — Pending |
 | Detecção de BPM e tonalidade inline | Informação crítica para produtores sem precisar abrir outro app | — Pending |
 
-## Current Milestone: v1.1 Análise Musical de Precisão
-
-**Goal:** Substituir a análise musical atual por algoritmos de referência do setor — nível Tunebat — e adicionar detecção de afinação (A = X Hz).
-
-**Target features:**
-- BPM detection preciso com algoritmo de referência profissional
-- Key detection preciso com HPCP / Essentia ou equivalente
-- Detecção de tuning: exibir `A = X Hz` na interface
-
 ## Evolution
 
 Este documento evolui a cada transição de fase e marco de milestone.
@@ -83,4 +74,4 @@ Este documento evolui a cada transição de fase e marco de milestone.
 4. Atualizar Context com o estado atual
 
 ---
-*Last updated: 2026-05-09 — Milestone v1.1 iniciado: análise musical de precisão + tuning detection*
+*Last updated: 2026-05-04 — Phase 3 complete; UX-03 e UX-04 validados*

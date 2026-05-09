@@ -1,19 +1,19 @@
 # Project Research Summary
 
-**Project:** SoundGrabber — milestone v1.1 (BPM/Key/Tuning Precision Analysis)
+**Project:** SoundGrabber
 **Domain:** YouTube audio downloader + music analysis web utility for underground producers
-**Researched:** 2026-05-09
-**Confidence:** HIGH for Essentia integration approach; MEDIUM for tuning accuracy on real-world beats
+**Researched:** 2026-04-29
+**Confidence:** MEDIUM-HIGH (stack well-established; YouTube download reliability is the one structural unknown)
 
 ---
 
 ## Executive Summary
 
-The v1.1 milestone replaces librosa BPM and key detection with Essentia — the same C++/Python library that powers Tunebat. This is not an approximation of Tunebat accuracy: Tunebat IS Essentia with a web frontend (confirmed from Tunebat's own analyzer page, which references essentia.js from the Music Technology Group at UPF). Using `pip install essentia` gives SoundGrabber the identical algorithm stack — `RhythmExtractor2013(method="multifeature")` for BPM and `KeyExtractor(profileType="edma")` for key detection on electronic/hip-hop material. No proprietary model or paid tier is required to match Tunebat-level accuracy.
+SoundGrabber is a stateless, no-auth public utility that solves a real and unmet need: no existing tool combines YouTube-to-WAV download with automatic BPM and key detection in a single zero-friction workflow. The closest competitors are either download-only (cobalt.tools) or analysis-only with file upload (TuneReveal, vocalremover.org). The product's cultural differentiation — a Y2K internet aesthetic targeting underground producers who grew up in that era — is as important as its functional gap. This is not a generic utility; it is a community artifact.
 
-Tuning detection (A = X Hz) is implemented using two existing librosa functions already in the venv: `librosa.estimate_tuning()` followed by `librosa.tuning_to_A4()`. No new library is required. The critical execution constraint is that tuning must run first, and the resulting `tuning_hz` value must be passed into `KeyExtractor` so that HPCP bins align to the audio's actual concert pitch rather than assuming A=440 Hz. This matters for beats mastered at A=432 Hz.
+The recommended architecture is a Python/FastAPI backend with Celery workers (separate processes) handling the yt-dlp download, FFmpeg conversion, and librosa analysis pipeline. The download and analysis pipeline must run in separate OS processes from the web server because both yt-dlp and librosa are CPU/IO-heavy and blocking — running them in the FastAPI event loop will freeze the server under any meaningful load. Job state is stored in Redis with a 10-minute TTL; no database is needed. The frontend is a single HTML page with vanilla JS polling for job status. No JavaScript framework is warranted for an app with one form and one result card.
 
-The main integration risks are technical and concrete: Essentia returns `numpy.float32` throughout, which breaks Celery's JSON serializer and must be wrapped with `float()` at every extraction point; Essentia returns key and scale as separate strings, which silently breaks the existing `key_to_camelot()` lookup if not assembled into `"F# minor"` format before the call; tuning detection on percussive-only beats returns meaningless values and must be gated behind HPSS harmonic energy checking. All three failure modes are silent — no exceptions, wrong output.
+The highest-risk dependency is YouTube itself. Datacenter IPs are routinely flagged as bots, which causes download failures in production that do not reproduce locally. This is not a bug to fix — it is a structural constraint to design around from day one. The mitigation strategy is: use a VPS with a dedicated (non-PaaS) IP, pass valid YouTube session cookies with every request, keep yt-dlp updated weekly, and design the download layer as a swappable abstraction so its internals can change without touching the rest of the pipeline. Accept a 10-20% failure rate as a baseline, not a target.
 
 ---
 
@@ -21,125 +21,179 @@ The main integration risks are technical and concrete: Essentia returns `numpy.f
 
 ### Recommended Stack
 
-The v1.1 additions require one new library (Essentia) on top of the existing stack. Essentia 2.1b6.dev1389 ships a pre-built manylinux wheel for Python 3.11 Linux x86_64 (13.8 MB), so no C++ compilation is needed. It coexists with librosa without dependency conflicts — both use numpy. librosa is retained for tuning detection (two one-liner function calls already in the library). The existing yt-dlp + FFmpeg + FastAPI + Celery stack is unchanged.
+The stack is deliberate and minimal. Python 3.11 + FastAPI + Celery + Redis covers the backend. yt-dlp (latest) + FFmpeg handles download and conversion. librosa 0.11 handles BPM and key detection at launch, with Essentia as the upgrade path if librosa accuracy proves insufficient for the producer audience. The frontend is plain HTML/CSS/JS — no framework — because the entire UI is a form, a status indicator, and a result card. The Y2K aesthetic is deliberately hand-crafted in raw CSS; no component library will produce it.
 
-**Core technologies for v1.1:**
-- `essentia==2.1b6.dev1389`: BPM + key detection — same algorithms as Tunebat, manylinux wheel confirmed on Python 3.11
-- `essentia.standard.RhythmExtractor2013(method="multifeature")`: BPM — multifeature mode is slower but resistant to half/double-tempo octave errors on trap
-- `essentia.standard.KeyExtractor(profileType="edma")`: key detection — edma profile extracted from EDM corpus, outperforms generic profiles on electronic music
-- `librosa.estimate_tuning()` + `librosa.tuning_to_A4()`: tuning — no new dependency, confirmed in librosa 0.10.2+ and 0.11.0
-- `essentia.standard.MonoLoader(sampleRate=44100)`: Essentia audio loading — must use 44100 Hz, not the existing 22050 Hz librosa load
+**Core technologies:**
+- **Python 3.11+**: Runtime — asyncio native, audio DSP ecosystem lingua franca, yt-dlp requires >=3.10
+- **FastAPI 0.115+**: API layer — async-native, streaming file responses, background task integration
+- **Celery + Redis**: Task execution — separates CPU/IO-bound workers from the web process; prevents event loop starvation under load
+- **yt-dlp (latest, date-versioned)**: YouTube download — the only actively maintained option; must stay near HEAD
+- **FFmpeg 6+**: Audio conversion — invoked by yt-dlp postprocessor; no separate Python wrapper needed
+- **librosa 0.11**: BPM + key detection — single pip install, proven in production at similar tools (StemSplit)
+- **Vanilla HTML/CSS/JS**: Frontend — one page, two states; React/Vue are category errors here
+- **Hetzner VPS (~5 EUR/mo) preferred over shared PaaS**: Hosting — dedicated IP dramatically improves YouTube download success rate
 
-**Libraries evaluated and rejected for v1.1:**
-- `madmom`: Python < 3.10 on PyPI; unmaintained since 2018
-- `aubio`: no wheels since 2019; requires C library; unmaintained
-- `beat_this` (CPJKU): requires PyTorch + torchaudio + einops — 2-3 GB chain for marginal gain
-- `essentia-tensorflow`: TempoCNN requires TensorFlow; RhythmExtractor2013 does not; no benefit here
-- `CREPE`: monophonic pitch tracker, cannot estimate concert pitch for polyphonic audio
+**Key versions:**
+- `yt-dlp >= 2026.3.0` (update weekly via CI — pinning is dangerous)
+- `fastapi >= 0.115, < 1.0`
+- `librosa >= 0.11.0`
+- `numpy >= 1.24, < 2.0` (librosa 0.11 numpy 2.x compatibility is partial)
+- System packages: `ffmpeg >= 6.0`, `libsndfile1`
+- Docker base: `python:3.11-slim-bookworm` (not Alpine — musl libc breaks audio libs)
 
 ### Expected Features
 
-**Must have for v1.1 (table stakes upgraded by this milestone):**
-- More accurate BPM — producers have used Tunebat; divergent values erode trust immediately
-- More accurate key / Camelot — wrong key costs producers time on every chord or sample decision
-- Tuning frequency display "A = X Hz" — producers layering samples need this; a 432 Hz beat in a 440 Hz project is ~32 cents flat
+The feature gap SoundGrabber fills is real and validated. The competitor matrix confirms no tool currently combines download-to-WAV + BPM + key + no-account in a single workflow.
 
-**Should have (differentiators available from Essentia outputs at no extra cost):**
-- BPM confidence indicator — RhythmExtractor2013 multifeature already returns `beats_confidence`; surfacing it builds trust
-- Key detection strength caveat — KeyExtractor returns `strength` (0–1); show a warning only when strength < 0.25
-- Tuning displayed inline on existing result card — no new UI component needed, one additional field
+**Must have (table stakes) — missing any of these means the product feels incomplete:**
+- URL paste and one-click processing — the entry point; everything else depends on this
+- Real-time progress feedback (download / converting / analyzing stages) — 10-60s pipeline reads as broken without it
+- Direct WAV download, no account, no email — gating creates abandonment; no-friction is non-negotiable
+- BPM display — producers set DAW tempo before doing anything else; this is the core payload
+- Musical key display (e.g. F# minor) — equal standing with BPM for producers writing chords or layering samples
+- Mobile-usable layout — 40-60% of web traffic; producers browse YouTube on phones while working at desk
+- HTTPS with no sketchy redirects — y2mate malware reputation is a known community concern; trust signals matter
+- End-to-end result under 60 seconds — competing tools return in 15-30s; over 90s loses users
 
-**Defer to v2+:**
-- TempoCNN (deep learning BPM) — adds 50MB+ model weight and TensorFlow; only if RhythmExtractor2013 proves insufficient in testing
-- BPM histogram display (multiple tempo candidates) — engineering complexity, minimal producer value
-- Essentia TuningFrequency algorithm (spectral peaks pipeline) — librosa one-liner sufficient for v1.1
+**Should have (differentiators) — add in v1 or v1.1:**
+- Y2K / phpBB / Tibia / Orkut visual aesthetic — cultural identity; signals "made for us, not everyone"
+- Combined download + analysis in one workflow — the explicit gap vs. all competitors; the core differentiator
+- Copy-to-clipboard on BPM and key — removes friction when producer reaches for FL Studio / Ableton
+- Camelot wheel notation alongside standard key (e.g. "F# minor / 11A") — harmonic mixing notation producers actually use
+- Half-time / double-time BPM toggle — trap and lo-fi frequently detected at double the "feel" BPM; a div-2 / x2 button resolves this without re-analysis
+- Estimated WAV file size shown before download — WAV is 30-40x larger than the compressed source; producers expect MP3 sizes
 
-**Anti-features (do not implement):**
-- Tuning as binary "432 Hz mode / 440 Hz mode" — detection is continuous; rounding to presets is misleading
-- Showing raw key strength as decimal (0.847) — meaningless to producers; use as internal threshold only
-- Pitch-shifting / tuning correction — analysis tool, not mastering tool
+**Defer to v2 or never:**
+- Waveform thumbnail (validate core workflow first)
+- BPM/key confidence indicator (useful but adds implementation complexity)
+- User accounts, download history, playlists, batch processing — anti-features that contradict no-friction
+- Multi-platform support (SoundCloud, TikTok) — each platform is a separate breakage surface
+- Stem separation, vocal remover — different product category
+- Multiple export formats — WAV is right; MP3 producers can convert in their DAW
 
 ### Architecture Approach
 
-The v1.1 changes are contained entirely within the Celery analysis task. No API contract changes, no frontend routing changes. The task flow is:
+SoundGrabber is a job-queue architecture: the API layer accepts requests and returns a job ID immediately, Celery workers execute the download-convert-analyze pipeline in separate OS processes, Redis stores job state with TTL, and the client polls for completion. The entire system is stateless with ephemeral file storage: WAV files are written to `/tmp/soundgrabber/{job_id}/`, streamed to the client via chunked `StreamingResponse`, then deleted by a `BackgroundTask` after the response ends. A fallback cron sweeper deletes any job directory older than 20 minutes.
 
-1. FFmpeg WAV output (unchanged)
-2. Load audio with librosa at `sr=None` for tuning
-3. HPSS harmonic energy gate → `librosa.estimate_tuning()` → `librosa.tuning_to_A4()` → `tuning_hz` (float or None)
-4. Load audio with `essentia.standard.MonoLoader(sampleRate=44100)` for Essentia
-5. `RhythmExtractor2013(method="multifeature")` → `bpm`, `beats_confidence`
-6. `KeyExtractor(profileType="edma", tuningFrequency=tuning_hz or 440.0)` → `key`, `scale`, `strength`
-7. Assemble `f"{key} {scale}"` → `key_to_camelot()` → `camelot`
-8. Return `{bpm: float, key: str, camelot: str, key_confidence: float, tuning_hz: float|None}` — all Python native types
+**Major components:**
+1. **API Layer (FastAPI + Uvicorn, 2-4 workers)** — accepts POST /jobs, serves GET /jobs/{id} status polls, serves GET /files/{id} WAV streaming; rate limiting via `fastapi-limiter` + Redis sliding window per IP
+2. **Message Broker (Redis)** — Celery task queue, rate-limit counters, job state store with 10-min TTL
+3. **Processing Workers (Celery, 2-4 processes)** — yt-dlp download + FFmpeg WAV conversion + librosa BPM/key analysis; runs in separate OS processes so CPU work never blocks the API event loop
+4. **Temp File Storage (/tmp/soundgrabber/{job_id}/)** — isolated directory per job; deleted after download or after 20-min TTL sweep
+5. **Frontend (single HTML + vanilla JS)** — URL form, polling loop, result card; Y2K aesthetic in hand-crafted CSS
 
-**Major components affected:**
-1. `pipeline.py` / `analyze_audio()` — replace algorithm calls, add tuning logic, add HPSS gate, wrap all outputs in `float()`
-2. `test_pipeline.py` — add `tuning_hz` to every `required` set; add JSON round-trip type assertion; add integration test asserting `camelot != "?"`
-3. `frontend result card` — add `tuning_hz` display; guard `null` with `data.tuning_hz != null ? ... : "N/A"`
-4. `requirements.txt` — add `essentia>=2.1b6.dev1000`; verify `numba>=0.60` for numpy 2.x compatibility
+**Status communication:** 2-second polling over SSE or WebSockets. Jobs take 15-60s; at most 30 status checks per job — negligible. SSE creates persistent connections that are problematic at hundreds of concurrent users. Polling is simpler, retryable, and works behind any CDN or proxy.
 
 ### Critical Pitfalls
 
-1. **Essentia returns numpy float32 — Celery JSON serialization fails silently** — wrap every Essentia output with `float()` at the point of extraction; add `json.dumps(result)` to the test suite asserting all values are Python native types
+1. **Datacenter IP flagging by YouTube (CRITICAL)** — Production downloads fail while local dev works. Shared PaaS IPs achieve 20-40% success vs. 85-95% for residential IPs. Mitigation: VPS with dedicated IP, valid session cookies via `--cookies`, PO Token support, yt-dlp at latest. Abstract the download function behind an interface from day one so strategy can change without touching the pipeline.
 
-2. **KeyExtractor returns key and scale separately — key_to_camelot() silently returns "?"** — always assemble `f"{essentia_key} {essentia_scale}"` before calling `key_to_camelot()`; the existing `test_camelot_mapping` does not catch this because it bypasses `analyze_audio()`
+2. **Half-tempo / double-tempo BPM error (CRITICAL for producer trust)** — librosa systematically returns half the correct BPM for trap beats with half-time drum patterns (70 BPM instead of 140). Mitigation: always display both the detected BPM and its half/double (e.g., "140 BPM — or 70 BPM half-time"); run analysis at multiple start_bpm hints; analyze from the 20% track mark to skip drum-free intros.
 
-3. **Tuning detection on percussive-only beats returns noise** — run HPSS before tuning; if `harmonic_energy / total_energy < 0.2`, set `tuning_hz = None`; cross-validate result is in `[400, 480]` Hz range
+3. **Temp file accumulation and disk exhaustion (CRITICAL)** — Every download creates 3+ files. Failed/abandoned jobs leave orphans. On a small VPS, ~500 orphaned downloads fill the disk and crash the server. Mitigation: `tempfile.mkdtemp()` per job + `try/finally` with `shutil.rmtree` + periodic background sweeper. Must be established in Phase 1 — cannot be retrofitted.
 
-4. **Essentia expects 44100 Hz — existing librosa load is 22050 Hz** — use `essentia.standard.MonoLoader(sampleRate=44100)` for all Essentia analysis paths; do not feed librosa-loaded audio into Essentia algorithms
+4. **yt-dlp version drift causing silent failures (HIGH)** — Outdated yt-dlp downloads HTML error pages that look like audio files until FFmpeg fails on them. Mitigation: validate every downloaded file with `ffprobe -v error -show_entries format=duration`; automate weekly yt-dlp updates in CI.
 
-5. **ABI mismatch if Essentia wheel was compiled against numpy 1.x** — immediately after `pip install essentia`, run `python -c "import essentia.standard; print('OK')"` before writing any pipeline code
-
-6. **tuning_hz field not in test required sets — regression invisible to CI** — add `"tuning_hz"` to the `required` set in `test_json_output_shape` and `_run_pipeline_e2e`
+5. **Concurrent librosa memory spikes causing OOM kills (MODERATE)** — A 10-minute WAV at 44.1kHz stereo consumes 200-400MB RAM per analysis job as NumPy float32 arrays. At 5 concurrent users on a 2GB VPS, the OOM killer fires. Mitigation: downsample to mono 22050 Hz for analysis (4x memory reduction), analyze a 90-second window starting at 20% of track duration, cap concurrent analysis jobs at 3 via semaphore.
 
 ---
 
 ## Implications for Roadmap
 
-This milestone is a contained swap of the analysis engine inside an existing Celery task. The roadmap for v1.1 is one implementation unit with a fixed dependency order.
+### Phase 1: Processing Pipeline (Standalone Script)
 
-### Step 1: Install and verify Essentia
-**Rationale:** ABI failures and dependency conflicts must be resolved before writing any pipeline code.
-**Delivers:** Confirmed working `import essentia.standard` in the venv; updated `requirements.txt`
-**Avoids:** PITFALL M1 (ABI mismatch), PITFALL M10 (numba conflict)
+**Rationale:** yt-dlp is the highest-risk dependency. Validate it works from the target hosting environment before building anything else. If YouTube blocks the server IP, no amount of API or frontend work matters. This is the existential gate.
 
-### Step 2: Implement tuning detection with HPSS gate
-**Rationale:** Tuning must be computed first — it is an input to KeyExtractor.
-**Delivers:** `tuning_hz: float | None` with percussive-track protection
-**Avoids:** PITFALL M5 (percussive tracks return meaningless tuning)
+**Delivers:** A standalone Python script: YouTube URL in, WAV file + BPM + key out. No web framework, no UI — just the pipeline working end-to-end from the target host.
 
-### Step 3: Replace BPM with Essentia RhythmExtractor2013
-**Rationale:** Independent of key; multifeature mode resolves half/double-tempo errors.
-**Delivers:** `bpm: float`, `beats_confidence: float` — both wrapped in `float()`
-**Avoids:** PITFALL M2 (float32 serialization), PITFALL M4 (degara method returns confidence=0)
+**Addresses:** Table stakes — download, convert, BPM, key
 
-### Step 4: Replace key with Essentia KeyExtractor
-**Rationale:** Depends on `tuning_hz` from Step 2; edma profile is EDM-optimized.
-**Delivers:** `key: str` (assembled "F# minor" format), `camelot: str`, `key_confidence: float`
-**Avoids:** PITFALL M3 (key+scale assembly), PITFALL M8 (sample rate mismatch)
+**Avoids:**
+- Pitfall 1 (datacenter IP blocking) — establish cookie/PO Token strategy before any other layer is built
+- Pitfall 2 (yt-dlp version drift) — implement ffprobe validation from the first working version
+- Pitfall 3 (temp file accumulation) — establish `try/finally` + `shutil.rmtree` as the baseline
+- Pitfall 5 (librosa memory) — implement mono/22050Hz downsampling and windowed analysis from the start
 
-### Step 5: Update tests and frontend
-**Rationale:** Three silent failure modes are only caught by end-to-end pipeline tests with real audio.
-**Delivers:** Updated test required sets, JSON type assertion, null-safe frontend display
-**Avoids:** PITFALL M6 (tuning_hz not in test required sets), PITFALL M7 (key algorithm regression invisible in CI)
+**Success gate:** 9/10 representative YouTube URLs (varied genres, lengths, ages) produce a valid WAV + plausible BPM + plausible key from the production host.
+
+---
+
+### Phase 2: API Layer
+
+**Rationale:** Wrap the working pipeline in a web API. The job-queue contract (POST /jobs, poll GET /jobs/{id}) must exist before the frontend is built. The frontend polls the API; the API cannot be designed after the frontend.
+
+**Delivers:** A working HTTP API exercisable via curl. POST a URL, get a job ID, poll for status, get BPM + key + WAV download link.
+
+**Uses:** FastAPI + Uvicorn, Celery + Redis, StreamingResponse WAV serving
+
+**Implements:** API layer + Celery worker layer + Redis job state + temp file cleanup
+
+**Avoids:**
+- Running yt-dlp or librosa inside the FastAPI process (Celery workers handle both)
+- Serving WAV via FileResponse loading whole file into memory (StreamingResponse with chunked generator)
+- Pitfall 10 (synchronous download blocking the web server)
+
+**Success gate:** `curl` workflow completes end-to-end; 3 concurrent `curl` jobs run simultaneously without API becoming unresponsive.
+
+---
+
+### Phase 3: Rate Limiting and Hardening
+
+**Rationale:** Harden before exposing to users. No-auth + free + public is an abuse surface. Rate limiting, URL validation, duration caps, and disk safety must be in place before the frontend goes live.
+
+**Delivers:** A production-safe API that rejects malformed URLs, enforces per-IP rate limits (3/min, 20/hr), caps video duration at 15 minutes (~160MB WAV max), enforces a concurrent job ceiling (20 system-wide), and survives disk pressure.
+
+**Implements:** `fastapi-limiter` on POST /jobs, YouTube watch URL regex validation, `--match-filter "duration <= 900"` in yt-dlp, system-wide active-job counter in Redis, APScheduler disk sweeper, ffmpeg + libsndfile health check at startup
+
+**Avoids:**
+- Queue pollution from non-YouTube URLs
+- Disk exhaustion from oversized videos
+- IP ban acceleration from excessive retries (`--fragment-retries 3`)
+- Pitfall 8 and 9 (missing ffmpeg/libsndfile in container)
+
+---
+
+### Phase 4: Frontend
+
+**Rationale:** Build the UI against the working, hardened API. This prevents mismatch between polling assumptions and actual status response shapes.
+
+**Delivers:** Complete browser-based user flow: paste URL, watch progress stages, see BPM + key, click download. Includes copy-to-clipboard buttons, estimated file size before download, half-time/double-time toggle, Camelot notation.
+
+**Addresses:** All table stakes UX features
+
+**Uses:** Single `index.html` + `static/app.js` (~60-80 lines vanilla JS), FastAPI `StaticFiles` mount
+
+**Avoids:** React/HTMX/Next.js (no component graph exists), WAV size surprise (show size before download)
+
+---
+
+### Phase 5: Visual Identity
+
+**Rationale:** Apply the Y2K aesthetic to the complete, working frontend. Aesthetic work done before the functional layer is validated risks rework if component layout changes.
+
+**Delivers:** The phpBB/Tibia/Orkut visual identity that signals cultural belonging to the underground producer community. Hand-crafted CSS: pixel fonts, gradient backgrounds, bordered boxes with retro chrome. Single deliberate aesthetic — no dark mode toggle.
+
+**Addresses:** The cultural differentiator that no competitor has. Low complexity, very high community value.
+
+---
 
 ### Phase Ordering Rationale
 
-- Installation verification before code: ABI failure must be discovered before writing code that depends on the import
-- Tuning before key: `tuning_hz` is an input parameter to `KeyExtractor`; reversing the order produces HPCP bins misaligned to concert pitch
-- BPM and key are independent after tuning: can proceed in parallel if multiple devs available
-- Tests and frontend last: the output contract cannot be specified until the pipeline implementation is stable
+- Pipeline before API: yt-dlp viability on the target host is the existential dependency — prove it before building anything else
+- API before frontend: the polling contract (job state shape, error formats) must be real before the frontend consumes it
+- Hardening before public launch: no-auth + free + public is an abuse surface; rate limiting is not optional
+- Visual identity last: non-blocking; does not gate functional validation
 
 ### Research Flags
 
-Standard patterns (no additional research needed):
-- **Essentia RhythmExtractor2013 multifeature:** official docs are complete; API is stable
-- **librosa tuning detection:** two confirmed functions in official docs, validated in librosa 0.10.2+
-- **Essentia KeyExtractor with edma profile:** official docs + MTG issue #744 confirm edma for EDM
+**Phases needing deeper research during planning:**
+- **Phase 1 (download pipeline):** YouTube bot detection countermeasures evolve rapidly. The PO Token strategy, cookie rotation approach, and specific yt-dlp flags need validation against the actual hosting environment before the API is built. Check yt-dlp GitHub issues for current YouTube breakages the week Phase 1 begins.
+- **Phase 3 (rate limiting):** The specific `fastapi-limiter` + Redis integration and concurrent job ceiling numbers are estimates that need tuning against observed traffic. Start conservative and adjust.
 
-Needs validation during implementation:
-- **HPSS harmonic energy threshold (0.2):** judgment call from research, not a published standard; test on 10-20 real trap beats before treating as fixed
-- **Camelot table completeness for Essentia notation:** Essentia uses mixed Bb/Eb/Ab flats and C#/F# sharps; verify the existing lookup table covers all 12 Essentia key name strings as exact matches before assuming it does
+**Phases with standard patterns (skip deep research):**
+- **Phase 2 (API layer):** FastAPI + Celery + Redis is a well-documented, stable stack. Clear production guides exist. No surprises expected.
+- **Phase 4 (frontend):** Vanilla JS polling against a JSON API is a 2005-era pattern. No framework decisions to make.
+- **Phase 5 (visual identity):** Pure CSS/design work. Research is irrelevant — this is a creative decision.
 
 ---
 
@@ -147,56 +201,45 @@ Needs validation during implementation:
 
 | Area | Confidence | Notes |
 |------|------------|-------|
-| Essentia install on Python 3.11 Linux | HIGH | manylinux cp311 wheel confirmed on PyPI |
-| RhythmExtractor2013 algorithm choice | HIGH | Essentia's own recommendation for batch processing; official tutorial |
-| KeyExtractor with edma profile | HIGH | MTG issue #744 + official docs confirm edma for EDM |
-| Tunebat = Essentia (confirmed) | HIGH | Verified from Tunebat's own analyzer page referencing essentia.js/MTG |
-| librosa tuning detection functions | HIGH | Both functions confirmed in official librosa 0.11.0 docs |
-| float32 serialization pitfall | HIGH | Confirmed in numpy docs and Kombu/Celery issue tracker |
-| Execution order (tuning before key) | HIGH | Logical dependency; KeyExtractor tuningFrequency parameter |
-| HPSS gate threshold for tuning | MEDIUM | 0.2 ratio is reasonable but empirically unvalidated |
-| Accuracy improvement on real beats | MEDIUM | Community consensus "better for EDM" — no controlled study found |
-| Camelot table completeness | MEDIUM | Mixed notation should be covered but must be verified in code |
+| Stack | MEDIUM-HIGH | Core Python/FastAPI/librosa choices are well-established. yt-dlp download reliability is the one structural unknown — it works but YouTube actively fights it. |
+| Features | HIGH | Competitor matrix is solid. The gap (download + analysis + no-account in one workflow) is verified against live tools. Feature priorities are based on verified community patterns. |
+| Architecture | HIGH | The job-queue pattern (FastAPI + Celery + Redis) is industry-standard for this class of app. Component boundaries and data flow are well-understood. Anti-patterns are documented from production failures in similar tools. |
+| Pitfalls | HIGH (YouTube/deployment), MEDIUM (analysis accuracy) | IP blocking and disk management pitfalls are extensively documented in yt-dlp issues. BPM accuracy numbers come from StemSplit production reports, not controlled benchmarks on underground beats. |
 
-**Overall confidence:** HIGH for the integration approach; MEDIUM for accuracy claims on production audio
+**Overall confidence:** MEDIUM-HIGH
 
-### Gaps to Address During Implementation
+### Gaps to Address
 
-- **HPSS threshold validation:** run tuning on 15-20 diverse real beats; confirm 0.2 threshold correctly gates percussive tracks to None while passing melodic tracks
-- **Camelot table coverage audit:** enumerate all 12 key names from Essentia key.cpp and verify each is an exact string match in `key_to_camelot()` — Bb, Eb, Ab (flats) and C#, F# (sharps)
-- **numba version check:** after installing Essentia, confirm `numba >= 0.60` is present; if not, pin explicitly to prevent silent numpy downgrade
-- **Golden file baseline:** capture librosa key output on 5 real WAVs before removing it; compare against Essentia edma output; only switch if edma matches or improves
+- **BPM accuracy on trap/lo-fi in practice:** The 85-95% accuracy estimate comes from StemSplit's production data on pop/rock/electronic. Underground producer beats may skew harder toward half-time patterns. The half-time display mitigates severity, but actual error rate on this genre mix is unknown until tested in Phase 1.
+- **yt-dlp success rate on target hosting IP:** Failure rate estimates (10-20%) are based on community reports from PaaS. Actual rate on a dedicated Hetzner VPS is likely better but unknown until Phase 1 is run from that environment. This is the most important gap to validate first.
+- **Celery vs. BackgroundTasks:** STACK.md and ARCHITECTURE.md give mildly conflicting guidance (STACK recommends BackgroundTasks for simplicity; ARCHITECTURE recommends Celery for correctness). Resolution: use Celery from the start. librosa's CPU-bound NumPy work makes BackgroundTasks a false economy — the first time 3 users submit simultaneously, the API goes unresponsive. The operational overhead of Redis is worth it.
+- **Legal posture at scale:** At underground community scale the practical risk is IP blocking, not lawsuits. If the app grows significantly, DMCA §1201 exposure from bypassing YouTube's technical measures warrants a lawyer's review.
 
 ---
 
 ## Sources
 
-### Primary (HIGH confidence — official documentation)
-- [Essentia RhythmExtractor2013 reference](https://essentia.upf.edu/reference/std_RhythmExtractor2013.html)
-- [Essentia beat detection tutorial](https://essentia.upf.edu/tutorial_rhythm_beatdetection.html)
-- [Essentia KeyExtractor algorithm reference](https://essentia.upf.edu/reference/std_KeyExtractor.html)
-- [Essentia HPCP Key Detection Tutorial](https://essentia.upf.edu/tutorial_tonal_hpcpkeyscale.html)
-- [Essentia TuningFrequency streaming reference](https://essentia.upf.edu/reference/streaming_TuningFrequency.html)
-- [Essentia installing docs + PyPI wheels](https://essentia.upf.edu/installing.html)
-- [Tunebat Analyzer — essentia.js confirmation](https://tunebat.com/Analyzer)
-- [essentia.js project page — MTG/UPF](https://mtg.github.io/essentia.js/)
-- [librosa.estimate_tuning docs](https://librosa.org/doc/main/generated/librosa.estimate_tuning.html)
-- [librosa.tuning_to_A4 docs](https://librosa.org/doc/main/generated/librosa.tuning_to_A4.html)
-- [NumPy 2.0 ABI break — downstream package guide](https://numpy.org/doc/2.0/dev/depending_on_numpy.html)
-- [Essentia Key algorithm source — key.cpp](https://github.com/MTG/essentia/blob/master/src/algorithms/tonal/key.cpp)
+### Primary (HIGH confidence)
+- [yt-dlp GitHub repository + wiki](https://github.com/yt-dlp/yt-dlp) — download options, PO Token guide, bot detection issues
+- [FastAPI documentation](https://fastapi.tiangolo.com/tutorial/background-tasks/) — BackgroundTasks, StreamingResponse
+- [librosa 0.11 documentation](https://librosa.org/doc/0.11.0/beat.html) — beat_track, tempo, chroma_cqt
+- [Essentia algorithm reference](https://essentia.upf.edu/reference/std_KeyExtractor.html) — KeyExtractor, RhythmExtractor2013
+- [TuneReveal source code](https://github.com/duardodev/tunereveal) — competitor feature verification
+- [DMCA ruling on third-party YouTube downloads — MediaNama 2026](https://www.medianama.com/2026/02/223-dmca-ruling-third-party-youtube-downloads-legal-risks-creators/)
 
-### Secondary (MEDIUM confidence — community/practitioner sources)
-- [Essentia edma/edmm profile — MTG issue #744](https://github.com/MTG/essentia/issues/744)
-- [BPM Finder: 300-Track Benchmark vs Tunebat](https://bpm-finder.net/posts/tunebat-bpm-alternative)
-- [StemSplit: BPM and Key Detection — production usage](https://stemsplit.io/blog/bpm-key-detection-feature)
-- [Kombu JSON serializer — numpy types issue #1067](https://github.com/celery/kombu/issues/1067)
-- [librosa numpy 2.0 compatibility — issue #1848](https://github.com/librosa/librosa/issues/1848)
-- [numpy.float64 is JSON serializable but float32 is not](https://ellisvalentiner.com/post/numpyfloat64-is-json-serializable-but-numpyfloat32-is-not/)
+### Secondary (MEDIUM confidence)
+- [StemSplit BPM/key detection blog (2025)](https://stemsplit.io/blog/bpm-key-detection-feature) — accuracy estimates (85-95%) for pop/rock/electronic
+- [Celery + Redis + FastAPI production guide 2025](https://medium.com/@dewasheesh.rana/celery-redis-fastapi-the-ultimate-2025-production-guide-broker-vs-backend-explained-5b84ef508fa7) — architecture validation
+- [6 Ways to Get YouTube Cookies for yt-dlp in 2026](https://dev.to/osovsky/6-ways-to-get-youtube-cookies-for-yt-dlp-in-2026-only-1-works-2cnb) — cookie/PO Token mitigation strategy
+- [fastapi-limiter library](https://github.com/long2ice/fastapi-limiter) — rate limiting implementation
+- [Camelot Wheel Guide — DJ.Studio](https://dj.studio/blog/camelot-wheel) — notation standard for producers
+- [Trap BPM guide — Producer Fury](https://producerfury.com/resources/trap-bpm-guide) — half-time pattern behavior
 
-### Tertiary (LOW confidence — single source or observation)
-- [Tunebat free tier does not show tuning](https://tunebat.com/Analyzer) — observed without account; paid tier may differ
+### Tertiary (LOW confidence)
+- [BPM Finder Tunebat Alternative Benchmark](https://bpm-finder.net/posts/tunebat-bpm-alternative) — single-source benchmark; treat as directional only
+- [YouTube Proxy — Prevent Server IP Blocks](https://proxy001.com/blog/youtube-proxy-prevent-server-ip-blocks-after-deploying-yt-dlp-style-server-workloads) — residential vs. datacenter success rate estimates
 
 ---
-*Research completed: 2026-05-09*
-*Milestone: v1.1 — BPM/Key/Tuning Precision Analysis*
-*Ready for implementation: yes*
+
+*Research completed: 2026-04-29*
+*Ready for roadmap: yes*

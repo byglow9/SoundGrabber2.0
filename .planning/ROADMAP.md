@@ -4,7 +4,7 @@
 **Milestone:** v1 — Public launch
 **Granularity:** Standard
 **Coverage:** 19/19 requirements mapped
-**Last updated:** 2026-05-09
+**Last updated:** 2026-05-08
 
 ---
 
@@ -99,44 +99,6 @@ Plans:
 
 ---
 
-## Milestone v1.1 — Análise Musical de Precisão
-
-- [ ] **Phase 6: Precision Analysis Engine** - Substituir librosa por Essentia no pipeline + implementar tuning detection com HPSS gate
-- [ ] **Phase 7: Frontend Display & Validation** - Exibir tuning_hz na interface + validação manual contra Tunebat
-
----
-
-## Phase Details (v1.1)
-
-### Phase 6: Precision Analysis Engine
-**Goal**: analyze_audio() produce BPM, key, e tuning_hz usando algoritmos de nível profissional — os mesmos que o Tunebat usa — com todos os valores serializáveis por JSON
-**Depends on**: Phase 5
-**Requirements**: PREC-01, PREC-02, PREC-03, PREC-04, PREC-05, TUNING-01, TUNING-02, TUNING-03, QUAL-01
-**Success Criteria** (what must be TRUE):
-  1. Após a fase, `import essentia.standard` no venv não levanta exceção, e `requirements.txt` reflete a dependência fixada
-  2. `analyze_audio()` retorna `tuning_hz` como `float` ou `None` — `None` quando o beat é essencialmente percussivo (razão de energia harmônica < 0.2 via HPSS)
-  3. `analyze_audio()` retorna `bpm` detectado por `RhythmExtractor2013(method="multifeature")` e `key` no formato `"F# minor"` detectado por `KeyExtractor(profileType="edma", tuningFrequency=tuning_hz)` — com `tuning_hz` computado antes do key detection
-  4. `json.dumps(analyze_audio(wav_path))` não levanta `TypeError` — todos os valores no dict são tipos Python nativos (`float`, `str`, `None`), sem `numpy.float32`
-  5. `test_json_output_shape` inclui `tuning_hz` no conjunto de campos obrigatórios e o teste passa com um WAV real
-**Plans:** 3 plans
-Plans:
-- [ ] 06-01-PLAN.md — Wave 0 (TDD RED): adicionar essentia==2.1b6.dev1389 a requirements.txt e criar 3 stubs RED em test_pipeline.py (test_detect_tuning_harmonic, test_detect_tuning_percussive, test_detect_key_uses_tuning_hz)
-- [ ] 06-02-PLAN.md — Wave 1: implementar detect_tuning() com HPSS gate e substituir detect_bpm() por Essentia RhythmExtractor2013; TUNING-01, TUNING-02, PREC-01 verdes
-- [ ] 06-03-PLAN.md — Wave 2: substituir detect_key() por Essentia KeyExtractor(edma), atualizar analyze_audio() com nova sequência e campo tuning_hz, propagar tuning_hz para api/tasks.py; suite completa verde
-
-### Phase 7: Frontend Display & Validation
-**Goal**: A interface exibe a frequência de afinação ao usuário e os resultados de BPM e tonalidade são confirmados contra referência externa antes do milestone ser concluído
-**Depends on**: Phase 6
-**Requirements**: TUNING-04, QUAL-02
-**Success Criteria** (what must be TRUE):
-  1. Quando o servidor retorna `tuning_hz` não nulo, o card de resultado exibe `"A = X Hz"` (ex: `"A = 432 Hz"`) sem recarregar a página
-  2. Quando o servidor retorna `tuning_hz: null`, o campo de afinação exibe `"N/A"` — nenhum erro JavaScript é levantado
-  3. BPM e tonalidade foram validados manualmente em no mínimo 3 beats de referência (trap, house, lo-fi) comparando com Tunebat — e os resultados coincidem ou diferem em menos de 2 BPM / 1 semitom
-**Plans**: TBD
-**UI hint**: yes
-
----
-
 ## Progress Table
 
 | Phase | Plans Complete | Status | Completed |
@@ -146,8 +108,6 @@ Plans:
 | 3. Hardening | 3/3 | Done | 2026-05-04 |
 | 4. Frontend | 4/4 | Done | 2026-05-08 |
 | 5. Visual Identity | 4/4 | Done | 2026-05-08 |
-| 6. Precision Analysis Engine | 0/3 | Planned | - |
-| 7. Frontend Display & Validation | 0/? | Not started | - |
 
 ---
 
@@ -174,23 +134,9 @@ Plans:
 | VISUAL-03 | Phase 5 |
 | VISUAL-04 | Phase 5 |
 | VISUAL-05 | Phase 5 |
-| PREC-01 | Phase 6 |
-| PREC-02 | Phase 6 |
-| PREC-03 | Phase 6 |
-| PREC-04 | Phase 6 |
-| PREC-05 | Phase 6 |
-| TUNING-01 | Phase 6 |
-| TUNING-02 | Phase 6 |
-| TUNING-03 | Phase 6 |
-| TUNING-04 | Phase 7 |
-| QUAL-01 | Phase 6 |
-| QUAL-02 | Phase 7 |
 
-**Mapped v1.0: 19/19**
-**Mapped v1.1: 11/11**
+**Mapped: 19/19**
 
 ---
 
 *Roadmap created: 2026-04-29*
-*v1.1 phases appended: 2026-05-09*
-*Phase 6 planned: 2026-05-09*
