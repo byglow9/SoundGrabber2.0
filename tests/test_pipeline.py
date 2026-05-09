@@ -308,6 +308,31 @@ def test_json_output_shape():
 
 
 # ---------------------------------------------------------------------------
+# QUAL-01: JSON output shape com WAV real (Plan 06-03, Wave 2)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.integration
+def test_json_output_shape_integration(sample_wav_path):
+    """analyze_audio() em WAV real deve ter tuning_hz e json.dumps não deve levantar TypeError.
+
+    QUAL-01: valida que todos os tipos no dict são JSON-nativos (sem numpy types).
+    """
+    import json as _json
+    pipeline = pytest.importorskip("pipeline", reason="pipeline.py não implementado")
+    result = pipeline.analyze_audio(sample_wav_path)
+    required = {"bpm", "key", "camelot", "bpm_half", "bpm_double",
+                "wav_path", "duration_sec", "tuning_hz"}
+    assert required.issubset(result.keys()), f"Missing: {required - set(result.keys())}"
+    serialized = _json.dumps(result)  # não deve levantar TypeError — QUAL-01
+    parsed = _json.loads(serialized)
+    assert parsed["tuning_hz"] is None or isinstance(parsed["tuning_hz"], float), (
+        f"tuning_hz deve ser float ou None, got {type(parsed['tuning_hz'])}"
+    )
+    assert isinstance(parsed["bpm"], float), f"bpm deve ser float, got {type(parsed['bpm'])}"
+    assert isinstance(parsed["key"], str), f"key deve ser str, got {type(parsed['key'])}"
+
+
+# ---------------------------------------------------------------------------
 # D-07: End-to-end with real YouTube URLs (Plan 04, Wave 3)
 # ---------------------------------------------------------------------------
 

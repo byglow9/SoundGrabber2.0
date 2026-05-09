@@ -77,6 +77,7 @@ def process_job(self, url: str) -> dict[str, Any]:
             "camelot": result["camelot"],
             "duration_sec": result["duration_sec"],
             "wav_path": result["wav_path"],        # internal: Plan 03 uses for FileResponse; not returned to API consumer
+            "tuning_hz": result.get("tuning_hz"),   # float ou None — TUNING-03; Phase 7 exibe "A = X Hz"
             "download_url": f"/files/{self.request.id}",
         }
 
