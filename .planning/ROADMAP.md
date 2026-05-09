@@ -111,9 +111,9 @@ Plans:
   5. Running pytest tests/test_security.py passes all tests for body size limit, security headers, disabled docs routes, queue depth limit, and rate limiting on /jobs and /files
 **Plans:** 3 plans
 Plans:
-- [ ] 06-01-PLAN.md — Wave 0: TDD RED stubs em tests/test_security.py — 10 stubs cobrindo SEC-FILE-01/02, SEC-API-01/02/03, SEC-TEST-01..05 (4 ja podem passar verde porque os middlewares correspondentes ja existem em api/main.py)
-- [ ] 06-02-PLAN.md — Wave 1: implementacao dos controles core — os.chmod(0o600) em pipeline.download_audio, chmod 750 self-aplicado em start.sh, decorators @limiter.limit em get_job (60/min) e download_file (10/min) com request/response obrigatorios, rota GET /health com _redis.ping() e tratamento de ConnectionError/TimeoutError; 6 testes RED do Plan 01 viram verdes
-- [ ] 06-03-PLAN.md — Wave 2: documentacao e politica — secao pip-audit pre-deploy em README.md (SEC-TEST-06), secao Security Gate em CLAUDE.md (SEC-POLICY-01), .planning/SECURITY-CHECKLIST.md cobrindo todos os 13 SEC-* controls (SEC-POLICY-02)
+- [x] 06-01-PLAN.md — Wave 0: TDD RED stubs em tests/test_security.py — 10 stubs cobrindo SEC-FILE-01/02, SEC-API-01/02/03, SEC-TEST-01..05 (4 ja podem passar verde porque os middlewares correspondentes ja existem em api/main.py)
+- [x] 06-02-PLAN.md — Wave 1: implementacao dos controles core — os.chmod(0o600) em pipeline.download_audio, chmod 750 self-aplicado em start.sh, decorators @limiter.limit em get_job (60/min) e download_file (10/min) com request/response obrigatorios, rota GET /health com _redis.ping() e tratamento de ConnectionError/TimeoutError; 6 testes RED do Plan 01 viram verdes
+- [x] 06-03-PLAN.md — Wave 2: documentacao e politica — secao pip-audit pre-deploy em README.md (SEC-TEST-06), secao Security Gate em CLAUDE.md (SEC-POLICY-01), .planning/SECURITY-CHECKLIST.md cobrindo todos os 13 SEC-* controls (SEC-POLICY-02)
 
 ### Phase 7: Infrastructure Security
 **Goal**: The application is only reachable over HTTPS via nginx and Redis requires a password in all non-dev environments
