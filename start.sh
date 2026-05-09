@@ -12,6 +12,12 @@ if [ -f "$PROJECT_DIR/.env" ]; then
     export $(grep -v '^#' "$PROJECT_DIR/.env" | xargs)
 fi
 
+# Verificar dependências críticas
+if ! python -c "import essentia.standard" &>/dev/null; then
+    log "Instalando essentia (necessário para BPM/key Essentia)..."
+    pip install -q essentia==2.1b6.dev1389
+fi
+
 # Cores
 C_RESET='\033[0m'
 C_CELERY='\033[36m'   # ciano
