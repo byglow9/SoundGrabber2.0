@@ -15,6 +15,8 @@
 - [x] **Phase 3: Hardening** - Rate limiting, URL validation, duration caps, and disk safety before public exposure
 - [x] **Phase 4: Frontend** - Browser-based user flow built against the real, hardened API
 - [x] **Phase 5: Visual Identity** - Y2K / phpBB / Tibia authentic 2000s aesthetic applied to the complete frontend
+- [ ] **Phase 6: Application Security** - File permissions, API rate limits, health endpoint, security tests, and policy documentation locked in
+- [ ] **Phase 7: Infrastructure Security** - nginx reverse proxy, HTTPS with Let's Encrypt, HSTS, and Redis auth enforcement at the deployment boundary
 
 ---
 
@@ -97,6 +99,28 @@ Plans:
 - [x] 05-04-PLAN.md — Wave 3: converter static/index.html de div para table layout preservando 27 IDs + adicionar <link> para style.css + checkpoint visual no browser
 **UI hint**: yes
 
+### Phase 6: Application Security
+**Goal**: All application-level security controls are enforced in code and verified by automated tests, with policy documented as a mandatory project rule
+**Depends on**: Phase 5
+**Requirements**: SEC-FILE-01, SEC-FILE-02, SEC-API-01, SEC-API-02, SEC-API-03, SEC-TEST-01, SEC-TEST-02, SEC-TEST-03, SEC-TEST-04, SEC-TEST-05, SEC-TEST-06, SEC-POLICY-01, SEC-POLICY-02
+**Success Criteria** (what must be TRUE):
+  1. WAV files written to /tmp are created with mode 0o600; a stat() call on the file shows no read/write permission bits set for group or others
+  2. start.sh cannot be executed by users other than its owner; ls -l shows permissions -rwxr-x--- (750)
+  3. GET /jobs/{id} and GET /files/{id} reject a single IP after 60 and 10 requests per minute respectively with a 429 response
+  4. GET /health returns 200 with Redis status "ok" when the system is healthy and returns 503 when Redis is unreachable
+  5. Running pytest tests/test_security.py passes all tests for body size limit, security headers, disabled docs routes, queue depth limit, and rate limiting on /jobs and /files
+**Plans**: TBD
+
+### Phase 7: Infrastructure Security
+**Goal**: The application is only reachable over HTTPS via nginx and Redis requires a password in all non-dev environments
+**Depends on**: Phase 6
+**Requirements**: SEC-INFRA-01, SEC-INFRA-02, SEC-INFRA-03, SEC-INFRA-04
+**Success Criteria** (what must be TRUE):
+  1. Attempting to start the application with a Redis URL that has no password (and DEV_MODE not set) causes startup to fail immediately with a clear error message naming the missing credential
+  2. curl http://soundgrabber.example.com/ returns a 301 redirect to the HTTPS URL; no content is served over plain HTTP
+  3. curl -I https://soundgrabber.example.com/ shows Strict-Transport-Security: max-age=31536000 in the response headers
+  4. Uvicorn is bound to 127.0.0.1 and is unreachable directly from the internet; all traffic passes through nginx on ports 80 and 443
+
 ---
 
 ## Progress Table
@@ -108,6 +132,8 @@ Plans:
 | 3. Hardening | 3/3 | Done | 2026-05-04 |
 | 4. Frontend | 4/4 | Done | 2026-05-08 |
 | 5. Visual Identity | 4/4 | Done | 2026-05-08 |
+| 6. Application Security | 0/? | Not started | - |
+| 7. Infrastructure Security | 0/? | Not started | - |
 
 ---
 
@@ -134,9 +160,27 @@ Plans:
 | VISUAL-03 | Phase 5 |
 | VISUAL-04 | Phase 5 |
 | VISUAL-05 | Phase 5 |
+| SEC-FILE-01 | Phase 6 |
+| SEC-FILE-02 | Phase 6 |
+| SEC-API-01 | Phase 6 |
+| SEC-API-02 | Phase 6 |
+| SEC-API-03 | Phase 6 |
+| SEC-TEST-01 | Phase 6 |
+| SEC-TEST-02 | Phase 6 |
+| SEC-TEST-03 | Phase 6 |
+| SEC-TEST-04 | Phase 6 |
+| SEC-TEST-05 | Phase 6 |
+| SEC-TEST-06 | Phase 6 |
+| SEC-POLICY-01 | Phase 6 |
+| SEC-POLICY-02 | Phase 6 |
+| SEC-INFRA-01 | Phase 7 |
+| SEC-INFRA-02 | Phase 7 |
+| SEC-INFRA-03 | Phase 7 |
+| SEC-INFRA-04 | Phase 7 |
 
-**Mapped: 19/19**
+**Mapped: 35/35 (19 v1 + 16 v1.1)**
 
 ---
 
 *Roadmap created: 2026-04-29*
+*v1.1 phases appended: 2026-05-09*

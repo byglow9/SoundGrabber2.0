@@ -102,23 +102,43 @@
 
 | REQ-ID | Phase | Status |
 |--------|-------|--------|
-| CORE-01..06 | Phase 2 | Complete |
-| ANALYSIS-01..04 | Phase 1 | Complete |
-| UX-01..04 | Phase 3/4 | Complete |
-| VISUAL-01..05 | Phase 5 | Complete |
+| CORE-01 | Phase 2 | Complete |
+| CORE-02 | Phase 2 | Complete |
+| CORE-03 | Phase 1 | Complete |
+| CORE-04 | Phase 1 | Complete |
+| CORE-05 | Phase 1 | Complete |
+| CORE-06 | Phase 2 | Complete |
+| ANALYSIS-01 | Phase 1 | Complete |
+| ANALYSIS-02 | Phase 1 | Complete |
+| ANALYSIS-03 | Phase 1 | Complete |
+| ANALYSIS-04 | Phase 1 | Complete |
+| UX-01 | Phase 4 | Complete |
+| UX-02 | Phase 4 | Complete |
+| UX-03 | Phase 3 | Complete |
+| UX-04 | Phase 3 | Complete |
+| VISUAL-01 | Phase 5 | Complete |
+| VISUAL-02 | Phase 5 | Complete |
+| VISUAL-03 | Phase 5 | Complete |
+| VISUAL-04 | Phase 5 | Complete |
+| VISUAL-05 | Phase 5 | Complete |
 | SEC-FILE-01 | Phase 6 | Pending |
 | SEC-FILE-02 | Phase 6 | Pending |
-| SEC-INFRA-01 | Phase 6 | Pending |
-| SEC-INFRA-02 | Phase 7 | Pending |
-| SEC-INFRA-03 | Phase 7 | Pending |
-| SEC-INFRA-04 | Phase 7 | Pending |
 | SEC-API-01 | Phase 6 | Pending |
 | SEC-API-02 | Phase 6 | Pending |
 | SEC-API-03 | Phase 6 | Pending |
-| SEC-TEST-01..06 | Phase 6 | Pending |
+| SEC-TEST-01 | Phase 6 | Pending |
+| SEC-TEST-02 | Phase 6 | Pending |
+| SEC-TEST-03 | Phase 6 | Pending |
+| SEC-TEST-04 | Phase 6 | Pending |
+| SEC-TEST-05 | Phase 6 | Pending |
+| SEC-TEST-06 | Phase 6 | Pending |
 | SEC-POLICY-01 | Phase 6 | Pending |
 | SEC-POLICY-02 | Phase 6 | Pending |
+| SEC-INFRA-01 | Phase 7 | Pending |
+| SEC-INFRA-02 | Phase 7 | Pending |
+| SEC-INFRA-03 | Phase 7 | Pending |
+| SEC-INFRA-04 | Phase 7 | Pending |
 
 ---
 
-*Last updated: 2026-05-09 — v1.1 Security Hardening requirements defined*
+*Last updated: 2026-05-09 — v1.1 Security Hardening requirements mapped to Phases 6 and 7*

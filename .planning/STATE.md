@@ -5,7 +5,7 @@ milestone_name: Security Hardening
 status: in_progress
 last_updated: "2026-05-09T00:00:00.000Z"
 progress:
-  total_phases: 0
+  total_phases: 2
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -21,28 +21,34 @@ progress:
 
 **Core value:** O produtor cola um link do YouTube e recebe o beat em WAV com BPM e nota identificados em menos de um minuto, sem nenhuma conta ou instalação.
 
-**Current milestone:** v1 — Public launch (5 phases)
+**Current milestone:** v1.1 — Security Hardening (2 phases: 6 and 7)
 
-**Current focus:** Phase 5 — Visual Identity
+**Current focus:** Phase 6 — Application Security
 
 ---
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: Phase 6 — Application Security
 Plan: —
-Status: Defining requirements
-Last activity: 2026-05-09 — Milestone v1.1 Security Hardening iniciado
+Status: Not started
+Last activity: 2026-05-09 — Roadmap v1.1 criado; Phases 6 e 7 definidas
 
 **Progress:**
 
 ```
+v1.0 Phases:
 [Phase 1] [Phase 2] [Phase 3] [Phase 4] [Phase 5]
 [XXXXXXXX] [XXXXXXXX] [XXXXXXXX] [XXXXXXXX] [XXXXXXXX]
-  100% (phases 3-5 done; phases 1-2 remain)
+  Done (phases 3-5 complete; phases 1-2 planned but functional)
+
+v1.1 Phases:
+[Phase 6] [Phase 7]
+[        ] [        ]
+  0% — Not started
 ```
 
-**Phase completion:** 3/5 phases done (Phases 3, 4 e 5 completas)
+**Phase completion (v1.1):** 0/2 phases done
 
 ---
 
@@ -50,17 +56,11 @@ Last activity: 2026-05-09 — Milestone v1.1 Security Hardening iniciado
 
 | Metric | Value |
 |--------|-------|
-| Phases total | 5 |
-| Phases complete | 0 |
-| Requirements covered | 19/19 |
-| Plans written | 10 |
-| Plans complete | 8 |
-| 03-01 duration | 2min |
-| 03-01 completed | 2026-05-04 |
-| 03-02 duration | 2min |
-| 03-02 completed | 2026-05-04 |
-| 03-03 duration | 7min |
-| 03-03 completed | 2026-05-04 |
+| Phases total (v1.1) | 2 |
+| Phases complete (v1.1) | 0 |
+| Requirements covered (v1.1) | 16/16 |
+| Plans written (v1.1) | 0 |
+| Plans complete (v1.1) | 0 |
 
 ---
 
@@ -82,6 +82,8 @@ Last activity: 2026-05-09 — Milestone v1.1 Security Hardening iniciado
 | response: Response in submit_job | slowapi sync_wrapper calls _inject_headers(kwargs.get("response"), ...) for 2xx; without it raises Exception |
 | exc.limit.limit.get_expiry() | exc.limit is Limit wrapper (slowapi); .limit is RateLimitItem (limits lib) with get_expiry() |
 | LIMITS:LIMITER* flush in conftest | Redis rate-limit counters persist across tests; flush prevents spurious 429 on second test |
+| Application security before infra security (Phase 6 before 7) | Code controls + tests can be written and verified locally; nginx/HTTPS requires a live server with a domain and DNS — unblocking the code work first lets infra work proceed without a host dependency |
+| SEC-INFRA-01 in Phase 7 (not Phase 6) | Redis auth enforcement is an infra-boundary control validated at deployment time, not unit-testable in isolation; belongs with other nginx/HTTPS deployment controls |
 
 ### Known Risks
 
@@ -92,17 +94,21 @@ Last activity: 2026-05-09 — Milestone v1.1 Security Hardening iniciado
 | Temp file accumulation / disk exhaustion | CRITICAL | try/finally + shutil.rmtree + periodic sweeper; established in Phase 1 |
 | yt-dlp version drift / silent failures | HIGH | ffprobe validation on every downloaded file; weekly auto-update in CI |
 | Concurrent librosa OOM kills | MODERATE | Mono 22050Hz downsampling + 90s window analysis + concurrency cap of 3 |
+| Let's Encrypt cert renewal automation | MODERATE | Phase 7 must configure certbot cron/systemd timer — manual renewal is a liveness risk |
 
 ### Research Flags
 
 - **Phase 1:** Check yt-dlp GitHub issues for current YouTube breakages the week Phase 1 begins. Validate cookie/PO Token strategy against the actual production host before building the API layer.
 - **Phase 3:** Rate limit numbers (3/min, 20/hr) are estimates. Start conservative; tune against observed traffic.
+- **Phase 7:** Confirm Let's Encrypt rate limits for the target domain before issuing the first certificate. Staging environment cert issuance first to avoid hitting the 5 certs/week production limit.
 
 ### Todos
 
 - [ ] Provision VPS with dedicated IP before starting Phase 1
 - [ ] Obtain valid YouTube session cookies for yt-dlp before running Phase 1 tests
 - [ ] Verify ffmpeg >= 6.0 and libsndfile1 installed on production host
+- [ ] Confirm domain DNS points to VPS IP before starting Phase 7 (Let's Encrypt requires HTTP-01 challenge)
+- [ ] Set REDIS_URL with password in production .env before Phase 7 deployment
 
 ### Blockers
 
@@ -117,10 +123,10 @@ None.
 1. Read `ROADMAP.md` for phase goals and success criteria
 2. Read `REQUIREMENTS.md` coverage map to confirm current phase scope
 3. Check this file for active todos and known risks
-4. Run `/gsd-plan-phase` for the current phase
+4. Run `/gsd-plan-phase 6` to begin Application Security planning
 
-**Last session:** 2026-05-08T20:20:29.835Z
+**Last session:** 2026-05-09 — v1.1 roadmap created; Phase 6 is next
 
 ---
 
-*Last updated: 2026-05-08 — Phase 5 complete; Phases 1 e 2 (Pipeline + API) remain*
+*Last updated: 2026-05-09 — v1.1 Security Hardening roadmap appended (Phases 6–7, 16 requirements)*
