@@ -18,6 +18,28 @@
 - [ ] **ANALYSIS-03**: Interface exibe também os valores de BPM na metade (÷2) e no dobro (×2) sem re-análise
 - [ ] **ANALYSIS-04**: Sistema exibe a nota Camelot correspondente à tonalidade detectada (ex: 4A, 11B)
 
+## v1.1 Requirements — Análise Musical de Precisão
+
+### PRECISION — BPM e Tonalidade de Nível Profissional
+
+- [ ] **PREC-01**: Sistema substitui detect_bpm() pelo algoritmo Essentia RhythmExtractor2013(method="multifeature") — mesmo algoritmo usado pelo Tunebat
+- [ ] **PREC-02**: Sistema substitui detect_key() pelo algoritmo Essentia KeyExtractor(profileType="edma") com HPCP — perfil calibrado para música eletrônica
+- [ ] **PREC-03**: detect_key() passa o tuning_hz detectado para KeyExtractor(tuningFrequency=tuning_hz) garantindo que os bins HPCP alinhem ao concert pitch real do beat
+- [ ] **PREC-04**: Todos os valores retornados pelo Essentia são convertidos para float() nativo antes de entrar no dict de retorno de analyze_audio() — prevenindo TypeError no Celery JSON serializer
+- [ ] **PREC-05**: KeyExtractor retorna key e scale como strings separadas; sistema monta "F# minor" antes de chamar key_to_camelot(), preservando a tabela Camelot existente
+
+### TUNING — Detecção de Afinação
+
+- [ ] **TUNING-01**: Sistema detecta a frequência de afinação de referência do beat (concert pitch) via librosa.estimate_tuning() + librosa.tuning_to_A4() e retorna como tuning_hz (float ou None)
+- [ ] **TUNING-02**: detect_tuning() aplica HPSS antes de estimar o tuning e retorna None quando a razão de energia harmônica é insuficiente (beat muito percussivo, resultado seria ruído)
+- [ ] **TUNING-03**: analyze_audio() inclui o campo tuning_hz no dict de retorno (float ou None) — serializable via JSON
+- [ ] **TUNING-04**: Interface exibe "A = X Hz" no card de resultado quando tuning_hz não é None (ex: A = 432 Hz, A = 440 Hz)
+
+### QUALITY — Testes e Validação
+
+- [ ] **QUAL-01**: test_json_output_shape inclui tuning_hz no required fields set e valida que json.dumps(result) não levanta TypeError
+- [ ] **QUAL-02**: Resultados de BPM e tonalidade são validados manualmente contra Tunebat com no mínimo 3 beats de referência (trap, house, lo-fi) antes do milestone ser considerado completo
+
 ### UX — Feedback e Experiência
 
 - [ ] **UX-01**: Barra de progresso exibe a etapa atual do processamento (baixando → convertendo → analisando)
@@ -78,7 +100,18 @@
 | VISUAL-03 | Phase 5 | Pending |
 | VISUAL-04 | Phase 5 | Pending |
 | VISUAL-05 | Phase 5 | Pending |
+| PREC-01 | Phase 6 | Pending |
+| PREC-02 | Phase 6 | Pending |
+| PREC-03 | Phase 6 | Pending |
+| PREC-04 | Phase 6 | Pending |
+| PREC-05 | Phase 6 | Pending |
+| TUNING-01 | Phase 6 | Pending |
+| TUNING-02 | Phase 6 | Pending |
+| TUNING-03 | Phase 6 | Pending |
+| TUNING-04 | Phase 7 | Pending |
+| QUAL-01 | Phase 6 | Pending |
+| QUAL-02 | Phase 7 | Pending |
 
 ---
 
-*Last updated: 2026-04-29 — traceability mapped to roadmap phases*
+*Last updated: 2026-05-09 — v1.1 requirements added: PREC-01..05, TUNING-01..04, QUAL-01..02*
