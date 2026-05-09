@@ -151,7 +151,10 @@ async def _limit_body_size(request: Request, call_next):
                     content={"error": "Request body too large.", "error_type": "request_error"},
                 )
         except ValueError:
-            pass
+            return JSONResponse(
+                status_code=400,
+                content={"error": "Invalid Content-Length header.", "error_type": "request_error"},
+            )
     return await call_next(request)
 
 
@@ -334,7 +337,8 @@ def download_file(job_id: str, request: Request, response: Response):
 
 
 @app.get("/health")
-def health_check() -> JSONResponse:
+@limiter.limit("60/minute")
+def health_check(request: Request, response: Response) -> JSONResponse:
     """SEC-API-03: liveness probe — 200 se Redis OK, 503 se offline."""
     try:
         _redis.ping()
