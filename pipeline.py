@@ -18,6 +18,7 @@ Output (D-05): JSON to stdout via __main__ (implemented in Plan 04).
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import uuid
 from pathlib import Path
@@ -158,6 +159,8 @@ def download_audio(url: str, cookies_path: str, po_token: str) -> Path:
                 f"WAV not generated at {wav_path}. yt-dlp may have changed outtmpl behavior."
             )
 
+    # SEC-FILE-01: bloqueia leitura por outros usuários do sistema.
+    os.chmod(wav_path, 0o600)
     return wav_path
 
 
@@ -249,6 +252,12 @@ def validate_wav(wav_path: Path) -> float:
 
     if duration < 1.0:
         raise ValueError(f"Audio invalid or corrupt: duration {duration}s < 1.0s")
+
+    if duration > MAX_DURATION_SEC:
+        raise ValueError(
+            f"Video too long: {duration:.0f}s exceeds the 15-minute limit "
+            f"({MAX_DURATION_SEC}s). SoundGrabber only accepts videos under 15 minutes."
+        )
 
     return duration
 

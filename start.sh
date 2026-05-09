@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -e
 
+# SEC-FILE-02: garantir permissões 750 (rwxr-x---) a cada execução.
+chmod 750 "$(realpath "$0")"
+
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 VENV="$PROJECT_DIR/.venv"
 
@@ -9,7 +12,10 @@ cd "$PROJECT_DIR"
 source "$VENV/bin/activate"
 
 if [ -f "$PROJECT_DIR/.env" ]; then
-    export $(grep -v '^#' "$PROJECT_DIR/.env" | xargs)
+    set -a
+    # shellcheck source=/dev/null
+    source "$PROJECT_DIR/.env"
+    set +a
 fi
 
 # Verificar dependências críticas
@@ -50,5 +56,5 @@ cleanup() {
 }
 trap cleanup EXIT
 
-uvicorn api.main:app --reload --host 0.0.0.0 --port 8000 2>&1 \
+uvicorn api.main:app --host 0.0.0.0 --port 8000 --limit-concurrency 100 --timeout-keep-alive 5 2>&1 \
     | sed "s/^/$(printf "${C_SERVER}")[server]$(printf "${C_RESET}") /"

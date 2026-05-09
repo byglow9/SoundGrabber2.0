@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import os as _os
 import re
 import threading
 import time
@@ -108,6 +109,12 @@ def _run_sweeper_loop() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    if "@" not in settings.redis_url:
+        logger.warning(
+            "Redis URL has no password (REDIS_URL=%s). "
+            "Do not expose Redis to the network without authentication.",
+            settings.redis_url,
+        )
     sweeper = threading.Thread(
         target=_run_sweeper_loop,
         daemon=True,
@@ -118,9 +125,50 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="SoundGrabber API", version="0.3.0", lifespan=lifespan)
+_debug = _os.getenv("DEBUG", "false").lower() == "true"
+app = FastAPI(
+    title="SoundGrabber API",
+    version="0.3.0",
+    lifespan=lifespan,
+    docs_url="/docs" if _debug else None,
+    redoc_url="/redoc" if _debug else None,
+    openapi_url="/openapi.json" if _debug else None,
+)
 
 app.state.limiter = limiter
+
+_MAX_BODY_BYTES = 4 * 1024  # 4 KB — far exceeds any valid YouTube URL POST body
+
+
+@app.middleware("http")
+async def _limit_body_size(request: Request, call_next):
+    cl = request.headers.get("content-length")
+    if cl is not None:
+        try:
+            if int(cl) > _MAX_BODY_BYTES:
+                return JSONResponse(
+                    status_code=413,
+                    content={"error": "Request body too large.", "error_type": "request_error"},
+                )
+        except ValueError:
+            pass
+    return await call_next(request)
+
+
+@app.middleware("http")
+async def _security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:; "
+        "frame-ancestors 'none';"
+    )
+    return response
 
 
 def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
@@ -174,6 +222,8 @@ async def _validation_exception_handler(
 @app.post("/jobs", status_code=202)
 @limiter.limit(f"{settings.rate_limit_per_minute}/minute")
 def submit_job(request: Request, request_body: JobRequest, response: Response) -> dict:
+    if _redis.llen("celery") >= settings.max_queue_depth:
+        raise HTTPException(status_code=503, detail="Service busy. Please try again later.")
     task = process_job.delay(request_body.youtube_url)
     # WR-03: chave por job com TTL individual em vez de set compartilhado.
     # _redis.expire(JOB_REGISTRY_KEY, ...) resetava o TTL do set inteiro a cada
@@ -184,7 +234,8 @@ def submit_job(request: Request, request_body: JobRequest, response: Response) -
 
 
 @app.get("/jobs/{job_id}")
-def get_job(job_id: str) -> dict:
+@limiter.limit(f"{settings.job_poll_rate_limit_per_minute}/minute")
+def get_job(job_id: str, request: Request, response: Response) -> dict:
     if not JOB_ID_PATTERN.match(job_id):
         raise HTTPException(status_code=404, detail="Job not found")
 
@@ -240,7 +291,8 @@ def get_job(job_id: str) -> dict:
 
 
 @app.get("/files/{job_id}")
-def download_file(job_id: str):
+@limiter.limit(f"{settings.file_download_rate_limit_per_minute}/minute")
+def download_file(job_id: str, request: Request, response: Response):
     if not JOB_ID_PATTERN.match(job_id):
         raise HTTPException(status_code=404, detail="File not ready or job not found")
 
@@ -279,6 +331,16 @@ def download_file(job_id: str):
         media_type="audio/wav",
         filename=filename,
     )
+
+
+@app.get("/health")
+def health_check() -> JSONResponse:
+    """SEC-API-03: liveness probe — 200 se Redis OK, 503 se offline."""
+    try:
+        _redis.ping()
+        return JSONResponse(status_code=200, content={"status": "ok"})
+    except (redis_lib.exceptions.ConnectionError, redis_lib.exceptions.TimeoutError):
+        return JSONResponse(status_code=503, content={"status": "unavailable"})
 
 
 # ── Static files ──────────────────────────────────────────────────────────────
