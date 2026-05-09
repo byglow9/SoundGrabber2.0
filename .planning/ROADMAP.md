@@ -4,7 +4,7 @@
 **Milestone:** v1 — Public launch
 **Granularity:** Standard
 **Coverage:** 19/19 requirements mapped
-**Last updated:** 2026-05-08
+**Last updated:** 2026-05-09
 
 ---
 
@@ -118,7 +118,11 @@ Plans:
   3. `analyze_audio()` retorna `bpm` detectado por `RhythmExtractor2013(method="multifeature")` e `key` no formato `"F# minor"` detectado por `KeyExtractor(profileType="edma", tuningFrequency=tuning_hz)` — com `tuning_hz` computado antes do key detection
   4. `json.dumps(analyze_audio(wav_path))` não levanta `TypeError` — todos os valores no dict são tipos Python nativos (`float`, `str`, `None`), sem `numpy.float32`
   5. `test_json_output_shape` inclui `tuning_hz` no conjunto de campos obrigatórios e o teste passa com um WAV real
-**Plans**: TBD
+**Plans:** 3 plans
+Plans:
+- [ ] 06-01-PLAN.md — Wave 0 (TDD RED): adicionar essentia==2.1b6.dev1389 a requirements.txt e criar 3 stubs RED em test_pipeline.py (test_detect_tuning_harmonic, test_detect_tuning_percussive, test_detect_key_uses_tuning_hz)
+- [ ] 06-02-PLAN.md — Wave 1: implementar detect_tuning() com HPSS gate e substituir detect_bpm() por Essentia RhythmExtractor2013; TUNING-01, TUNING-02, PREC-01 verdes
+- [ ] 06-03-PLAN.md — Wave 2: substituir detect_key() por Essentia KeyExtractor(edma), atualizar analyze_audio() com nova sequência e campo tuning_hz, propagar tuning_hz para api/tasks.py; suite completa verde
 
 ### Phase 7: Frontend Display & Validation
 **Goal**: A interface exibe a frequência de afinação ao usuário e os resultados de BPM e tonalidade são confirmados contra referência externa antes do milestone ser concluído
@@ -142,7 +146,7 @@ Plans:
 | 3. Hardening | 3/3 | Done | 2026-05-04 |
 | 4. Frontend | 4/4 | Done | 2026-05-08 |
 | 5. Visual Identity | 4/4 | Done | 2026-05-08 |
-| 6. Precision Analysis Engine | 0/? | Not started | - |
+| 6. Precision Analysis Engine | 0/3 | Planned | - |
 | 7. Frontend Display & Validation | 0/? | Not started | - |
 
 ---
@@ -189,3 +193,4 @@ Plans:
 
 *Roadmap created: 2026-04-29*
 *v1.1 phases appended: 2026-05-09*
+*Phase 6 planned: 2026-05-09*
