@@ -1,11 +1,11 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.0
-milestone_name: milestone
-status: completed
-last_updated: "2026-05-09T04:55:03.198Z"
+milestone: v1.1
+milestone_name: Security Hardening
+status: in_progress
+last_updated: "2026-05-09T00:00:00.000Z"
 progress:
-  total_phases: 5
+  total_phases: 0
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -29,8 +29,10 @@ progress:
 
 ## Current Position
 
-Phase: 06
-**Status:** Milestone complete
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-05-09 — Milestone v1.1 Security Hardening iniciado
 
 **Progress:**
 
