@@ -128,7 +128,7 @@ Plans:
 Plans:
 - [x] 07-01-PLAN.md — Wave 0: TDD RED stubs em tests/test_security.py (test_redis_auth_required, test_redis_auth_bypass_dev_mode, test_redis_auth_passes_with_password, test_hsts_header) + DEV_MODE=true em conftest.py
 - [x] 07-02-PLAN.md — Wave 1: campo dev_mode em api/config.py + funcao _check_redis_auth no lifespan + header HSTS no _security_headers (api/main.py); 4 testes RED viram GREEN
-- [ ] 07-03-PLAN.md — Wave 2: criar railway.toml na raiz com startCommand correto + atualizar SECURITY-CHECKLIST.md com SEC-INFRA-01..04
+- [x] 07-03-PLAN.md — Wave 2: criar railway.toml na raiz com startCommand correto + atualizar SECURITY-CHECKLIST.md com SEC-INFRA-01..04
 - [ ] 07-04-PLAN.md — Wave 3: checkpoint humano — criar projeto Railway (web + celery-worker + Redis), configurar variaveis, deploy, smoke tests dos 4 SEC-INFRA-* e gerar 07-DEPLOY-LOG.md
 
 ---
