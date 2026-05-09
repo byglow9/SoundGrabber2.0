@@ -271,3 +271,71 @@ def test_queue_depth_limit(api_client):
             json={"youtube_url": "https://www.youtube.com/watch?v=abc123"},
         )
     assert r.status_code == 503, f"esperado 503, obtido {r.status_code}: {r.text}"
+
+
+# ---------------------------------------------------------------------------
+# SEC-INFRA-01: Redis auth enforcement (Phase 7)
+# ---------------------------------------------------------------------------
+
+def test_redis_auth_required():
+    """SEC-INFRA-01: _check_redis_auth deve levantar RuntimeError se URL sem '@' e dev_mode=False.
+
+    RED: api/main.py atual apenas loga WARNING. Plan 02 (Wave 1) adiciona a funcao
+    `_check_redis_auth(redis_url: str, dev_mode: bool)` em api/main.py que levanta
+    RuntimeError com mensagem clara quando a URL nao contem credenciais e nao esta
+    em modo desenvolvimento.
+
+    Mensagem deve mencionar 'REDIS_URL' e 'password' (case-insensitive) para que o
+    operador entenda imediatamente o que esta faltando.
+    """
+    from api.main import _check_redis_auth
+
+    with pytest.raises(RuntimeError) as excinfo:
+        _check_redis_auth("redis://localhost:6379/0", dev_mode=False)
+
+    msg = str(excinfo.value).lower()
+    assert "redis_url" in msg, f"Mensagem deve mencionar REDIS_URL: {excinfo.value}"
+    assert "password" in msg, f"Mensagem deve mencionar password: {excinfo.value}"
+
+
+def test_redis_auth_bypass_dev_mode():
+    """SEC-INFRA-01 (D-06): _check_redis_auth NAO levanta quando dev_mode=True, mesmo sem '@' na URL.
+
+    RED: a funcao nao existe ainda. Plan 02 (Wave 1) implementa.
+    """
+    from api.main import _check_redis_auth
+
+    # Nao deve levantar — modo dev permite Redis sem senha
+    _check_redis_auth("redis://localhost:6379/0", dev_mode=True)
+
+
+def test_redis_auth_passes_with_password():
+    """SEC-INFRA-01: _check_redis_auth aceita URLs com credenciais (presenca de '@').
+
+    Cobre o caminho positivo — formato Railway: redis://default:senha@host:6379
+    """
+    from api.main import _check_redis_auth
+
+    # Nao deve levantar — URL tem credenciais
+    _check_redis_auth("redis://default:abc123@redis.railway.internal:6379", dev_mode=False)
+
+
+# ---------------------------------------------------------------------------
+# SEC-INFRA-04: HSTS header
+# ---------------------------------------------------------------------------
+
+def test_hsts_header(api_client):
+    """SEC-INFRA-04: header Strict-Transport-Security: max-age=31536000; includeSubDomains.
+
+    RED: api/main.py:_security_headers atual nao injeta HSTS. Plan 02 (Wave 1) adiciona.
+
+    Valor exato exigido pela especificacao SEC-INFRA-04 + research recomendacao:
+      max-age=31536000; includeSubDomains
+    """
+    response = api_client.get("/")
+    # GET / retorna index.html (Phase 4) — nao precisa estar 200; apenas precisa
+    # passar pelo middleware _security_headers para checar o header injetado.
+    hsts = response.headers.get("Strict-Transport-Security")
+    assert hsts is not None, "Header Strict-Transport-Security ausente"
+    assert "max-age=31536000" in hsts, f"max-age=31536000 ausente: {hsts}"
+    assert "includeSubDomains" in hsts, f"includeSubDomains ausente: {hsts}"
