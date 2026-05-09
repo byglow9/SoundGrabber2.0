@@ -25,9 +25,12 @@ from pathlib import Path
 from typing import Any
 
 import essentia.standard as es
+import imageio_ffmpeg
 import librosa
 import numpy as np
 import yt_dlp
+
+_FFMPEG_PATH = imageio_ffmpeg.get_ffmpeg_exe()
 
 
 # Constants
@@ -58,6 +61,7 @@ def check_duration(url: str, cookies_path: str) -> dict[str, Any]:
         "socket_timeout": 30,
         "noplaylist": True,
         "format": "bestaudio/best",
+        "ffmpeg_location": _FFMPEG_PATH,
     }
     if cookies_path:
         ydl_opts["cookiefile"] = cookies_path
@@ -128,6 +132,7 @@ def download_audio(url: str, cookies_path: str, po_token: str) -> Path:
             "preferredcodec": "wav",
         }],
         "http_chunk_size": 10485760,  # 10MB — avoids YouTube throttling on long downloads
+        "ffmpeg_location": _FFMPEG_PATH,
     }
     if cookies_path:
         ydl_opts["cookiefile"] = cookies_path
