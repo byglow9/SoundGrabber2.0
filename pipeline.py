@@ -62,6 +62,7 @@ def check_duration(url: str, cookies_path: str) -> dict[str, Any]:
         "noplaylist": True,
         "format": "bestaudio/best",
         "ffmpeg_location": _FFMPEG_PATH,
+        "extractor_args": {"youtube": ["player_client=android,web"]},
     }
     if cookies_path:
         ydl_opts["cookiefile"] = cookies_path
@@ -115,9 +116,9 @@ def download_audio(url: str, cookies_path: str, po_token: str) -> Path:
     # extractor_args MUST be a list of strings, NOT a nested dict.
     # Pitfall: nested dict format causes "Requested format is not available" error.
     # Correct format verified via: github.com/yt-dlp/yt-dlp/issues/14307
-    extractor_args: dict[str, list[str]] = {}
+    extractor_args: dict[str, list[str]] = {"youtube": ["player_client=android,web"]}
     if po_token:
-        extractor_args["youtube"] = [f"po_token=web.gvs+{po_token}"]
+        extractor_args["youtube"].append(f"po_token=web.gvs+{po_token}")
 
     ydl_opts: dict[str, Any] = {
         "format": "bestaudio/best",
