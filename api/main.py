@@ -221,6 +221,7 @@ def get_job(job_id: str) -> dict:
             "bpm_double": data.get("bpm_double"),
             "key": data.get("key"),
             "camelot": data.get("camelot"),
+            "tuning_hz": data.get("tuning_hz"),
             "duration_sec": data.get("duration_sec"),
             "download_url": data.get("download_url"),
         }
@@ -265,10 +266,18 @@ def download_file(job_id: str):
     if not wav_path.exists():
         raise HTTPException(status_code=410, detail="File expired")
 
+    title = data.get("video_title") or ""
+    bpm = data.get("bpm") or ""
+    key = data.get("key") or ""
+    slug = re.sub(r"[^\w\s-]", "", title).strip()
+    slug = re.sub(r"[\s]+", "_", slug)[:60]
+    key_slug = key.replace(" ", "_").replace("#", "s")
+    filename = f"{slug}_{bpm}bpm_{key_slug}.wav" if slug else f"soundgrabber_{job_id[:8]}.wav"
+
     return FileResponse(
         path=str(wav_path),
         media_type="audio/wav",
-        filename=f"soundgrabber_{job_id[:8]}.wav",
+        filename=filename,
     )
 
 

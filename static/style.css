@@ -49,6 +49,29 @@ body {
   padding: 0;
 }
 
+#ascii-side {
+  position: fixed;
+  top: 0;
+  left: -20px;
+  margin: 0;
+  padding: 0;
+  font-family: 'Courier New', monospace;
+  font-size: 7px;
+  line-height: 1.1;
+  color: #ff8800;
+  opacity: 0.35;
+  pointer-events: none;
+  white-space: pre;
+  letter-spacing: 0;
+  user-select: none;
+}
+
+#tuning-disclaimer {
+  font-size: 10px;
+  opacity: 0.5;
+  margin-top: 2px;
+}
+
 /* ============================================================
    Site title and tagline
    ============================================================ */

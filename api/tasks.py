@@ -54,7 +54,7 @@ def process_job(self, url: str) -> dict[str, Any]:
     try:
         # Stage 0: duration check — raises ValueError if > 900s (CORE-05)
         self.update_state(state="DOWNLOADING", meta={"stage": "checking_duration"})
-        check_duration(url, settings.cookies_path)
+        info = check_duration(url, settings.cookies_path)
 
         # Stage 1: download + convert (yt-dlp FFmpegExtractAudio postprocessor produces WAV)
         self.update_state(state="DOWNLOADING", meta={"stage": "downloading"})
@@ -77,7 +77,8 @@ def process_job(self, url: str) -> dict[str, Any]:
             "camelot": result["camelot"],
             "duration_sec": result["duration_sec"],
             "wav_path": result["wav_path"],        # internal: Plan 03 uses for FileResponse; not returned to API consumer
-            "tuning_hz": result.get("tuning_hz"),   # float ou None — TUNING-03; Phase 7 exibe "A = X Hz"
+            "tuning_hz": result.get("tuning_hz"),
+            "video_title": info.get("title", ""),
             "download_url": f"/files/{self.request.id}",
         }
 
