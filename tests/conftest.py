@@ -11,6 +11,7 @@ import pytest
 # Point Celery and the api module-level Redis client to the local dev Redis
 # (no auth, started on port 6380). Must run before any api.* import.
 os.environ.setdefault("REDIS_URL", "redis://localhost:6380/0")
+os.environ.setdefault("DEV_MODE", "true")  # SEC-INFRA-01: bypassa Redis auth check em testes (D-06)
 
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
