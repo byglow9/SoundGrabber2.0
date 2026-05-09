@@ -39,6 +39,7 @@ celery_app.conf.update(
     worker_prefetch_multiplier=1,                                  # CPU-bound; cap of 3 workers per STATE.md
     broker_transport_options={"visibility_timeout": 1800},         # 30 min > max video duration (Pitfall 2)
     task_acks_late=True,
+    worker_enable_remote_control=False,                            # SEC: disable celery.pidbox — prevents broker-level worker shutdown/revoke attacks
 )
 
 
