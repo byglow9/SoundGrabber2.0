@@ -71,26 +71,6 @@
 
 ---
 
-## v1.2 Requirements — YouTube Pipeline Fix
-
-### PIPE — Confiabilidade do Pipeline
-
-- [ ] **PIPE-01**: Sistema resolve ffprobe via PATH do sistema (`shutil.which("ffprobe")`) antes de tentar path derivado do imageio-ffmpeg, evitando FileNotFoundError após download bem-sucedido
-- [ ] **PIPE-02**: `ffmpeg_location` passado ao yt-dlp é um diretório (diretório do binário), não o caminho do arquivo binário
-- [ ] **PIPE-03**: yt-dlp desabilita cache de JavaScript (`no_cache_dir=True`) em todas as chamadas para prevenir nsig stale entre deploys
-- [ ] **PIPE-04**: yt-dlp configura `retries=3` e `fragment_retries=3` para tolerância a falhas transitórias de conexão
-- [ ] **PIPE-05**: Startup valida presença de `__Secure-3PSID` no cookies.txt e loga CRITICAL (não-bloqueante) se ausente ou potencialmente expirado
-- [ ] **PIPE-06**: Pipeline falha com mensagem de erro explícita e clara quando bgutil não está disponível, sem tentar client alternativo silenciosamente
-- [ ] **PIPE-07**: Pipeline completo (download → WAV → BPM/key) executa com sucesso no Railway para pelo menos 3 URLs de beats do YouTube
-
-### DEPLOY — Infraestrutura Railway
-
-- [ ] **DEPLOY-01**: `nixpacks.toml` presente na raiz do projeto configura `ffmpeg` como dependência do sistema Railway (instala ffmpeg + ffprobe no PATH do container)
-- [ ] **DEPLOY-02**: Serviço bgutil (imagem Rust: `jim60105/bgutil-pot`) deployado no Railway na porta 4416 interna, acessível via Railway private networking
-- [ ] **DEPLOY-03**: Variável de ambiente `BGUTIL_BASE_URL` configurada nos serviços `celery-worker` e `web-service` do Railway apontando para o serviço bgutil interno
-
----
-
 ## v2 Requirements (deferred)
 
 - Waveform visualization — tecnicamente complexo, valor marginal vs. análise musical
@@ -158,17 +138,7 @@
 | SEC-INFRA-02 | Phase 7 | Pending |
 | SEC-INFRA-03 | Phase 7 | Pending |
 | SEC-INFRA-04 | Phase 7 | Pending |
-| PIPE-01 | Phase 8 | Pending |
-| PIPE-02 | Phase 8 | Pending |
-| PIPE-03 | Phase 8 | Pending |
-| PIPE-04 | Phase 8 | Pending |
-| PIPE-05 | Phase 8 | Pending |
-| PIPE-06 | Phase 10 | Pending |
-| PIPE-07 | Phase 10 | Pending |
-| DEPLOY-01 | Phase 8 | Pending |
-| DEPLOY-02 | Phase 9 | Pending |
-| DEPLOY-03 | Phase 9 | Pending |
 
 ---
 
-*Last updated: 2026-05-10 — v1.2 traceability complete: PIPE-01..07 e DEPLOY-01..03 mapeados para Phases 8, 9, 10*
+*Last updated: 2026-05-09 — v1.1 Security Hardening requirements mapped to Phases 6 and 7*

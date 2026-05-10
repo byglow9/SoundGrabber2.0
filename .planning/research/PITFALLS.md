@@ -1,504 +1,279 @@
-# Pitfalls: YouTube Download on Datacenter IPs with yt-dlp
+# Domain Pitfalls — SoundGrabber
 
-**Domain:** YouTube download pipeline on Railway PaaS (datacenter IP)
-**Researched:** 2026-05-10
-**Context:** SoundGrabber v1.2 — fixing yt-dlp pipeline on Railway
-
----
-
-## Summary
-
-YouTube's anti-bot countermeasures have intensified significantly through 2025-2026. Three overlapping crises compound each other on datacenter IPs: (1) cookies now expire every 2 weeks instead of months, and Chrome-extracted cookies no longer work at all since July 2024; (2) the `web` client is being pushed onto SABR-only streaming, progressively stripping away standard HTTPS DASH audio formats that yt-dlp historically relied on; and (3) the `android` client — currently the most reliable fallback for datacenter IPs without PO tokens — is still functional but YouTube is actively deprecating `android_sdkless`, making the medium-term picture uncertain.
-
-The team has already encountered nsig failures, bot detection, format unavailability, and ffprobe path issues. The research below maps each of these into a structured failure taxonomy with specific prevention strategies. The most critical risk going forward is the "silent failure" mode: expired cookies do not produce clear errors — downloads either return garbled content or silently fall back to lower-quality formats with no exception raised.
+**Domain:** YouTube audio downloader + BPM/key detection web app
+**Researched:** 2026-04-29
+**Confidence:** HIGH for YouTube blocking, MEDIUM for audio analysis accuracy, HIGH for file handling/deployment
 
 ---
 
-## Critical Pitfalls (P0)
+## Critical Pitfalls
 
-These cause silent data corruption or complete production outages with no obvious error.
+Mistakes that cause rewrites, production outages, or permanent degradation.
 
 ---
 
-### P0-01: Cookie Expiration — Silent Failure, Not Clear Error
+### Pitfall 1: Datacenter IP Flagging by YouTube
 
 **What goes wrong:**
-YouTube session cookies (Netscape-format `cookies.txt`) expire approximately every 2 weeks. When they expire on a datacenter IP, yt-dlp does not raise a clean exception. Instead, one of three things happens silently:
-- The request proceeds unauthenticated and hits the bot-detection wall ("Sign in to confirm you're not a bot")
-- The authenticated session is demoted: fewer formats are returned (10 instead of 29+)
-- The download appears to complete but returns garbled content
-
-There is a documented case where YouTube returned "too many requests" with no error message at all and yt-dlp exited zero. The WAV file in /tmp would exist but contain invalid audio, which pipeline.py's `validate_wav` would catch — but only if the `duration < 1.0s` check triggers.
+YouTube aggressively flags datacenter IP ranges (AWS, GCP, DigitalOcean, Hetzner, etc.) as bot traffic. Requests from these IPs receive HTTP 403 or silent failures — the download call appears to succeed but returns an error page or corrupted data. This is not a soft block; datacenter IPs get permanently deprioritized. Residential proxies achieve 85–95% success rate on YouTube while datacenter proxies achieve only 20–40%.
 
 **Why it happens:**
-YouTube binds session cookies to IP reputation. Datacenter IPs are flagged higher-risk (~9% bot-detection rate vs <1% for residential IPs), so cookies bound to those IPs are rotated more aggressively. Previous behavior was ~1 month expiry; current behavior is 2 weeks or faster.
-
-Chrome cookies cannot be used at all since July 2024 (app-bound encryption in Chrome 127+). Only Firefox cookies remain viable.
+YouTube cross-references the originating IP against known datacenter CIDR ranges. Any server hosting a web app is, by definition, a datacenter IP. The app's server is the worst possible machine from which to call YouTube.
 
 **Consequences:**
-- Production breaks silently every ~2 weeks with no monitoring alert
-- `validate_wav` may catch the symptom (corrupted file) but the error message points to the wrong cause
-- Users see "download failed" with internal errors referencing ffprobe, not cookie expiry
+Downloads stop working entirely on production within days or weeks of launch. Locally everything works because the developer's residential IP is fine. This is the most common "works on my machine" failure for this class of app.
 
-**Prevention:**
-1. Add a `cookies_health_check()` function that calls yt-dlp with `skip_download=True` on a known short public video and verifies the returned format count is above a minimum threshold (>5 formats). Run this at service startup.
-2. Store cookie creation timestamp as an env var or Railway variable. Alert (log CRITICAL level) if `now - cookie_created_at > 10 days`.
-3. Document the refresh procedure in a RUNBOOK: open Firefox on local machine, visit youtube.com, close Firefox, export via `yt-dlp --cookies-from-browser firefox --skip-download <any-url> --cookies /path/to/cookies.txt`.
+**Warning signs:**
+- Downloads fail in production but succeed locally
+- HTTP 403 or `Sign in to confirm you're not a bot` errors
+- yt-dlp returns exit code 1 with `HTTP Error 403: Forbidden`
+- Error rate climbs over the first 2–4 weeks without code changes
 
-**Detection:**
-- Format count drops below threshold in health check
-- `validate_wav` raises `ValueError` with duration < 1.0s on a successful yt-dlp exit
-- Sentry/log spike on `RuntimeError: yt-dlp failed` with "Sign in to confirm"
+**Prevention strategy:**
+1. Use yt-dlp's `--cookies` flag with a valid YouTube session cookie obtained from a real browser. Cookies from a logged-in account attached to a real identity substantially reduce bot-detection signals.
+2. Implement PO Token (Proof of Origin Token) support via a `yt-dlp-youtube-po-token-provider` plugin — YouTube's 2025/2026 anti-bot system requires this token per video.
+3. Keep yt-dlp pinned to the latest version in `requirements.txt` and set up a weekly auto-update check — YouTube frequently changes its extraction protocol and yt-dlp patches typically follow within days.
+4. Design the download pipeline to be swappable: abstract the download function behind an interface so the underlying tool (yt-dlp flags, proxy configuration, fallback strategies) can be changed without touching the rest of the codebase.
+5. Do NOT set `--fragment-retries` to a high value (default 10 is dangerous) — excessive retries on 429 responses accelerate IP bans. Set `--fragment-retries 3` with exponential backoff logic at the app level.
 
-**Confidence:** HIGH — Multiple GitHub issues (#13964, #8227) and 2026 community reports confirm 2-week expiry window.
+**Which build phase:** Phase 1 (core download pipeline). The abstraction layer for swappability is a design decision that cannot be retrofitted cheaply.
 
 ---
 
-### P0-02: SABR Streaming — Web Client Losing HTTPS Audio Formats
+### Pitfall 2: yt-dlp Version Drift Causing Silent Failures
 
 **What goes wrong:**
-YouTube is progressively rolling out SABR (Server-side Adaptive Bitrate), a proprietary streaming protocol that replaces standard HTTPS DASH `adaptiveFormats`. When SABR is forced, the `web` client returns zero audio-only HTTPS formats. yt-dlp falls back to muxed HLS formats (format IDs 91-96) or progressive format 18 — these are lower-quality, and format 18 is 360p video+audio, not audio-only.
-
-The symptom on the `web` client is the warning:
-```
-Some web client https formats have been skipped as they are missing a url.
-YouTube is forcing SABR streaming for this client.
-```
-
-This is a WARNING, not an error. yt-dlp continues and selects the fallback format silently. The resulting WAV will be PCM-encoded audio transcoded from a 128kbps muxed stream instead of from 160kbps Opus (format 251) — quality degradation without any exception.
+YouTube regularly deploys protocol changes that break yt-dlp's extraction logic. If yt-dlp is pinned to an old version, downloads silently fail or return corrupted files. The failure mode is often not an exception but a downloaded file that is actually an HTML error page.
 
 **Why it happens:**
-YouTube is phasing out DASH adaptive streaming URLs in `web` client responses in favor of SABR, which requires a live session to stream and cannot be downloaded in chunks. As of yt-dlp 2026.03.03, `web` client no longer shows DASH audio-only formats for many videos.
+The YouTube extraction module in yt-dlp is among the most actively maintained extractors precisely because YouTube fights back continuously. A version that worked last month may be broken today.
 
 **Consequences:**
-- Producers receive lower-quality WAV (muxed stream source vs DASH audio-only source)
-- No error raised; pipeline considers it a success
-- Quality difference: format 251 (Opus 160kbps, 48kHz) vs format 18 (AAC 128kbps, muxed)
+Users see 100% failure rate with no useful error message unless the app explicitly validates that the downloaded file is valid audio before returning it.
 
-**Prevention:**
-1. Use `android` client as primary, not `web`. The android sdkless player still returns standard HTTPS DASH audio formats (including format 251, Opus 160kbps) as of 2026.
-2. Add format validation after download: check that `validate_wav` returns `duration > 5.0s` AND log the source format ID if accessible.
-3. Do not rely on `bestaudio/best` to select a high-quality audio-only stream when `web` client is active — SABR will silently degrade it.
+**Warning signs:**
+- Downloaded "audio" files are 10–50KB (HTML error pages)
+- ffmpeg reports `Invalid data found when processing input`
+- yt-dlp error log contains `youtube: This video is not available` when the video clearly exists
 
-**Detection:**
-- Warning string "YouTube is forcing SABR streaming" in yt-dlp output (requires `quiet=False` or log capture)
-- Result WAV file size unexpectedly small for the video duration
-- Format ID in yt-dlp verbose output is 18 or 91-96 instead of 251/140/249
+**Prevention strategy:**
+1. After every yt-dlp download, verify the output file with ffprobe (`ffprobe -v error -show_entries format=duration`). If the probe fails, treat the download as failed and return an error to the user.
+2. Run yt-dlp in verbose mode (`-v`) in staging and capture stderr to a log — YouTube's bot detection messages appear in stderr, not stdout.
+3. Pin yt-dlp to a minor version range (`yt-dlp>=2025.01,<2026.01`) and automate weekly dependency updates with a CI check.
+4. Monitor the yt-dlp GitHub issues page for YouTube-specific breakages as a health signal for the app.
 
-**Confidence:** HIGH — Documented in yt-dlp issues #12482, #16128, #13968 with exact version regression (2025.12.08 vs 2026.03.03).
+**Which build phase:** Phase 1 (core pipeline). File validation with ffprobe is non-negotiable from the first working version.
 
 ---
 
-### P0-03: bgutil as Single Point of Failure
+### Pitfall 3: Half-Tempo / Double-Tempo BPM Detection Error
 
 **What goes wrong:**
-If bgutil is deployed as a separate Railway service and it crashes, becomes OOMed, or is deleted (as happened in the v1.1 incident at 23:39), the entire pipeline fails for `web` client flows. The `pipeline.py` code falls back to `android` when `bgutil_base_url` is empty, but if the config still points to a dead bgutil URL, the `web` client is attempted with an unreachable token provider — yt-dlp then hangs on the HTTP request to bgutil with a connection timeout.
-
-The TypeScript/Node.js version of bgutil has a documented memory leak: ~25MB of RSS growth per request (V8 isolate not disposed). After ~100 requests, the service reaches 2.5GB RSS and on Railway's free tier (512MB container limit) is OOM-killed. This matches the team's observation.
+Librosa's `beat_track` and `tempo` functions return the wrong BPM for a significant fraction of beats that underground producers actually use. The most common failure is returning exactly half the correct BPM (e.g., 70 BPM instead of 140 BPM for trap) or exactly double (e.g., 170 BPM instead of 85 BPM for boom bap). This is not a random error — it is a systematic failure of the onset-detection algorithm on half-time rhythmic patterns.
 
 **Why it happens:**
-The `bgutil-ytdlp-pot-provider` TypeScript implementation creates a new `BotGuardClient` per request. Each client spawns a V8 isolate that is never properly disposed. The Rust rewrite (`jim60105/bgutil-ytdlp-pot-provider-rs`) fixes this with a single persistent worker thread, stable at ~80MB baseline with zero growth per request.
+Trap music at 140 BPM is typically programmed with a half-time drum pattern where the snare lands on beat 3 rather than beats 2 and 4. The rhythmic energy of the kick and snare pattern presents to the algorithm as 70 BPM. The algorithm is technically correct (70 BPM is a valid rhythmic division) but wrong by the producer's mental model of the track's tempo.
+
+Lo-fi and boom bap have swung, quantized, or deliberately loose timing that confuses onset strength estimation. Tracks with no clear percussive transients (ambient pads, long sustained notes) may return 0 BPM or wildly incorrect values.
 
 **Consequences:**
-- Complete pipeline failure for all `web` client requests
-- Timeout instead of fast-fail (yt-dlp waits for bgutil HTTP response)
-- No automatic recovery without manual intervention or Railway auto-restart
+Producers see wrong BPM data and distrust the entire tool. BPM is one of the two core value propositions — getting it wrong consistently destroys credibility.
 
-**Prevention:**
-1. If deploying bgutil, use the **Rust image** (`jim60105/bgutil-pot`) not the TypeScript one. Startup time: ~100ms vs ~800ms; memory: stable 80MB vs leaking 25MB/request.
-2. Add a `socket_timeout` on bgutil requests specifically, or set `bgutil_base_url=""` as fallback when bgutil is unreachable (health check at startup).
-3. Implement a Railway health check for the bgutil service with `railway.toml` restart policy.
-4. Consider whether bgutil is worth the operational complexity — `android` client with cookies works without bgutil and has no SABR issue.
+**Warning signs:**
+- Test a set of 20 known-BPM trap beats; more than 30% return half the expected value
+- Librosa returns 0.0 for ambient or pad-heavy tracks
+- Results vary dramatically (±20 BPM) depending on which 60-second segment of the track is analyzed
 
-**Detection:**
-- Pipeline timeout at `extract_info` step rather than download step
-- Railway memory metrics for bgutil service approaching container limit
-- Error: `Failed to connect to bgutil` in yt-dlp verbose output
+**Prevention strategy:**
+1. Always present BPM alongside a "also try: [half tempo]" or "also try: [double tempo]" value displayed as a secondary result. This turns a wrong answer into a useful answer. Example display: `140 BPM (or 70 BPM half-time)`.
+2. Use librosa's `tempo` function (which returns a float) rather than `beat_track` (which tracks individual beats) for the primary BPM estimate — it is more stable for tempo-only detection.
+3. Analyze the full track, not just the first 30 seconds. The intro of a trap beat is often atypical (no drums). Analyze a window starting at 20% of track duration.
+4. Run analysis at multiple `start_bpm` hints (60, 90, 120, 170) and select the result with the highest onset strength correlation — this significantly reduces half-tempo errors on trap.
+5. For key detection, use librosa's `chroma_cqt` with a `krumhansl` key profile. For BPM, consider using `essentia` as a supplementary check if librosa returns 0 or a suspiciously low value.
+6. Always surface a confidence indicator to the user (e.g., "BPM: 140 — high confidence" vs "BPM: 72 — low confidence, verify manually").
 
-**Confidence:** HIGH — Memory leak confirmed in bgutil-ytdlp-pot-provider-rs DeepWiki migration doc. Single-point-of-failure confirmed by team's own incident log.
-
----
-
-## High Severity Pitfalls (P1)
-
-These cause hard production errors that are diagnosable but require intervention.
+**Which build phase:** Phase 2 (audio analysis). The multiple-hint strategy and half/double display are architecture decisions that need to be built in from the start of the analysis module.
 
 ---
 
-### P1-01: nsig Extraction Failure — Throttled Formats, Not Clean Error
+### Pitfall 4: Temp File Accumulation and Disk Exhaustion
 
 **What goes wrong:**
-YouTube periodically updates the JavaScript obfuscation of its player (`base.js`). When the update changes the function name or structure of the `n` parameter decoder, yt-dlp's nsig extractor fails with:
-```
-WARNING: [youtube] <video_id>: nsig extraction failed: Some formats may be missing
-```
-
-This is a WARNING, not an error. yt-dlp continues using the "generic n function search" fallback. The result: some format URLs cannot be unthrottled. Download speed drops from several MB/s to ~50KB/s (YouTube throttles requests with invalid `n` parameters). For a 10-minute beat at 160kbps, this increases download time from ~1s to ~4 minutes — triggering the Celery task timeout.
+Every download creates at minimum three files on disk: the raw YouTube audio container (WebM/M4A), the intermediate decoded PCM, and the final WAV. If any step fails — or if the cleanup logic runs after the HTTP response is already sent — these files are never deleted. On a small VPS (20–50GB disk), 500 failed or abandoned downloads can consume the entire disk, causing the next write to fail silently and the server to crash or return 500 errors.
 
 **Why it happens:**
-The nsig function in `base.js` is re-obfuscated with each YouTube player rollout. yt-dlp must be updated to recognize the new pattern. Fix timeline is typically 1-7 days after YouTube's player update. The team experienced this with yt-dlp pinned at 2024.12.03, which lacked the fix that landed in 2025.x releases.
+- Python's `after_this_request` in Flask raises `PermissionError` because the file is still open when the framework tries to delete it during streaming
+- Exceptions in the download pipeline that are caught at the top level skip the finally/cleanup block
+- Users who close the browser mid-download leave orphaned files because the server cannot detect the client disconnect in time
+- `tempfile.NamedTemporaryFile` with `delete=True` deletes on close, but if the file handle leaks, the file persists
 
 **Consequences:**
-- Downloads don't fail immediately — they appear to start but take 5-10x longer
-- If Celery task has a `time_limit`, the job times out and the WAV is not produced
-- Timed-out partial files in /tmp are not cleaned up unless the `try/finally` in `pipeline.py` runs
+Server disk fills up. All writes fail. Database (if any), logging, and the OS itself break. The app serves 500 errors until someone manually clears `/tmp`.
 
-**Prevention:**
-1. Pin yt-dlp version to the latest stable release in `requirements.txt`. Do not pin to a version older than the current quarter.
-2. In Railway deployment, always rebuild the image on deploy (do not use cached pip layers for yt-dlp specifically).
-3. Log yt-dlp warnings to a captured stream: set `quiet=False` but redirect to a captured logger, and treat nsig warnings as a monitoring signal.
-4. Set Celery `soft_time_limit` at 120s to raise `SoftTimeLimitExceeded` before the hard kill, allowing cleanup code to run.
+**Warning signs:**
+- `df -h` on the server shows `/tmp` or the app working directory at 80%+ utilization
+- `ls -la /tmp | wc -l` grows over time without shrinking
+- Server alerts for disk I/O errors
+- Users report 500 errors during peak usage
 
-**Detection:**
-- Download step takes >60s for a 3-minute video
-- Log contains "nsig extraction failed" WARNING
-- `validate_wav` raises FileNotFoundError if Celery timed out during download
+**Prevention strategy:**
+1. Use `tempfile.mkdtemp()` to create a unique working directory per request. Wrap all processing in a `try/finally` block that calls `shutil.rmtree(tmpdir)` — the `finally` block runs even if an exception is raised.
+2. Set a separate background cleanup job (e.g., a simple cron or APScheduler task) that deletes any file in the working directory older than 30 minutes. This is the safety net for the cases where `finally` does not run (process kill, OOM, etc.).
+3. Limit concurrent downloads to a maximum of 5 at a time (use a semaphore or a task queue with a fixed worker count) to bound total in-flight disk usage at any moment.
+4. Calculate WAV file size before download: `WAV size (MB) = duration_seconds × 0.176` for 44.1kHz 16-bit stereo. At 10 minutes, that is ~106 MB per download. Reject videos longer than a configurable limit (suggest 15 minutes) to cap per-request disk usage at ~160 MB.
+5. Stream the WAV file to the client using HTTP chunked transfer rather than writing it to disk and then serving it — this eliminates the final output file entirely.
 
-**Confidence:** HIGH — Confirmed by team's own production encounter (2024.12.03 vs 2026.3.17 behavior difference). GitHub issues #14707, #10455, #13249 document the pattern.
+**Which build phase:** Phase 1 (core pipeline). The try/finally pattern and temp directory approach must be established before the first working endpoint.
 
 ---
 
-### P1-02: ffprobe Binary Resolution — PATH vs imageio-ffmpeg Mismatch
+## Moderate Pitfalls
+
+---
+
+### Pitfall 5: Concurrent Download Memory Spikes
 
 **What goes wrong:**
-`pipeline.py` resolves ffprobe as `Path(_FFMPEG_PATH).parent / "ffprobe"`. `_FFMPEG_PATH` comes from `imageio_ffmpeg.get_ffmpeg_exe()`, which returns the path to a bundled ffmpeg binary. The bundled binary's parent directory does NOT include a bundled `ffprobe` binary — imageio-ffmpeg bundles only `ffmpeg`, not `ffprobe`.
-
-The constructed path resolves to a file that does not exist. `validate_wav` then catches `FileNotFoundError` and re-raises as `ValueError("ffprobe binary not found on PATH...")` — misleading, because PATH is not the issue.
-
-This was the exact failure mode in the team's production incident: "download succeeded but ffprobe step failed because binary wasn't accessible."
+Librosa loads the entire audio file into a NumPy array in memory before any analysis begins. A 10-minute WAV at 44.1kHz stereo is ~106 MB on disk, but NumPy stores it as float32 arrays that can consume 200–400 MB of RAM. With 5 concurrent users running analysis simultaneously, the Python process needs 1–2 GB of RAM just for audio data — not counting the web framework, yt-dlp subprocess, or ffmpeg.
 
 **Why it happens:**
-imageio-ffmpeg ships only the `ffmpeg` binary, not `ffprobe`. The assumption `ffprobe` lives next to `ffmpeg` is only true for system-installed FFmpeg (`/usr/bin/ffmpeg` → `/usr/bin/ffprobe`), not for bundled binary packages.
+NumPy's `ndarray` is a fixed-length contiguous memory block. Librosa has no streaming analysis path for beat/key detection — the entire file must be loaded before the algorithm starts. This is a documented architectural limitation.
 
 **Consequences:**
-- Every successful download fails at the `validate_wav` step
-- Users receive `internal_error` despite the WAV file being valid
-- WAV files accumulate in /tmp because cleanup only runs on `YoutubeDLError`, not on `ValueError` from `validate_wav`
+On a 2GB VPS (common for small projects), OOM killer terminates the gunicorn worker or the Python process mid-request. Users see connection resets, not useful error messages.
 
-**Prevention:**
-1. Do not derive `_FFPROBE_PATH` from `_FFMPEG_PATH` parent alone. Use two independent resolution strategies:
-   ```python
-   import shutil
-   _FFPROBE_PATH = shutil.which("ffprobe") or str(Path(_FFMPEG_PATH).parent / "ffprobe")
-   ```
-2. At startup (not at call time), verify the resolved binary actually exists:
-   ```python
-   if not Path(_FFPROBE_PATH).exists():
-       raise RuntimeError(f"ffprobe not found at {_FFPROBE_PATH}. Install system ffmpeg.")
-   ```
-3. In Railway Nixpacks config, explicitly install the `ffmpeg` system package (which includes `ffprobe`). Do not rely solely on imageio-ffmpeg for production.
+**Warning signs:**
+- `free -m` shows available RAM below 200 MB under load
+- `dmesg | grep oom` shows OOM killer events
+- Gunicorn workers restart unexpectedly under concurrent load
+- Analysis works fine for a single request but fails under 3+ simultaneous requests
 
-**Detection:**
-- `validate_wav` raises `ValueError` with "ffprobe binary not found"
-- Subprocess `FileNotFoundError` in `validate_wav`
-- /tmp accumulating `sg_*.wav` files (cleanup not triggered)
+**Prevention strategy:**
+1. Cap concurrent analysis jobs at 3 using a `threading.Semaphore(3)` or a bounded task queue. Return an HTTP 503 with a "Processing at capacity, try again in a moment" message rather than queuing indefinitely.
+2. Downsample to mono at 22050 Hz before analysis (librosa's default). This reduces memory footprint by ~4x. Producers do not need stereo or high sample rate for BPM/key detection — they need it for the WAV download, not the analysis.
+3. Analyze a 90-second segment of the track rather than the full file for analysis purposes. Select the segment starting at 20% of the track duration (skips intros). This caps analysis memory at ~60 MB per request regardless of track length.
+4. Set `gunicorn --workers 2 --threads 4` rather than multiple workers, to share the memory space and avoid duplicating the librosa/NumPy import overhead across worker processes.
 
-**Confidence:** HIGH — Direct match to team's production incident description.
+**Which build phase:** Phase 2 (audio analysis) with infrastructure decisions in Phase 3 (deployment).
 
 ---
 
-### P1-03: extractor_args Format — List of Strings, Not Nested Dict
+### Pitfall 6: WAV File Size Mismatch vs. User Expectations
 
 **What goes wrong:**
-yt-dlp's `extractor_args` option requires the Python API format `{"youtube": ["player_client=android"]}` (list of strings). Using a nested dict (`{"youtube": {"player_client": "android"}}`) silently produces "Requested format is not available" — yt-dlp receives the option but cannot parse it, falls back to default web client, which then hits SABR or bot detection.
+Users conditioned by MP3 downloaders expect audio files to be 5–15 MB. A 10-minute beat in WAV at 44.1kHz 16-bit stereo is ~106 MB. YouTube's source audio is Opus at ~160kbps (48kHz), and when decoded to WAV, the file is 30–40x larger than the compressed source. Users on mobile connections or with data caps will abandon the download or think the app is broken when they see a 100MB file.
 
 **Why it happens:**
-yt-dlp's internal parser for `extractor_args` expects the `=`-delimited string list format. Nested dicts are not documented as valid; yt-dlp issue #14307 explicitly states the list format is required.
+WAV is uncompressed PCM. There is no way around the physics: `size_MB = duration_minutes × 10.6`. The project spec mandates WAV for quality, which is correct for professional use, but the size implication is rarely communicated to the user.
 
 **Consequences:**
-- `android` client is never actually used — the option is silently ignored
-- Pipeline falls back to web client behavior (SABR, bot detection)
-- Error message "Requested format is not available" does not mention extractor_args
+User abandonment mid-download, bandwidth costs on the server (outbound transfer fees), and mobile users being unable to use the app.
 
-**Prevention:**
-The current `pipeline.py` already uses the correct format: `{"youtube": [f"player_client={dl_player}"]}`. Do not change this. Any future addition of extractor_args must use the same list-of-strings pattern.
+**Warning signs:**
+- User feedback saying "the download is too slow" or "the file seems stuck"
+- Server outbound bandwidth bills higher than expected
+- Browser download progress bars showing 10+ minutes for a single file on a residential connection
 
-**Detection:**
-- "Requested format is not available" error
-- Verbose output shows web client being used despite `android` in config
+**Prevention strategy:**
+1. Display the estimated file size before the user clicks download: "Estimated size: ~106 MB (10:02 duration × WAV lossless)". Calculate from the video metadata duration before any download begins.
+2. Show the download progress as a percentage with transfer speed, not just a spinner. Users on slow connections need feedback that the download is happening.
+3. Set an explicit video duration limit (suggest 15 minutes, ~160 MB max WAV) and display it clearly on the UI: "Supports videos up to 15 minutes". Reject longer videos with a clear explanation.
+4. Consider offering WAV as the primary format (per spec) but with an informational tooltip explaining why WAV is large and why it's the right format for production use. This educates the user rather than surprising them.
 
-**Confidence:** HIGH — Confirmed by yt-dlp issue #14307; already documented as a comment in `pipeline.py`.
+**Which build phase:** Phase 1 (UI/UX design). File size communication must be part of the initial UI, not added after user complaints.
 
 ---
 
-### P1-04: outtmpl Without %(ext)s — Postprocessor Filename Confusion
+### Pitfall 7: Key Detection Failure on Atonal and Complex Material
 
 **What goes wrong:**
-The current `pipeline.py` sets `outtmpl` to `outtmpl_base` (no extension), relying on the `FFmpegExtractAudio` postprocessor to append `.wav`. This works in the happy path. However, yt-dlp issue #15327 (December 2025) documents that when an audio-only format is selected and `outtmpl` lacks `%(ext)s`, the FFmpeg postprocessor cannot determine the intermediate format and raises:
-```
-Unable to choose an output format for 'file:sg_abc123.temp'; use a standard extension
-```
-
-This failure mode is triggered specifically when yt-dlp selects an audio-only format (e.g., format 251, webm/Opus) as the intermediate download before WAV conversion. It does NOT trigger for muxed formats. If YouTube's format selection moves exclusively to audio-only (the desired quality behavior), this bug becomes active.
+Chroma-based key detection (librosa's default approach) fails on material that is not tonally clear: drums-only passages, heavily distorted bass, highly compressed dynamic range, or tracks with no harmonic content. The algorithm will return a key, but it will be meaningless. Additionally, enharmonic equivalents (F# minor vs. Gb minor) may be returned inconsistently depending on the frame analyzed.
 
 **Why it happens:**
-yt-dlp's postprocessor pipeline uses the outtmpl extension to determine the intermediate container format before transcoding. With no extension, the heuristic fails for audio-only containers.
+Chroma features are extracted from the constant-Q transform, which smears spectral energy across pitch classes. If the signal has no harmonic content (pure noise, drums), all chroma bins receive roughly equal energy and the key profile correlation becomes meaningless.
 
-**Consequences:**
-- RuntimeError in postprocessor step; WAV not produced
-- Partial `.temp` file left in /tmp (not cleaned by the current `suffix != ".wav"` filter)
+**Warning signs:**
+- The same track analyzed twice returns different keys
+- Confidence scores (if implemented) near 0.5 for all keys
+- Tracks with heavily compressed or distorted bass return keys that don't match what the producer knows
 
-**Prevention:**
-Change `outtmpl` to include `%(ext)s`, then recover the final `.wav` path explicitly:
-```python
-outtmpl = str(WAV_TMP_DIR / f"{TMP_PREFIX}{wav_id}.%(ext)s")
-# After download, find the .wav:
-candidates = list(WAV_TMP_DIR.glob(f"{TMP_PREFIX}{wav_id}*.wav"))
-```
-The current `download_audio` already has the `candidates` fallback — this prevention strengthens it.
+**Prevention strategy:**
+1. Implement a chroma confidence score: compute the ratio of the maximum chroma correlation to the mean. If the ratio is below a threshold (empirically ~1.5–2.0), display "Key: Uncertain — verify manually" rather than a confident wrong answer.
+2. High-pass filter the audio at 300 Hz before chroma extraction to remove bass frequencies that distort the harmonic estimation (sub-bass and bass lines can overwhelm chroma in trap/hip-hop).
+3. Display both the most likely key and the second most likely key when confidence is low.
+4. Use Camelot wheel notation alongside standard notation (e.g., "F# minor / 11A") — this is what underground producers actually use for mixing.
 
-**Detection:**
-- RuntimeError from yt-dlp containing "Unable to choose an output format"
-- `.temp` files in /tmp matching `sg_*` that are not `.wav`
-
-**Confidence:** MEDIUM — Issue #15327 confirms this pattern for audio-only formats; current code works but is fragile against format selection changes.
+**Which build phase:** Phase 2 (audio analysis).
 
 ---
 
-### P1-05: Railway Ephemeral /tmp — Partial Files on Container Restart
+## Minor Pitfalls
+
+---
+
+### Pitfall 8: ffmpeg Not Found in Production Environment
 
 **What goes wrong:**
-Railway containers have ephemeral storage (1GB on free tier, 100GB on paid). When a container restarts mid-download — due to deploy, OOM, or Railway infrastructure event — partial `.part` files and non-.wav intermediates from yt-dlp remain in /tmp on the next container boot. On free tier, two concurrent interrupted downloads of 15-minute videos can exhaust the 1GB limit before cleanup runs.
+yt-dlp requires ffmpeg to merge audio/video streams and to re-encode audio. Librosa requires ffmpeg (via audioread) as a fallback for reading certain audio formats. If ffmpeg is not installed as a system package, both tools fail with unhelpful errors like `NoBackendError` or `postprocessor ffmpeg not found`.
 
-**Why it happens:**
-yt-dlp writes intermediate `.part` files during download. The `try/finally` cleanup in `pipeline.py` only runs within the same process lifetime. Container restart kills the process before finally executes.
+**Prevention strategy:**
+1. In the Dockerfile (or server setup script), explicitly install ffmpeg as a system package: `apt-get install -y ffmpeg`. Do not rely on Python packages to install ffmpeg.
+2. Add a startup health check that runs `ffmpeg -version` and fails fast with a clear error if it is missing.
+3. Pin ffmpeg to a specific version or document the minimum version required.
 
-**Consequences:**
-- Disk exhaustion causes Railway to forcibly stop and redeploy the service
-- Users see 503 during the redeploy window
-
-**Prevention:**
-1. Add a startup sweep in `api/main.py` at app init:
-   ```python
-   import time
-   for f in Path("/tmp").glob("sg_*"):
-       if f.stat().st_mtime < time.time() - 3600:  # older than 1 hour
-           f.unlink(missing_ok=True)
-   ```
-2. Set Celery task `time_limit=300` (5 min) and `soft_time_limit=240`. The `SoftTimeLimitExceeded` exception allows cleanup code to run before hard kill.
-3. Prefer Railway paid tier or monitor disk usage via health check.
-
-**Detection:**
-- `/tmp` usage approaching Railway's ephemeral limit
-- Jobs failing with `FileNotFoundError` on files that should not exist
-
-**Confidence:** HIGH — Railway docs confirm ephemeral storage is wiped on redeploy. yt-dlp issue #11674 confirms partial file accumulation is a known operational problem.
+**Which build phase:** Phase 3 (deployment/infrastructure).
 
 ---
 
-## Medium Severity Pitfalls (P2)
-
-These cause degraded behavior, increased operational costs, or friction but do not cause immediate data loss.
-
----
-
-### P2-01: PO Token Lifetime — Short and Session-Bound
+### Pitfall 9: libsndfile Missing Breaks soundfile/librosa on Linux
 
 **What goes wrong:**
-PO Tokens generated by bgutil have a default cache TTL of 6 hours (configurable via `TOKEN_TTL` env var). The actual token validity may be shorter — some reports indicate 12 hours, others suggest they can last several months — but behavior is highly dependent on whether the token is session-bound or video-bound.
+librosa uses `soundfile` as its primary audio backend, which requires `libsndfile` — a C library that must be installed at the OS level. On minimal Linux containers (Alpine, slim Debian images), `libsndfile` is not present. pip installing librosa succeeds, but the first `librosa.load()` call raises `OSError: cannot load library 'libsndfile'`.
 
-If a PO Token expires mid-download (during a 15-minute video download that takes 30-60 seconds), the download may partially fail or silently degrade. yt-dlp does not retry with a fresh token mid-stream.
+**Prevention strategy:**
+1. In the Dockerfile: `apt-get install -y libsndfile1 ffmpeg` before `pip install librosa`.
+2. Use `python:3.11-slim-bookworm` as the base Docker image rather than Alpine — Alpine uses musl libc which causes additional binary compatibility issues with audio libraries.
+3. Run a test audio load during the Docker build step to catch missing system dependencies before the image is pushed.
 
-**Prevention:**
-1. Regenerate PO Token before each job rather than caching across requests when bgutil is available. The Rust bgutil generates tokens in ~100ms.
-2. If caching, set `TOKEN_TTL=1` (1 hour) rather than the 6-hour default.
-3. Treat PO Token unavailability as a fallback condition, not a hard error — android client without PO token is the default path.
-
-**Confidence:** MEDIUM — PO Token lifetime documentation is contradictory across sources.
+**Which build phase:** Phase 3 (deployment/infrastructure).
 
 ---
 
-### P2-02: YouTube Rate Limiting on Datacenter IPs
+### Pitfall 10: Synchronous Download Blocking the Web Server
 
 **What goes wrong:**
-YouTube applies more aggressive rate limiting to datacenter IP ranges. Community reports indicate:
-- A single IP downloading >50-100 videos/hour starts seeing elevated bot-detection rates
-- `--fragment-retries 10` (yt-dlp default) on a broken connection triggers rapid retries that can temporarily block the IP for up to 1 hour
-- The block manifests as 403 errors on fragment URLs, not on the initial request — yt-dlp may have already selected formats and started downloading when the block hits
+If the download and analysis pipeline runs synchronously in the request handler, a single download (which takes 30–120 seconds) blocks an entire gunicorn worker thread for its entire duration. With 2 workers and 3 concurrent users, the third user's request waits until one of the first two finishes.
 
-All SoundGrabber users share the same Railway egress IP, so multiple concurrent users compound the request rate from YouTube's perspective.
+**Prevention strategy:**
+1. Run the download + analysis pipeline in a background thread or process immediately, return a job ID to the client, and have the client poll for status. This is simpler than Celery for this scale.
+2. For the target scale (hundreds of users, not thousands), `concurrent.futures.ThreadPoolExecutor` with 5 workers is sufficient. Full Celery + Redis is over-engineering for v1.
+3. Use Server-Sent Events (SSE) or WebSocket to push progress updates to the client rather than polling. This gives the 2000s aesthetic a "live" feel that fits the retro UI identity.
 
-**Prevention:**
-1. Add `"fragment_retries": 3` to yt-dlp options (lower than the default 10).
-2. Add Celery rate limiting: `@shared_task(rate_limit="10/m")` to cap concurrent download rate.
-3. The existing application-level rate limiting (3/min per IP) helps but all users share the same Railway egress IP for the outbound YouTube requests.
-
-**Confidence:** MEDIUM — GitHub issue #15899 confirms fragment retries trigger IP bans; exact threshold unverified.
+**Which build phase:** Phase 1 (core architecture). The synchronous vs. async decision must be made before the first endpoint is built — retrofitting async is expensive.
 
 ---
 
-### P2-03: Android Client Deprecation Risk (Medium-Term)
+### Pitfall 11: Legal/ToS Risk Assessment
 
-**What goes wrong:**
-YouTube is actively deprecating `android_sdkless` (the client variant that most yt-dlp datacenter workflows relied on). Multiple 2026 reports note that `android_vr` returns `UNPLAYABLE` for some videos. The standard `android` client (non-vr, non-sdkless) is still functional as of the research date, but the trend is toward SABR enforcement across all clients.
+**What goes wrong (mischaracterization of the risk):**
+Developers either dismiss ToS risk entirely ("everyone does it") or over-index on it and never ship. The actual risk profile for SoundGrabber is nuanced.
 
-**Prevention:**
-1. Monitor yt-dlp release notes for android client deprecation notices.
-2. Have a tested fallback sequence: `android` → `mweb` → `web` (with bgutil). `mweb` currently still returns HTTPS formats.
-3. Pin a specific `player_client` in config rather than relying on yt-dlp's default client selection, so yt-dlp version changes do not silently change the client used.
+**Actual risk breakdown:**
 
-**Confidence:** MEDIUM — Issue #16128 documents 2026.03.03 regression for android_vr; standard android client still works.
+| Risk | Likelihood | Severity | Notes |
+|------|-----------|----------|-------|
+| YouTube ToS violation | Certain | Low for v1 | YouTube's ToS prohibits automated downloads. Enforcement against small apps is rare but not zero. Primary mechanism is service disruption (blocking), not legal action. |
+| DMCA takedown of the app | Low | High | A 2026 US court ruling found that bypassing YouTube's technical measures may violate DMCA §1201. This is a legal gray area. Risk rises with scale and visibility. |
+| Copyright infringement of content | Very low for reference/production use | High if monetized | Users downloading beats for production/reference is analogous to private use. The app itself does not host or redistribute content — it facilitates a download from YouTube's own servers. |
+| YouTube blocking the server IP | High | Medium | This is a technical enforcement, not legal. Expected to happen. Mitigation is the technical strategy in Pitfall 1. |
 
----
+**Prevention strategy:**
+1. Add a clear terms of use on the app stating: "For personal and production reference use only. Do not redistribute downloaded content." This shifts responsibility to the user and demonstrates good faith.
+2. Do not cache, store, or re-serve YouTube audio on the server. Process and immediately stream or delete. Storing a copy is the clearest path to infringement liability.
+3. At scale (if the app grows significantly), consult a lawyer about DMCA §1201 exposure. For v1 at underground community scale, the practical risk is YouTube blocking the server IP, not a lawsuit.
+4. Monitor the yt-dlp GitHub for any legal developments that affect the tool's status.
 
-### P2-04: Chrome Cookies — Silently Invalid Since July 2024
-
-**What goes wrong:**
-Chrome 127+ introduced app-bound encryption for cookie storage. Any `cookies.txt` exported from Chrome after July 2024 is invalid — the encrypted values cannot be decoded outside the Chrome binary. yt-dlp will load the file without error (it is syntactically valid Netscape format) but the cookie values are garbage, providing no authentication benefit. The download then proceeds as unauthenticated on a datacenter IP, guaranteed to hit bot detection.
-
-**Prevention:**
-1. Always export cookies from Firefox. Chrome-exported cookies look valid but provide no auth.
-2. Add a sanity check: the exported `cookies.txt` must contain `youtube.com` entries with `__Secure-3PSID` cookie present. If missing, fail fast with a config error at startup.
-
-**Confidence:** HIGH — Confirmed by multiple 2026 sources and Chrome security release notes.
-
----
-
-### P2-05: Concurrent Workers Sharing /tmp — Orphaned Partial Files
-
-**What goes wrong:**
-Multiple Celery workers share the same `/tmp` directory. If a worker crashes mid-job and is retried, the retry creates a new UUID and the first partial file is never cleaned. The `finally` block in `download_audio` only cleans up based on its own `wav_id`. Orphaned files from crashed workers accumulate.
-
-**Prevention:**
-Use the startup sweep from P1-05. Additionally, deduplicate jobs at the API layer: before enqueuing a Celery task, check Redis for an existing in-progress job for the same YouTube video ID (extracted from URL). Return the existing job ID rather than creating a duplicate.
-
-**Confidence:** MEDIUM — Standard concurrency pattern; inherent in current architecture.
-
----
-
-## Testing Strategy
-
-### The Core Problem
-
-Testing the YouTube download pipeline in CI without hitting real YouTube is necessary because:
-1. Real YouTube requests from CI IP (GitHub Actions, etc.) hit bot detection almost immediately
-2. Hitting real YouTube in CI constitutes a ToS risk at scale
-3. CI failures due to YouTube-side changes would block all production deploys
-
-### Layer 1: Unit Tests — Mock YoutubeDL at the Python Boundary
-
-```python
-# tests/test_pipeline_unit.py
-from unittest.mock import patch, MagicMock
-import pytest
-import yt_dlp
-
-def test_download_audio_bot_detection(tmp_path):
-    """Verify bot detection error is wrapped in RuntimeError."""
-    with patch("pipeline.yt_dlp.YoutubeDL") as MockYDL:
-        instance = MockYDL.return_value.__enter__.return_value
-        instance.download.side_effect = yt_dlp.utils.DownloadError(
-            "Sign in to confirm you're not a bot"
-        )
-        with pytest.raises(RuntimeError, match="Sign in to confirm"):
-            pipeline.download_audio(
-                "https://youtube.com/watch?v=test",
-                cookies_path=str(tmp_path / "cookies.txt"),
-                po_token=""
-            )
-
-def test_download_audio_cleanup_on_failure(tmp_path):
-    """Verify /tmp partial files are removed when yt-dlp raises."""
-    partial = tmp_path / "sg_abc123abc123.part"
-    partial.write_bytes(b"partial data")
-    # ... mock uuid to return predictable id, verify partial is deleted
-```
-
-Cover these cases with mocks:
-- Bot detection ("Sign in to confirm you're not a bot")
-- Format unavailable ("Requested format is not available")
-- Network timeout (`socket.timeout`)
-- nsig warning logged (capture yt-dlp warning output)
-- WAV file not found after successful yt-dlp exit (outtmpl edge case)
-
-### Layer 2: Integration Tests — Local HTTP Server, No YouTube
-
-Serve a real minimal WAV file over a local HTTP server (e.g., `pytest-localserver` or Python's `http.server`) and point yt-dlp at a direct URL — not YouTube — to verify the `convert_to_wav` + `analyze_audio` chain works end-to-end without any YouTube involvement. This tests ffprobe resolution, WAV validation, BPM/key detection, and file cleanup.
-
-### Layer 3: Cookie Expiry Detection Test
-
-```python
-def test_cookies_file_is_recent():
-    """Fail in staging if cookies.txt is older than 10 days."""
-    cookies_path = Path(os.environ.get("YTDLP_COOKIES_FILE", ""))
-    if not cookies_path.exists():
-        pytest.skip("YTDLP_COOKIES_FILE not set — skipping in CI")
-    age_days = (time.time() - cookies_path.stat().st_mtime) / 86400
-    assert age_days < 10, (
-        f"cookies.txt is {age_days:.1f} days old — YouTube cookies expire every ~14 days. "
-        "Refresh: open Firefox, visit youtube.com, export cookies."
-    )
-```
-
-### Layer 4: Canary Test — Real YouTube, Manually Triggered Only
-
-Use a known-stable YouTube URL for nightly or manual CI runs. Do NOT run this in PR CI.
-
-```python
-@pytest.mark.canary
-@pytest.mark.skipif(
-    not os.environ.get("RUN_CANARY_TESTS"),
-    reason="Canary tests hit real YouTube — run manually or nightly only"
-)
-def test_real_youtube_download():
-    """End-to-end smoke test against real YouTube. Requires YTDLP_COOKIES_FILE."""
-    ...
-```
-
-A suitable stable video: YouTube has multiple official short test videos under 60 seconds that have been stable for years. Any video from YouTube's own channel works; prefer one under 2 minutes to minimize download time.
-
-### What NOT to Do in Testing
-
-- Do not commit a real `cookies.txt` to the repo (contains session tokens)
-- Do not run yt-dlp against real YouTube in PR CI — this will eventually trigger a ban on the CI IP
-- Do not mock at the ffmpeg/subprocess level for security tests — the security controls (chmod, path validation) must run against the real filesystem
-- Do not test bgutil availability in unit tests — mock the `bgutil_base_url` parameter instead
-
----
-
-## Prevention Checklist
-
-For the v1.2 milestone before closing:
-
-**Cookie management:**
-- [ ] Cookie export procedure documented in RUNBOOK (Firefox only, not Chrome)
-- [ ] `cookies_health_check()` startup function added to `pipeline.py` or startup script
-- [ ] Cookie age monitoring in startup logs (CRITICAL if >10 days)
-- [ ] `.env.example` documents `YTDLP_COOKIES_FILE` must point to Firefox-exported cookies
-- [ ] Cookies file validated at startup for `__Secure-3PSID` presence
-
-**Client selection:**
-- [ ] `android` client confirmed as default for both `check_duration` and `download_audio` (already done)
-- [ ] `extractor_args` format uses list-of-strings (already correct in current code)
-- [ ] No path where `web` client is selected without bgutil + PO token available
-
-**Binary resolution:**
-- [ ] `_FFPROBE_PATH` verified to exist at startup (not deferred to first call)
-- [ ] System `ffmpeg` (includes `ffprobe`) installed in Railway Nixpacks/Dockerfile
-- [ ] Resolution order: `shutil.which("ffprobe")` first, then imageio-ffmpeg parent path fallback
-
-**File cleanup:**
-- [ ] Startup sweep for orphaned `sg_*` files older than 1 hour
-- [ ] `outtmpl` includes `%(ext)s` to prevent postprocessor confusion
-- [ ] `.temp` and `.part` files included in cleanup glob (not just `suffix != ".wav"`)
-
-**yt-dlp version:**
-- [ ] `requirements.txt` pins yt-dlp to latest stable (not >3 months old)
-- [ ] Railway redeploy does not use cached yt-dlp pip layer (add version bump or `--no-cache`)
-
-**bgutil (if deployed):**
-- [ ] Use Rust image (`jim60105/bgutil-pot`), not TypeScript image
-- [ ] Railway restart policy configured for bgutil service
-- [ ] Pipeline gracefully falls back to `android` client if bgutil unreachable (startup health check)
-
-**Rate limiting:**
-- [ ] `fragment_retries` set to 3 in yt-dlp options (default 10 risks IP ban)
-- [ ] Celery `rate_limit="10/m"` on the download task
-
-**Testing:**
-- [ ] `tests/test_pipeline_unit.py` added with mocked YoutubeDL covering bot detection, format unavailable, and cleanup paths
-- [ ] Cookie age test added with `pytest.mark.skipif` for CI
-- [ ] Canary test marked `@pytest.mark.canary` and excluded from PR CI (gated by `RUN_CANARY_TESTS`)
+**Which build phase:** Phase 1 (architecture). The "no server-side storage" principle must be a design constraint from day one.
 
 ---
 
@@ -506,32 +281,33 @@ For the v1.2 milestone before closing:
 
 | Phase Topic | Likely Pitfall | Mitigation |
 |-------------|---------------|------------|
-| Cookie injection into pipeline | P0-01: Silent expiry | Add startup health check + age monitoring |
-| Client type selection | P0-02: SABR on web | Always default to android; never default to web |
-| bgutil integration | P0-03: Memory leak OOM | Use Rust image; add graceful fallback to android |
-| ffprobe path resolution | P1-02: imageio-ffmpeg mismatch | Install system ffmpeg; startup verification |
-| yt-dlp version management | P1-01: nsig breakage | Pin to latest; rebuild on deploy |
-| outtmpl configuration | P1-04: Postprocessor confusion | Include %(ext)s in outtmpl |
-| Railway /tmp cleanup | P1-05: Disk exhaustion | Startup orphan sweep |
-| CI test pipeline | Testing: real YouTube hits | Mock YoutubeDL; canary tests gated |
-| Fragment download | P2-02: IP ban on retries | Set fragment_retries=3 |
-| Chrome cookie export | P2-04: Invalid cookies | Enforce Firefox; validate __Secure-3PSID presence |
+| Core download pipeline | Datacenter IP immediately blocked in production | Cookie authentication + PO token from phase 1; design abstraction layer |
+| File management | Orphaned temp files if cleanup runs after response | `try/finally` with `shutil.rmtree` from the first working handler |
+| BPM/key analysis | Half-tempo error on trap, zero-BPM on ambient tracks | Multiple `start_bpm` hints + half/double display from phase 2 start |
+| Concurrent users | Memory spike from multiple simultaneous librosa loads | Semaphore + mono/22050Hz downsampling for analysis before phase 2 ships |
+| User expectations | WAV size surprises users expecting MP3-sized files | Show estimated size before download from first UI version |
+| Deployment | ffmpeg and libsndfile missing in container | Dockerfile health check; use `python:3.11-slim-bookworm` not Alpine |
+| Legal | Server-side audio caching creates infringement risk | Never persist audio beyond the request lifecycle |
+| Scaling past v1 | yt-dlp fragility requires operational attention ongoing | Weekly yt-dlp update check + monitoring on download failure rate |
 
 ---
 
 ## Sources
 
-- [yt-dlp issue #13964: YouTube cookies expire in 3-5 days](https://github.com/yt-dlp/yt-dlp/issues/13964) — HIGH confidence
-- [yt-dlp issue #16229: Cookies no longer working — SABR silent failure](https://github.com/yt-dlp/yt-dlp/issues/16229) — HIGH confidence
-- [yt-dlp issue #16128: DASH audio formats missing in yt-dlp 2026.03.03](https://github.com/yt-dlp/yt-dlp/issues/16128) — HIGH confidence
-- [yt-dlp issue #12482: web client SABR-only formats](https://github.com/yt-dlp/yt-dlp/issues/12482) — HIGH confidence
-- [yt-dlp issue #14707: nsig extraction failure — fix in 2025.11.12+](https://github.com/yt-dlp/yt-dlp/issues/14707) — HIGH confidence
-- [yt-dlp issue #15899: Fragment retries trigger IP ban](https://github.com/yt-dlp/yt-dlp/issues/15899) — MEDIUM confidence (closed as not-reproducible)
-- [yt-dlp issue #15327: FFmpeg postprocessor outtmpl filename confusion (December 2025)](https://github.com/yt-dlp/yt-dlp/issues/15327) — MEDIUM confidence
-- [yt-dlp issue #14307: extractor_args list-of-strings format requirement](https://github.com/yt-dlp/yt-dlp/issues/14307) — HIGH confidence
-- [bgutil-ytdlp-pot-provider-rs DeepWiki: TypeScript vs Rust memory comparison](https://deepwiki.com/jim60105/bgutil-ytdlp-pot-provider-rs/6.3-migration-from-typescript-to-rust) — HIGH confidence
-- [DEV Community: 6 Ways to Get YouTube Cookies in 2026 — Only 1 Works](https://dev.to/osovsky/6-ways-to-get-youtube-cookies-for-yt-dlp-in-2026-only-1-works-2cnb) — HIGH confidence
-- [yt-dlp PO Token Guide (wiki)](https://github.com/yt-dlp/yt-dlp/wiki/PO-Token-Guide) — HIGH confidence
-- [Railway Docs: Ephemeral storage limits](https://docs.railway.com/reference/services) — HIGH confidence
-- [yt-dlp issue #15689: android sdkless bypasses SABR at extraction but 403 on download](https://github.com/yt-dlp/yt-dlp/issues/15689) — MEDIUM confidence
-- [yt-dlp issue #11674: Temporary file cleanup on interrupted download](https://github.com/yt-dlp/yt-dlp/issues/11674) — HIGH confidence
+- [yt-dlp YouTube bot detection issue #13067](https://github.com/yt-dlp/yt-dlp/issues/13067)
+- [yt-dlp fragment-retries IP ban issue #15899](https://github.com/yt-dlp/yt-dlp/issues/15899)
+- [yt-dlp PO Token Guide](https://github.com/yt-dlp/yt-dlp/wiki/PO-Token-Guide)
+- [yt-dlp FAQ — rate limiting and workarounds](https://github.com/yt-dlp/yt-dlp/wiki/FAQ)
+- [Bypassing the 2026 YouTube Great Wall — DEV Community](https://dev.to/ali_ibrahim/bypassing-the-2026-youtube-great-wall-a-guide-to-yt-dlp-v2rayng-and-sabr-blocks-1dk8)
+- [YouTube Proxy — Prevent Server IP Blocks](https://proxy001.com/blog/youtube-proxy-prevent-server-ip-blocks-after-deploying-yt-dlp-style-server-workloads)
+- [How to Tackle yt-dlp Challenges in AI-Scale Scraping](https://medium.com/@DataBeacon/how-to-tackle-yt-dlp-challenges-in-ai-scale-scraping-8b78242fedf0)
+- [librosa memory usage growing with iterations — issue #1286](https://github.com/librosa/librosa/issues/1286)
+- [librosa streaming for large files — official blog](https://librosa.org/blog/2019/07/29/stream-processing/)
+- [Automatic BPM and Key Detection — StemSplit 2025](https://stemsplit.io/blog/bpm-key-detection-feature)
+- [DMCA ruling on third-party YouTube downloads — MediaNama 2026](https://www.medianama.com/2026/02/223-dmca-ruling-third-party-youtube-downloads-legal-risks-creators/)
+- [GitHub reinstates youtube-dl — EFF](https://www.eff.org/deeplinks/2020/11/github-reinstates-youtube-dl-after-riaas-abuse-dmca)
+- [6 Ways to Get YouTube Cookies for yt-dlp in 2026](https://dev.to/osovsky/6-ways-to-get-youtube-cookies-for-yt-dlp-in-2026-only-1-works-2cnb)
+- [librosa beat.beat_track documentation](https://librosa.org/doc/main/generated/librosa.beat.beat_track.html)
+- [Trap BPM guide — Producer Fury](https://producerfury.com/resources/trap-bpm-guide)
+- [FastAPI file upload clean patterns](https://medium.com/@ThinkingLoop/fastapi-file-uploads-clean-fast-and-foolproof-4ecf0f00404f)
+- [librosa installation and dependencies — DeepWiki](https://deepwiki.com/librosa/librosa/1.1-installation-and-dependencies)

@@ -133,54 +133,6 @@ Plans:
 
 ---
 
-## v1.2 Phases — YouTube Pipeline Fix
-
-- [ ] **Phase 8: Pipeline Code Fixes** - Fix ffprobe resolution, yt-dlp hardening, cookies validation, and nixpacks.toml so the pipeline is correct and deployable
-- [ ] **Phase 9: Railway bgutil Deployment** - Deploy the bgutil PO Token service on Railway and wire env vars so the worker and web service can reach it
-- [ ] **Phase 10: Failure Hardening and E2E Validation** - Make pipeline failure explicit when bgutil is unavailable and validate the complete pipeline on Railway with real YouTube URLs
-
----
-
-## Phase Details (v1.2)
-
-### Phase 8: Pipeline Code Fixes
-**Goal**: The pipeline code is correct — ffprobe resolves reliably, yt-dlp is hardened against transient failures and cache drift, cookies are validated at startup, and Railway knows to install system ffmpeg
-**Depends on**: Phase 7
-**Requirements**: PIPE-01, PIPE-02, PIPE-03, PIPE-04, PIPE-05, DEPLOY-01
-**Success Criteria** (what must be TRUE):
-  1. Running `python pipeline.py <url>` on a machine where system ffmpeg is installed uses the system ffprobe (found via shutil.which) rather than the imageio-ffmpeg path, and completes without FileNotFoundError
-  2. Deploying to Railway with nixpacks.toml present results in `ffprobe -version` succeeding inside the container (system ffmpeg is on PATH)
-  3. Starting the application with a cookies.txt that lacks `__Secure-3PSID` produces a CRITICAL log line visible in Railway logs before any job is processed
-  4. Submitting a beat URL to a freshly deployed Railway instance (no cached JS) completes download without nsig extraction errors caused by stale yt-dlp cache
-**Plans:** 3 plans
-Plans:
-- [ ] 08-01-PLAN.md — Wave 1 (TDD): RED tests for all 6 behaviors — ffprobe resolution, ffmpeg_location directory, no_cache_dir, retries, cookies CRITICAL log, nixpacks.toml existence
-- [ ] 08-02-PLAN.md — Wave 2: fix pipeline.py — shutil.which ffprobe (PIPE-01), _FFMPEG_DIR variable (PIPE-02), no_cache_dir in both ydl_opts (PIPE-03), retries in download_audio (PIPE-04)
-- [ ] 08-03-PLAN.md — Wave 2: add _check_cookies to api/main.py lifespan (PIPE-05) + create nixpacks.toml with aptPkgs=["ffmpeg"] (DEPLOY-01)
-
-### Phase 9: Railway bgutil Deployment
-**Goal**: The bgutil PO Token service is running on Railway and both the web service and Celery worker can reach it via private networking
-**Depends on**: Phase 8
-**Requirements**: DEPLOY-02, DEPLOY-03
-**Success Criteria** (what must be TRUE):
-  1. A Railway service running `jim60105/bgutil-pot` is healthy and responds on its internal port 4416 (confirmed via Railway service health or curl from another service in the same project)
-  2. The environment variable BGUTIL_BASE_URL is set in both the `web-service` and `celery-worker` Railway services and resolves to the bgutil internal URL
-  3. The web service and Celery worker logs show no "BGUTIL_BASE_URL not set" or connection-refused errors at startup
-**Plans**: TBD
-**Note**: Human checkpoint — requires manual Railway dashboard actions (create service, set env vars)
-
-### Phase 10: Failure Hardening and E2E Validation
-**Goal**: The pipeline fails loudly when bgutil is unavailable (no silent fallback), and the complete download-to-WAV-to-analysis pipeline succeeds on Railway for real beat URLs
-**Depends on**: Phase 9
-**Requirements**: PIPE-06, PIPE-07
-**Success Criteria** (what must be TRUE):
-  1. Submitting a job when BGUTIL_BASE_URL is set but bgutil is unreachable causes the job to reach status=failed with an error message that explicitly names bgutil as unavailable — not a generic download error and not a silent retry with a different client
-  2. Submitting three different beat URLs via POST /jobs on the live Railway deployment results in all three jobs reaching status=done with a downloadable WAV, a plausible BPM value, and a key in standard notation
-  3. GET /files/{id} on a completed Railway job streams a WAV that can be opened in a DAW (not a 0-byte file or an HTML error page)
-**Plans**: TBD
-
----
-
 ## Progress Table
 
 | Phase | Plans Complete | Status | Completed |
@@ -192,9 +144,6 @@ Plans:
 | 5. Visual Identity | 4/4 | Done | 2026-05-08 |
 | 6. Application Security | 0/3 | Planned | - |
 | 7. Infrastructure Security | 0/4 | Planned | - |
-| 8. Pipeline Code Fixes | 0/3 | Planned | - |
-| 9. Railway bgutil Deployment | 0/TBD | Not started | - |
-| 10. Failure Hardening and E2E Validation | 0/TBD | Not started | - |
 
 ---
 
@@ -238,21 +187,10 @@ Plans:
 | SEC-INFRA-02 | Phase 7 |
 | SEC-INFRA-03 | Phase 7 |
 | SEC-INFRA-04 | Phase 7 |
-| PIPE-01 | Phase 8 |
-| PIPE-02 | Phase 8 |
-| PIPE-03 | Phase 8 |
-| PIPE-04 | Phase 8 |
-| PIPE-05 | Phase 8 |
-| PIPE-06 | Phase 10 |
-| PIPE-07 | Phase 10 |
-| DEPLOY-01 | Phase 8 |
-| DEPLOY-02 | Phase 9 |
-| DEPLOY-03 | Phase 9 |
 
-**Mapped: 45/45 (19 v1 + 16 v1.1 + 10 v1.2)**
+**Mapped: 35/35 (19 v1 + 16 v1.1)**
 
 ---
 
 *Roadmap created: 2026-04-29*
 *v1.1 phases appended: 2026-05-09*
-*v1.2 phases appended: 2026-05-10*

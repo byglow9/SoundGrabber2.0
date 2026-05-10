@@ -64,28 +64,18 @@ A estética retro dos anos 2000 (Tibia, phpBB, Orkut) é parte da identidade —
 | Estética Y2K/2000s internet | Identidade cultural da cena underground, diferenciação forte de ferramentas genéricas | — Pending |
 | Detecção de BPM e tonalidade inline | Informação crítica para produtores sem precisar abrir outro app | — Pending |
 
-## Current Milestone: v1.2 YouTube Pipeline Fix
-
-**Goal:** Fazer o pipeline completo (download → convert → analyze) funcionar de forma confiável no Railway sem erros de bot detection, formato ou ffprobe.
-
-**Target features:**
-- Fix bot detection — estratégia correta de client type + auth para datacenter IPs
-- Fix "Requested format is not available" — resolver combinação client/PO Token/cookies que funcione no Railway
-- Fix nsig extraction — garantir comportamento consistente com yt-dlp atual
-- Fix ffprobe path — imageio-ffmpeg ou system ffmpeg acessível no Railway
-- Pipeline end-to-end confiável: download → WAV → BPM/key sem falhas intermitentes
-
-## Previous Milestone: v1.1 Security Hardening
+## Current Milestone: v1.1 Security Hardening
 
 **Goal:** Fechar todas as brechas de segurança identificadas, adicionar testes automatizados de segurança e infraestrutura de garantia contínua.
 
-**Completed features:**
+**Target features:**
 - WAV files com permissões restritas (0o600, não world-readable em /tmp)
 - Redis auth obrigatória com verificação no startup
 - Rate limiting nos endpoints GET /jobs/{id} e GET /files/{id}
 - Suíte `tests/test_security.py` cobrindo todos os controles implementados
-- HSTS via FastAPI middleware + deploy Railway com railway.toml
+- HTTPS + nginx como reverse proxy + header HSTS
 - Health check endpoint (`GET /health`)
+- pip-audit integrado ao processo de desenvolvimento
 - Security Gate documentado em CLAUDE.md como regra obrigatória do projeto
 
 ## Evolution
@@ -106,4 +96,4 @@ Este documento evolui a cada transição de fase e marco de milestone.
 4. Atualizar Context com o estado atual
 
 ---
-*Last updated: 2026-05-10 — Milestone v1.2 YouTube Pipeline Fix iniciado; foco em resolver bot detection + formato + ffprobe no Railway*
+*Last updated: 2026-05-09 — Phase 6 Application Security completa; 13 controles SEC-* validados (chmod WAV/start.sh, rate limits GET, /health, testes, policy docs)*

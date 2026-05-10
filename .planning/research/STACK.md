@@ -1,392 +1,376 @@
-# Technology Stack — YouTube Pipeline Fix (v1.2 Update)
+# Technology Stack — SoundGrabber
 
-**Project:** SoundGrabber — v1.2 YouTube Pipeline Fix
-**Researched:** 2026-05-10 (supersedes 2026-04-29 for YouTube download section)
-**Scope:** Targeted research for Railway datacenter IP reliability fixes.
-  Does NOT re-examine librosa, essentia, FastAPI, Celery, Redis — those are validated.
-
----
-
-## Summary
-
-The current pipeline (yt-dlp 2026.3.17 on Railway) has four distinct failure modes on
-Railway's datacenter IPs. Each has a specific, addressable root cause. The fix is a
-client-strategy change plus a confirmed ffprobe path approach — no full rewrite needed.
-
-**Verdict:** All four failures are fixable without adding heavy new dependencies.
-The bgutil PO Token provider works technically but requires a separate Node.js/Deno
-sidecar service, which has already been proven unreliable in this project's Railway
-environment (STATE.md). The simpler path is a client fallback chain that avoids
-PO Tokens entirely for the common case.
+**Project:** SoundGrabber (YouTube audio downloader + BPM/key detector)
+**Researched:** 2026-04-29
+**Research confidence:** MEDIUM-HIGH (most claims verified against official docs or multiple sources; YouTube download reliability is structurally uncertain)
 
 ---
 
-## yt-dlp Version
+## Recommended Stack
 
-### Recommended: `yt-dlp==2026.3.17` (keep current pin)
+### Backend Framework
 
-**Latest stable on PyPI as of 2026-05-10:** `2026.3.17` (released March 17, 2026).
-A nightly `2026.05.05` exists but is NOT on PyPI stable and should not be used in
-production — no stability guarantees.
+| Technology | Version | Purpose | Why |
+|------------|---------|---------|-----|
+| Python | 3.11+ | Runtime | Ships with asyncio, widely supported on all PaaS targets; 3.11 has meaningful performance improvements over 3.10; yt-dlp dropped Python <3.10 support as of late 2025 |
+| FastAPI | 0.115+ (latest: ~0.136) | HTTP API + file serving | Async-native, excellent for long-running background tasks, minimal boilerplate, native Pydantic validation for URL inputs, easy streaming file responses |
+| Uvicorn | 0.30+ | ASGI server | Standard production server for FastAPI; use with `--workers N` or Gunicorn+uvicorn workers for multi-process |
 
-**Why keep the current pin rather than upgrade to nightly:**
-- Nightly builds require a custom install step (not `pip install yt-dlp`).
-- The `2026.3.17` stable release includes the `2026.03.03` YouTube forced player
-  update and the `2026.03.13` android_vr + web_embedded client fixes, which are
-  the most relevant changes for this milestone.
-- The failures seen on Railway are NOT caused by the yt-dlp version per se — they
-  are caused by client selection and ffprobe path. Upgrading yt-dlp does not fix them.
+**Why FastAPI over Flask/Django:** Flask is sync-by-default (bad for I/O-heavy downloads); Django carries ORM/auth overhead this app will never use. FastAPI's `BackgroundTasks` or direct asyncio integration is the right primitive for the download-then-process-then-serve pattern.
 
-**nsig extraction root cause — and the fix:**
-The nsig failure (local `2024.12.03` vs Railway `2026.3.17` discrepancy) is a stale
-player JS cache problem. yt-dlp caches the YouTube player JavaScript to extract the
-n-signature parameter. When YouTube rotates the player (every few weeks), a cached
-version from a previous deploy produces "nsig extraction failed" warnings.
-
-Fix: set `"no_cache_dir": True` in yt-dlp opts. Railway containers are ephemeral per
-deploy. Without this flag, a stale cache written during an earlier deploy's warmup
-can persist within the same container lifetime. Disabling the cache means every run
-fetches fresh player JS — slightly slower per request but eliminates the entire class
-of nsig failures.
-
-**Confidence:** HIGH — verified via PyPI, yt-dlp release notes, nsig cache
-invalidation PR #10401.
+**Why NOT Node.js/Express:** Python is the lingua franca for audio DSP. librosa, Essentia, and every other audio analysis library target Python. A Node backend would require spawning Python child processes for analysis — an unnecessary seam.
 
 ---
 
-## Client Strategy
+### Task Execution Model
 
-### The Problem: Per-Client Failure Modes on Datacenter IPs
+| Technology | Version | Purpose | Why |
+|------------|---------|---------|-----|
+| FastAPI BackgroundTasks | built-in | Fire-off download+process job | Sufficient for the traffic profile (hundreds of concurrent users, not thousands of simultaneous downloads); no Redis/broker dependency |
 
-YouTube applies per-IP experiments. Datacenter IPs (Railway's shared infrastructure)
-get SABR (Secure Audio/Video Bitstream Restriction) enforcement and bot-detection
-at a higher rate than residential IPs. No single client is universally reliable;
-the strategy must be a ranked fallback chain.
+**Architecture decision:** For this scale (underground producer community, not viral SaaS), FastAPI's built-in `BackgroundTasks` is the correct choice. The flow is:
 
-### Client Evaluation Matrix (yt-dlp 2026.3.17, as of 2026-05)
+1. POST `/process` → validate URL → enqueue background task → return `job_id` immediately
+2. Background task: download → convert → analyze → write result to in-memory dict keyed by `job_id`
+3. GET `/status/{job_id}` → client polls until complete
+4. GET `/download/{job_id}` → stream WAV file, then clean up temp file
 
-| Client | PO Token Required | Cookies Work | Audio Quality | DC IP Reliability | Notes |
-|--------|-------------------|--------------|---------------|-------------------|-------|
-| `web` | Yes (GVS + SABR) | Yes | High (DASH) | LOW — SABR forces missing URLs; 403 on format fetch | Broken on DC IPs even with PO Token (issue #16082) |
-| `web_safari` | Yes (GVS) | Yes | Medium (HLS 91-96) | LOW-MEDIUM — SABR limits to muxed HLS | Issue #16229 confirms cookies trigger SABR on this client |
-| `mweb` | Yes (GVS) | Yes | Medium | LOW without bgutil | PO Token mandatory for any URL access |
-| `ios` | Yes (GVS) | No — ignored | High (m4a HLS) | MEDIUM — bypasses some SABR experiments | HLS m4a formats exempt from GVS PO Token at GVS level |
-| `android` | Yes (GVS) | No — ignored | Low (format 18, ~360p) | MEDIUM | Most bot-detection resilient; unacceptable audio quality for WAV |
-| `android_vr` | Not required | No | Variable | LOW — A/B experiment returns only format 18 randomly (issue #16150) | Was reliable pre-2026; now erratic |
-| `tv` | Not required | Yes (required) | High (DASH) | MEDIUM-HIGH — no PO Token; cookies provide auth | Some TV-client formats are DRM'd but audio-only formats are not |
-| `web_embedded` | Not required | No | Variable | MEDIUM — embeddable videos only (covers most public videos) | Fallback when all else fails; no PO Token |
+**When to upgrade to Celery/ARQ + Redis:** If the app needs persistent job queues across server restarts, retries on failure, or sustained queue depths of 100+ concurrent jobs. At launch, this is premature. The complexity of a Redis broker is not justified by the scale described in PROJECT.md.
 
-**Key insight from issue #16229:** Passing cookies to `web_safari` CAUSES SABR to be
-enforced — fewer formats with cookies than without. This counterintuitive behavior
-means the current `android`-with-cookies pattern is architecturally broken: cookies
-help with `tv` and `web` clients, but hurt or do nothing for `android`/`ios`/`android_vr`.
+**Why NOT Celery at launch:** Celery requires a Redis/RabbitMQ broker, a separate worker process, and monitoring tooling (Flower). For a stateless public tool at community scale, this is significant operational overhead with no proportional benefit.
 
-### Recommended Client Chain for Railway
+**ARQ as the upgrade path:** If BackgroundTasks proves insufficient, ARQ (async-native Redis queue, ~700 LOC) is the right step before Celery. It integrates cleanly with FastAPI's asyncio event loop and avoids Celery's sync-world impedance mismatch.
 
-**Primary recommendation:** `tv,ios,web_embedded`
+---
 
-**Rationale:**
+### YouTube Download
 
-1. **`tv` (primary):** No PO Token required. Accepts cookies. When cookies are valid
-   and fresh, the `tv` client gets DASH audio-only streams (high quality for WAV).
-   DRM warning from issue #13001 applies only to DRM-protected videos — public
-   YouTube beats/instrumentals are not DRM'd.
+| Technology | Version | Purpose | Why |
+|------------|---------|---------|-----|
+| yt-dlp | 2026.03.17 (date-versioned) | YouTube audio download | The definitive fork of youtube-dl; actively maintained with near-weekly releases; only viable maintained option in 2025-2026 |
 
-2. **`ios` (fallback):** Cookies are not used by this client (YouTube ignores the
-   cookiefile for `ios`), but it provides HLS m4a audio streams that are exempt from
-   the GVS PO Token requirement at the CDN level. Bypasses many SABR experiments.
-   Acceptable quality for WAV conversion.
+**Confidence: MEDIUM** — yt-dlp works reliably but YouTube's bot detection creates ongoing operational risk (see below).
 
-3. **`web_embedded` (last resort):** No PO Token required. Works for embeddable
-   videos — the default for all public YouTube videos not explicitly disabled. Lower
-   quality ceiling but zero auth-related failures.
-
-**Configuration in pipeline.py (correct Python API format):**
+**Python API configuration for audio-only WAV:**
 
 ```python
-# CORRECT: nested dict with list values
-extractor_args = {
-    "youtube": {
-        "player_client": ["tv,ios,web_embedded"],
+import yt_dlp
+
+def download_audio(url: str, output_path: str) -> str:
+    ydl_opts = {
+        'format': 'bestaudio/best',
+        'outtmpl': output_path + '/%(id)s.%(ext)s',
+        'postprocessors': [{
+            'key': 'FFmpegExtractAudio',
+            'preferredcodec': 'wav',
+        }],
+        'quiet': True,
+        'no_warnings': True,
+        'http_chunk_size': 10485760,  # 10MB — avoids YouTube throttling trigger
     }
-}
-
-# INCORRECT (current code): list-of-strings format
-# extractor_args = {"youtube": ["player_client=tv,ios,web_embedded"]}
-# This works for the CLI parser but is unreliable in the Python API per issue #13451
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=True)
+        return info['id']
 ```
 
-**Note on extractor_args formats:** Issue #13451 documents that `{"youtube": ["player_client=mweb"]}` (list-of-strings) does not take effect in the Python API in some versions, while `{"youtube": {"player_client": ["mweb"]}}` (nested dict) is the officially documented form in `yt_dlp/extractor/common.py`. Use nested dict.
+**Critical known issues with yt-dlp on servers (2025-2026):**
 
-**What to REMOVE:**
+1. **PO Token / bot detection:** YouTube introduced Proof-of-Origin Tokens (PO tokens) that bind to each video ID. On server IPs (especially shared PaaS), YouTube fingerprints requests as bots and returns HTTP 429 or demands CAPTCHA. PO tokens now expire per-video — there is no persistent server-side bypass. The `mweb` client with manual PO token setup is the current recommended workaround, but it requires ongoing maintenance.
 
-- Remove `android` as primary client. Format 18 (~360p progressive) produces
-  ~128kbps audio — degrades WAV output quality for musicians.
-- Remove the `bgutil_base_url`-conditional logic (`web` if bgutil / `android` if
-  not). The `web` client fails on datacenter IPs even WITH valid PO Tokens (issue
-  #16082). The conditional adds complexity for zero benefit.
-- Remove `po_token` injection in the hot path. The recommended `tv,ios,web_embedded`
-  chain does not require PO Tokens for normal public videos.
+2. **Cookie-based auth:** Passing `--cookies-from-browser chrome` works locally but fails on headless servers (no browser binary). Cookie files degrade quickly. There is no safe automated server-side cookie refresh.
 
-**Confidence:** HIGH for `tv` no-PO-token claim (PO Token Guide official wiki);
-MEDIUM for real-world Railway reliability of `tv` client (confirmed in theory,
-needs validation after deploy; YouTube's per-session experiments may affect it).
+3. **IP reputation:** Shared PaaS IPs (Render, Railway free tiers) are heavily flagged. Residential proxies or dedicated server IPs significantly improve success rate.
 
----
+4. **Throttling trigger:** YouTube throttles requests with HTTP chunk sizes > 10MB. Always set `http_chunk_size` in yt-dlp config.
 
-## PO Token Approach
+**Mitigation strategy:**
+- Keep yt-dlp pinned to latest (`pip install -U yt-dlp` as part of deployment)
+- Handle `DownloadError` gracefully and surface a user-facing "Video unavailable" message
+- Accept that ~5-15% of requests may fail due to YouTube restrictions; do not treat this as a bug to fix at launch
 
-### Decision: Defer bgutil Sidecar; Use Token-Free Clients for v1.2
-
-**bgutil-ytdlp-pot-provider current status (2026-05-10):**
-- Latest version: `1.3.1` (released March 7, 2026). Actively maintained.
-- Requires Node.js (>=20) OR Deno (>=2.0.0) running OUTSIDE Python. No pure-Python
-  implementation. The JS dependency is non-negotiable — it wraps LuanRT's Botguard
-  library.
-- HTTP server mode (Docker image `brainicism/bgutil-ytdlp-pot-provider`) is the
-  recommended deployment mode; script mode spawns a Node process per yt-dlp call
-  (unsuitable for concurrency).
-
-**Why NOT deploy bgutil as Railway sidecar for v1.2:**
-
-1. This project's STATE.md already records empirical failure: "bgutil não conecta no
-   Railway." The sidecar connectivity issue is known and unresolved.
-2. Issue #16082 ("SABR streaming + bgutil PO Token being generated") shows that even
-   with a valid bgutil token, YouTube enforces SABR at the client level on datacenter
-   IPs. The PO Token alone does not unblock format access.
-3. Operational complexity: Railway does not support multi-container stacks natively.
-   bgutil must be a separate service with its own deploy lifecycle, health checks, and
-   internal networking. This is v1.3 work, not v1.2.
-4. The `tv` and `ios` clients bypass PO Token requirements entirely for the common
-   case (public, non-DRM content).
-
-**Keep `bgutil-ytdlp-pot-provider>=0.11.0` in requirements.txt** — it installs a
-yt-dlp plugin that is a no-op when no bgutil HTTP server is configured. Removing it
-now and re-adding it in v1.3 adds churn.
-
-**Manual `YTDLP_PO_TOKEN` env var:** PO Tokens expire every ~6 hours. Manual rotation
-is not operational. Remove the `po_token` parameter injection from `download_audio`
-for v1.2; it provides no value without an automated provider.
-
-**Alternative providers evaluated:**
-
-| Provider | Dependency | Cloud Viable? | Verdict |
-|----------|------------|---------------|---------|
-| `bgutil` (HTTP server) | Node.js/Deno + Docker | Yes but complex | Defer to v1.3 |
-| `bgutil` (Rust impl.) | Rust binary | Theoretically yes | Same JS botguard core; no advantage |
-| `yt-dlp-getpot-wpc` | Headless browser | No — needs display | REJECT |
-| Manual env var `YTDLP_PO_TOKEN` | None | Yes but expires | Only for emergency fallback |
-
-**Confidence:** HIGH for the "defer" decision (empirical failure + issue #16082);
-MEDIUM for "tv/ios/web_embedded suffices" (theory confirmed in docs, not yet
-re-validated on this project's Railway instance after client change).
+**What NOT to use:**
+- `youtube-dl` (unmaintained since 2021 — GitHub takedown aftermath effectively killed it)
+- `pytube` (brittle, frequently broken by YouTube cipher changes, no active maintainer parity with yt-dlp)
+- YouTube Data API v3 (does not provide download access — only metadata)
 
 ---
 
-## ffprobe Path
+### Audio Conversion
 
-### Problem: Current Heuristic Fails on Railway
+| Technology | Version | Purpose | Why |
+|------------|---------|---------|-----|
+| FFmpeg | 6.x or 7.x (system package) | Audio decode/encode/convert | The gold standard; yt-dlp uses it internally for post-processing; no Python wrapper needed for this use case |
 
-The current code:
+**Confidence: HIGH**
+
+yt-dlp's `FFmpegExtractAudio` postprocessor with `preferredcodec: 'wav'` handles the full conversion pipeline — there is no need to call FFmpeg separately. The audio arrives from YouTube in its native format (usually Opus/WebM or AAC/M4A) and yt-dlp invokes FFmpeg automatically to decode and re-encode as WAV.
+
+**Do NOT use for conversion:**
+- `pydub`: Wraps FFmpeg with an extra Python layer; useful for audio editing, not needed here since yt-dlp already handles conversion. Adds a dependency for zero benefit.
+- `soundfile`: Excellent for reading/writing already-decoded PCM, but cannot decode Opus/AAC source formats — pointless without FFmpeg.
+- `ffmpeg-python`: A Python FFmpeg binding. Use only if you need programmatic control over the FFmpeg pipeline beyond what yt-dlp exposes (e.g., resampling to a specific sample rate before analysis). Not needed at launch.
+
+**Output format:** 16-bit PCM WAV at 44100 Hz (CD quality). This is the WAV default from FFmpeg and is appropriate for producer workflows. No custom FFmpeg flags needed beyond the yt-dlp postprocessor.
+
+---
+
+### BPM Detection
+
+**Recommendation: librosa `beat_track` / `feature.tempo` as primary; Essentia `RhythmExtractor2013` as optional upgrade**
+
+**Confidence: MEDIUM** (no definitive published accuracy benchmark for beats/electronic music found; recommendation is based on ecosystem analysis and production usage evidence)
+
+| Library | Approach | Accuracy (electronic/hip-hop) | Speed | Install complexity | Verdict |
+|---------|----------|-------------------------------|-------|--------------------|---------|
+| **librosa 0.11** | Ellis (2007) dynamic programming beat tracking | "Within ±1 BPM for most commercial music" (StemSplit production data); relies on onset detection | Moderate (~2-5s for 3min audio) | `pip install librosa` — pure Python + numpy/scipy | **Recommended for launch** |
+| **Essentia 2.1** | RhythmExtractor2013 — multifeature or degara mode | Generally considered comparable or better than librosa for rhythmically complex material | ~2x faster than librosa | C++ extension — larger Docker image, `pip install essentia` works but adds ~500MB compiled deps | Upgrade path if librosa proves inaccurate |
+| **aubio** | Phase vocoder + HFC onset detection | Known accuracy problems reported in community comparisons | Fast | `pip install aubio` — C extension | Do NOT use — accuracy reputation is poor |
+
+**Why librosa at launch:**
+- Single `pip install` with no native compilation surprises
+- Proven in production at StemSplit (same use case)
+- 85-95% accuracy on pop/rock/electronic covers the SoundGrabber target audience (underground beats are rhythmically regular)
+- The Ellis algorithm works well for 4/4 material which dominates the use case
+
+**librosa usage pattern:**
 
 ```python
-_FFPROBE_PATH = str(Path(_FFMPEG_PATH).parent / "ffprobe")
+import librosa
+
+def detect_bpm(wav_path: str) -> float:
+    # Load 60 seconds — sufficient for tempo; >60s adds latency without accuracy gain
+    y, sr = librosa.load(wav_path, duration=60.0)
+    tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
+    # beat_track returns ndarray; extract scalar
+    return float(tempo[0]) if hasattr(tempo, '__len__') else float(tempo)
 ```
 
-**Why it fails:** `imageio-ffmpeg` bundles ONLY the `ffmpeg` binary. It does not
-bundle `ffprobe`. This is documented in the imageio-ffmpeg repo as an open feature
-request (issue #23, "ffprobe"), unfixed as of 2026-05. The wheel ships a file like
-`ffmpeg-linux-x86_64-v7.1` — there is no `ffprobe-linux-x86_64-v7.1` sibling.
-
-So `Path(_FFMPEG_PATH).parent / "ffprobe"` resolves to a path that does not exist,
-and `subprocess.run([_FFPROBE_PATH, ...])` raises `FileNotFoundError`.
-
-### Fix: System ffprobe via nixpacks + shutil.which fallback
-
-**Step 1: Install system ffmpeg on Railway via nixpacks.toml.**
-
-Create `nixpacks.toml` in the project root:
-
-```toml
-[phases.setup]
-nixPkgs = ["ffmpeg"]
-```
-
-When Nixpacks installs `ffmpeg` from Nix, it installs BOTH `ffmpeg` and `ffprobe`
-to the Nix profile PATH. Both are available as `ffmpeg`/`ffprobe` in `$PATH` inside
-the running container. Confirmed by Railway community documentation.
-
-If Railway has migrated this service to Railpack (its successor to Nixpacks), use
-environment variable `RAILPACK_DEPLOY_APT_PACKAGES=ffmpeg` in the Railway service
-settings. `apt install ffmpeg` on Debian/Ubuntu installs `ffprobe` at `/usr/bin/ffprobe`.
-
-**Step 2: Update `_FFPROBE_PATH` resolution in pipeline.py.**
+**Known limitation:** librosa assumes a single global tempo. For tracks with significant tempo changes, PLP (Predominant Local Pulse) mode is more reliable:
 
 ```python
-import shutil
-
-_FFMPEG_PATH = imageio_ffmpeg.get_ffmpeg_exe()
-
-def _resolve_ffprobe() -> str:
-    """Locate ffprobe binary: system PATH first, imageio-ffmpeg sibling as fallback.
-
-    On Railway (nixpacks ffmpeg installed): shutil.which("ffprobe") returns the Nix path.
-    On local dev with system ffmpeg: shutil.which("ffprobe") returns /usr/bin/ffprobe.
-    imageio-ffmpeg does NOT bundle ffprobe (issue #23); the sibling heuristic
-    only works if user manually placed ffprobe next to imageio-ffmpeg's ffmpeg.
-    """
-    system = shutil.which("ffprobe")
-    if system:
-        return system
-    sibling = str(Path(_FFMPEG_PATH).parent / "ffprobe")
-    if Path(sibling).exists():
-        return sibling
-    raise RuntimeError(
-        "ffprobe not found. Add nixpacks.toml with nixPkgs=['ffmpeg'], "
-        "or install system ffmpeg, or set FFPROBE_PATH env var."
-    )
-
-_FFPROBE_PATH = _resolve_ffprobe()
+pulse = librosa.beat.plp(onset_envelope=librosa.onset.onset_strength(y=y, sr=sr))
+tempo_estimate = librosa.feature.tempo(y=y, sr=sr)[0]
 ```
 
-**ffmpeg_location for yt-dlp postprocessor:**
-When system ffmpeg is available, pass its PARENT DIRECTORY (not the file path) so
-yt-dlp can find both `ffmpeg` and `ffprobe` in the same directory:
-
-```python
-_SYSTEM_FFMPEG = shutil.which("ffmpeg")
-_FFMPEG_DIR = str(Path(_SYSTEM_FFMPEG).parent) if _SYSTEM_FFMPEG else str(Path(_FFMPEG_PATH).parent)
-
-# in yt-dlp opts:
-"ffmpeg_location": _FFMPEG_DIR,
-```
-
-**Confidence:** HIGH — imageio-ffmpeg no-ffprobe claim verified via source + issue #23;
-nixpacks ffmpeg installs ffprobe confirmed in Railway community documentation.
+**What NOT to use:**
+- `aubio` — accuracy reputation is the weakest of the three options
+- `music21` for BPM — music21 is a symbolic music toolkit (MIDI/MusicXML), not an audio signal analyzer; it has no BPM detection from raw audio
 
 ---
 
-## Additional Flags
+### Musical Key Detection
 
-### yt-dlp Options for Datacenter IP Reliability
+**Recommendation: librosa chroma + Krumhansl-Schmuckler correlation for launch; Essentia KeyExtractor as upgrade**
+
+**Confidence: MEDIUM** (85-95% accuracy on commercial/electronic music per StemSplit; modal/atonal music excluded)
+
+| Library | Algorithm | Accuracy | Notes |
+|---------|-----------|----------|-------|
+| **librosa** (chroma_cqt + correlation) | Krumhansl-Schmuckler key profiles | 85-95% for pop/rock/electronic (StemSplit) | Requires manual profile matching implementation (~30 lines) |
+| **Essentia KeyExtractor** | HPCP + 16 key profiles (default: bgate) | Comparable; supports 16 profiles including 'temperley', 'edma', 'bgate' | Returns key + scale + strength confidence score; single function call; more production-ready |
+| **music21** | Symbolic analysis (Krumhansl-Schmuckler on MIDI) | N/A for raw audio | music21 works on symbolic music notation, NOT audio signals — completely wrong tool for this |
+
+**Decision:** Use Essentia's `KeyExtractor` rather than librosa's raw chroma if you already have Essentia installed for RhythmExtractor2013. The Essentia API is cleaner (one call returns key, scale, and confidence), supports more key profiles, and includes built-in tuning correction. If only librosa is installed, implement chroma correlation manually.
+
+**If using librosa only (simpler dependency tree):**
 
 ```python
-ydl_opts = {
-    # Format: bestaudio prefers audio-only DASH/HLS when available.
-    # /best fallback ensures muxed progressive downloads when SABR blocks DASH.
-    # This already exists in the code and is correct.
-    "format": "bestaudio/best",
+import librosa
+import numpy as np
 
-    # CRITICAL: Disables yt-dlp's player JS cache.
-    # Railway containers are ephemeral per deploy. A stale nsig cache from a
-    # previous deploy causes "nsig extraction failed" on the current run.
-    # Trade-off: slightly slower per-request (re-fetches player JS each time)
-    # vs. reliable format extraction. Correct trade-off for Railway.
-    "no_cache_dir": True,
+# Key profiles (Krumhansl-Schmuckler)
+_MAJOR = [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88]
+_MINOR = [6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17]
+_NOTES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
 
-    # Already present — keep. 10MB chunks reduce mid-stream throttling.
-    "http_chunk_size": 10485760,
-
-    # Already present — keep. 30s socket timeout is appropriate for Railway.
-    "socket_timeout": 30,
-
-    # ADD: Retry on transient network errors. Bot-detection temporary blocks
-    # often resolve on a second attempt from the same IP.
-    "retries": 3,
-
-    # ADD: Fragment retries for HLS/DASH streams. Datacenter IPs sometimes get
-    # 403s on individual TS/DASH fragments during bot checks; retrying works.
-    "fragment_retries": 5,
-}
+def detect_key(wav_path: str) -> str:
+    y, sr = librosa.load(wav_path, duration=120.0)
+    chroma = librosa.feature.chroma_cqt(y=y, sr=sr)
+    chroma_mean = chroma.mean(axis=1)
+    major_corrs = [np.corrcoef(np.roll(_MAJOR, i), chroma_mean)[0, 1] for i in range(12)]
+    minor_corrs = [np.corrcoef(np.roll(_MINOR, i), chroma_mean)[0, 1] for i in range(12)]
+    best_major = np.argmax(major_corrs)
+    best_minor = np.argmax(minor_corrs)
+    if major_corrs[best_major] >= minor_corrs[best_minor]:
+        return f"{_NOTES[best_major]} major"
+    return f"{_NOTES[best_minor]} minor"
 ```
 
-**`no_cache_dir` is the highest-value addition.** It directly addresses the nsig
-failure class. All other additions are defensive improvements.
+**If using Essentia (better for production, higher accuracy on edge cases):**
 
-**format string `"bestaudio/best"` — keep as-is.** The `/best` fallback is essential
-for when SABR forces muxed-only formats (documented in issue #16128 for 2026.03.03
-clients). The WAV conversion works equally well from a muxed progressive stream.
+```python
+import essentia.standard as es
 
-**Confidence:** HIGH for `no_cache_dir` (documented yt-dlp option, directly addresses
-nsig class); MEDIUM for retry values (community-reported; not officially benchmarked
-for Railway specifically).
+def detect_key(wav_path: str) -> tuple[str, str, float]:
+    loader = es.MonoLoader(filename=wav_path)
+    audio = loader()
+    key_extractor = es.KeyExtractor()
+    key, scale, strength = key_extractor(audio)
+    return key, scale, strength  # e.g. ("F#", "minor", 0.84)
+```
 
----
-
-## What NOT to Add
-
-| Item | Reason |
-|------|--------|
-| bgutil HTTP sidecar in hot path | Node.js/Deno infra; empirically failed on this Railway env; `tv` client removes the need for v1.2 |
-| Residential proxy routing | Cost + latency; overkill for public audio-only downloads at community scale |
-| `yt-dlp-getpot-wpc` | Requires headless browser; impossible on headless Railway |
-| `android` as primary client | Format 18 (~360p) produces ~128kbps audio; degrades WAV output for musicians |
-| `web` as primary client | SABR enforced even with valid cookies + PO Token on DC IPs (issue #16082) |
-| `android_vr` as primary client | A/B test returns only format 18 randomly (issue #16150); unreliable in production |
-| `imageio-ffmpeg` for ffprobe path | Library does not bundle ffprobe (issue #23 is an unfixed feature request) |
-| Manual `YTDLP_PO_TOKEN` env var rotation | PO Tokens expire every ~6 hours; manual rotation is not operational at scale |
-| yt-dlp nightly pinned in requirements.txt | Not on PyPI; requires custom install step; no stability guarantees |
-| `web_creator` or `web_music` clients | Both require GVS PO Token and account cookies — wrong for public, unauthenticated tool |
+**music21 verdict — DO NOT USE for audio key detection.** music21 is a computational musicology library for working with symbolic representations (MIDI, MusicXML, ABC notation). It has zero capability to analyze a WAV file's key from audio signals. Its Krumhansl-Schmuckler implementation operates on MIDI pitch sequences, not waveforms.
 
 ---
 
-## Required Changes Summary
+### Frontend
 
-| File | Change | Rationale |
-|------|--------|-----------|
-| `requirements.txt` | Keep `yt-dlp==2026.3.17` | Latest stable PyPI; version is not the root cause of failures |
-| `pipeline.py` | Change `player_client` to `tv,ios,web_embedded` | Avoids PO Token requirement; see Client Strategy section |
-| `pipeline.py` | Change `extractor_args` to nested dict format | List-of-strings may not take effect per issue #13451 |
-| `pipeline.py` | Replace `_FFPROBE_PATH` derivation with `shutil.which("ffprobe")` + sibling fallback | imageio-ffmpeg does not bundle ffprobe |
-| `pipeline.py` | Add `"no_cache_dir": True` to all yt-dlp opts dicts | Eliminates nsig cache staleness between deploys |
-| `pipeline.py` | Add `"retries": 3, "fragment_retries": 5` | Resilience to transient datacenter bot-check 403s |
-| `pipeline.py` | Remove `bgutil_base_url` parameter and related conditional logic | Dead code path; proven unreliable in this environment |
-| `pipeline.py` | Remove `po_token` injection in `download_audio` | `tv/ios/web_embedded` chain doesn't need it |
-| `nixpacks.toml` | Create with `[phases.setup] nixPkgs = ["ffmpeg"]` | Makes system `ffprobe` and `ffmpeg` available on PATH in Railway |
+**Recommendation: Plain HTML + Vanilla JS (no framework)**
+
+**Confidence: HIGH**
+
+| Option | Size | DX | Appropriate for SoundGrabber? |
+|--------|------|----|-------------------------------|
+| **Vanilla HTML/CSS/JS** | ~0KB framework overhead | Simple | YES — single page, 2 states (input / result) |
+| HTMX | 14KB | Good for server-rendered partials | Overkill — no multi-step navigation |
+| React / Vue / Svelte | 80-200KB+ | Good for complex state | Gross overkill — 2 interactive elements |
+
+**Rationale:** SoundGrabber has one screen: a URL input box, a submit button, a status indicator (polling), and a result card (BPM, key, download button). This is three DOM mutations total. React, Vue, and Svelte are category errors here. HTMX is elegant for CRUD interfaces with server-rendered partials but adds complexity to a simple polling pattern.
+
+**The right tool:** A single `index.html` + `static/app.js` (< 100 lines) served directly by FastAPI's `StaticFiles` mount. The 2000s aesthetic (phpBB/Orkut/Tibia) is best built in raw CSS anyway — no component library will have those retro patterns.
+
+**JS pattern:** `fetch('/process', {method: 'POST', body: formData})` → receive `job_id` → `setInterval` poll `/status/{job_id}` → on complete, reveal result card and download link. This is ~60 lines of vanilla JS.
+
+**CSS:** Hand-written. The retro aesthetic (table-based layouts, pixel fonts, gradient backgrounds, bordered boxes with `#c0c0c0` chrome) is only achievable with deliberate raw CSS. Tailwind or Bootstrap will actively fight this aesthetic.
+
+**What NOT to use:**
+- React — no stateful component graph exists; entire app is one form + one result display
+- Next.js / Nuxt — server-side rendering framework for a tool this simple is architectural malpractice
+- HTMX — the polling pattern is simpler in vanilla JS than as an HTMX extension
+
+---
+
+### Deployment and Hosting
+
+**Confidence: MEDIUM** (free tiers are volatile; pricing/features change; information reflects 2025-2026 state)
+
+**Primary recommendation: Render (Web Service, Starter plan ~$7/mo) or Railway (Hobby plan ~$5/mo) with Docker**
+
+| Platform | Free Tier | Suitable? | Notes |
+|----------|-----------|-----------|-------|
+| **Render** | 750 hrs/mo, sleeps after 15min idle | Dev/testing only | Starter plan ($7/mo) for always-on; supports Docker natively |
+| **Railway** | No free tier (removed Aug 2023) | Paid from day 1 | Hobby plan ~$5/mo; excellent DX; native Dockerfile support |
+| **Fly.io** | No free tier for new accounts (one-time $5 credit) | Paid from day 1 | Good for Docker; requires `fly.toml` config |
+| **VPS (Hetzner/DigitalOcean)** | €3-5/mo (CX11/Droplet) | Best value at scale | Full control; install ffmpeg/Python directly; no cold-starts; best IP reputation for yt-dlp |
+| **AWS/GCP/Azure** | Free tiers with limits | Over-engineered for v1 | Lambda cold starts are hostile to audio processing latency; ECS adds operational complexity |
+
+**Recommended for launch:** Render Starter ($7/mo) — simplest deployment path. Push a Dockerfile, connect GitHub repo, done. No DevOps knowledge required.
+
+**Recommended at scale:** Hetzner CX21 VPS (~€5/mo, 2 vCPU, 4GB RAM) — better IP reputation for yt-dlp (shared PaaS IPs are heavily bot-flagged by YouTube), full control over ffmpeg/Python versions, no cold-start latency, cost-effective.
+
+**Containerization strategy:**
+
+```dockerfile
+FROM python:3.11-slim
+
+# Install ffmpeg (system dep)
+RUN apt-get update && apt-get install -y ffmpeg && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+```
+
+**Image size note:** `python:3.11-slim` + ffmpeg + librosa + FastAPI + yt-dlp is approximately 800MB-1.2GB. If Essentia is added, expect 1.5-2GB due to C++ compiled extensions. Use multi-stage builds to reduce further. This is acceptable for a VPS/PaaS deployment; it would be problematic for Lambda.
+
+**Serverless (Lambda/Cloud Run) — DO NOT use:** Audio processing is compute and memory intensive. The 512MB-1GB Lambda memory cap makes librosa analysis of a 3-minute WAV marginal. Cold starts of 5-15 seconds are hostile to the UX. WAV files can be 50-200MB — Lambda's ephemeral `/tmp` cap is 512MB-10GB (configurable but adds cost). The stateless PaaS model is far more appropriate.
+
+---
+
+### Storage and State
+
+**No database required.** This is a stateless processing tool.
+
+| Concern | Approach |
+|---------|----------|
+| Job state | In-memory dict in the FastAPI process (`{job_id: {status, bpm, key, wav_path}}`) |
+| WAV files | Written to `tempfile.mkdtemp()` on server; deleted after download completes or after TTL (e.g., 5 minutes) |
+| Concurrent job tracking | Python `asyncio.Lock` on the job dict for thread safety |
+| Persistence across restarts | Not needed — jobs are ephemeral |
+
+**Why not Redis for state:** The job lifecycle is short (< 60 seconds from submit to download). Redis adds a broker dependency with zero benefit at this scale. A dict works; if the server restarts mid-job, the client sees a timeout and retries.
+
+---
+
+### Key Versions (2026-04 snapshot)
+
+| Package | Pinned version | Notes |
+|---------|---------------|-------|
+| `yt-dlp` | `>=2026.3.0` or latest | Date-versioned; pin to latest at deploy time; update frequently |
+| `fastapi` | `>=0.115,<1.0` | Stable API; avoid unpinned pre-1.0 |
+| `uvicorn[standard]` | `>=0.30` | Includes websockets and httptools extras |
+| `librosa` | `>=0.11.0` | 0.11 introduced `beat.plp` improvements |
+| `soundfile` | `>=0.12` | Required by librosa for WAV I/O |
+| `numpy` | `>=1.24,<2.0` | librosa 0.11 numpy 2.x compatibility is partial; pin <2.0 to be safe |
+| `scipy` | `>=1.10` | librosa dependency |
+| `httpx` | `>=0.27` | If you add any outbound HTTP calls |
+| `python-multipart` | `>=0.0.9` | FastAPI form data parsing |
+
+**System packages (apt/brew):**
+- `ffmpeg` >= 6.0 (required by yt-dlp postprocessor)
+- `libsndfile1` (required by soundfile/librosa on Linux)
+
+---
+
+## Alternatives Considered
+
+| Category | Recommended | Alternative | Why Not |
+|----------|-------------|-------------|---------|
+| Backend | FastAPI | Flask | Sync-first; no background task primitives |
+| Backend | FastAPI | Django | ORM/auth overhead; no async audio task primitives |
+| Backend | FastAPI | Node.js + Express | No audio analysis libraries; subprocess seam to Python |
+| Download | yt-dlp | pytube | Brittle; frequently broken; no active parity with yt-dlp |
+| Download | yt-dlp | youtube-dl | Unmaintained since 2021 |
+| Download | yt-dlp | YouTube Data API | No download capability; metadata only |
+| BPM | librosa | aubio | Known accuracy issues; smaller ecosystem |
+| BPM | librosa | music21 | Symbolic music toolkit; cannot analyze audio signals |
+| Key | librosa chroma | music21 | Works on MIDI/notation only, not audio waveforms |
+| Conversion | yt-dlp+FFmpeg | pydub | Redundant wrapper; yt-dlp already handles conversion |
+| Frontend | Vanilla JS | React | No component graph exists; single form + result card |
+| Frontend | Vanilla JS | HTMX | Polling pattern is simpler in vanilla JS |
+| Task queue | BackgroundTasks | Celery | Broker dependency unjustified at this scale |
+| Hosting | Render/VPS | Lambda/Cloud Run | Serverless hostile to audio processing latency + memory |
+
+---
+
+## Critical Risk: YouTube Download Reliability
+
+**This is the highest-risk dependency in the stack.** YouTube actively works against automated downloading. The situation in 2025-2026:
+
+- PO tokens now bind to individual video IDs — no persistent server-side bypass exists
+- Shared PaaS IPs are heavily flagged; YouTube returns 429 more readily than residential IPs
+- Cookie-based auth breaks on headless servers and degrades over time
+- yt-dlp releases patches frequently — running outdated versions dramatically increases failure rate
+
+**Mitigation (incorporated into stack):**
+1. Always run latest yt-dlp (auto-update on deploy)
+2. Handle `DownloadError` gracefully with user-friendly error messages
+3. Prefer a VPS with a dedicated IP over shared PaaS for production
+4. Accept a ~10-20% failure rate as a structural constraint, not a bug
+5. Do not attempt to bypass bot detection with proxy rotation at v1 — complexity not worth it for community scale
 
 ---
 
 ## Sources
 
-| Source | Confidence | URL |
-|--------|------------|-----|
-| yt-dlp PO Token Guide (official wiki) | HIGH | https://github.com/yt-dlp/yt-dlp/wiki/PO-Token-Guide |
-| PyPI yt-dlp current version | HIGH | https://pypi.org/project/yt-dlp/ |
-| imageio-ffmpeg issue: ffprobe not bundled | HIGH | https://github.com/imageio/imageio-ffmpeg/issues/23 |
-| bgutil-ytdlp-pot-provider GitHub | HIGH | https://github.com/Brainicism/bgutil-ytdlp-pot-provider |
-| yt-dlp issue: SABR + bgutil token insufficient | MEDIUM | https://github.com/yt-dlp/yt-dlp/issues/16082 |
-| yt-dlp issue: android_vr erratic (returns format 18 only) | HIGH | https://github.com/yt-dlp/yt-dlp/issues/16150 |
-| yt-dlp issue: DASH audio missing in 2026.03.03 | HIGH | https://github.com/yt-dlp/yt-dlp/issues/16128 |
-| yt-dlp issue: cookies causing SABR on web_safari | HIGH | https://github.com/yt-dlp/yt-dlp/issues/16229 |
-| yt-dlp issue: extractor_args mweb Python API | MEDIUM | https://github.com/yt-dlp/yt-dlp/issues/13451 |
-| nsig cache invalidation PR | HIGH | https://github.com/yt-dlp/yt-dlp/pull/10401 |
-| yt-dlp release 2026.03.17 notes | HIGH | https://github.com/yt-dlp/yt-dlp/releases/tag/2026.03.17 |
-| Railpack package installation docs | HIGH | https://railpack.com/guides/installing-packages/ |
-| Railway nixpacks ffmpeg community examples | MEDIUM | https://station.railway.com/questions/adding-ffmpeg-to-railway-project-ac99f551 |
-
----
-
-## Pre-existing Stack Research (2026-04-29)
-
-The sections below are unchanged from the initial research and remain valid for
-layers not touched by the v1.2 milestone. See SUMMARY.md for overall architecture.
-
-### Core Framework (Validated)
-
-| Technology | Version | Purpose | Why |
-|------------|---------|---------|-----|
-| Python | 3.11+ | Runtime | yt-dlp dropped <3.10; 3.11 perf gains |
-| FastAPI | 0.136.x | HTTP API | Async-native; Pydantic validation; background tasks |
-| Uvicorn | 0.46.x | ASGI server | Standard prod server for FastAPI |
-| Celery + Redis | 5.6.x / 6.4.x | Task queue | Persistent jobs, retries, cross-worker state |
-| imageio-ffmpeg | 0.5.x | FFmpeg binary (ffmpeg only) | Ships ffmpeg binary; does NOT ship ffprobe (critical) |
-| librosa | 0.11.x | BPM detection | Single pip install; proven at community scale |
-| essentia | 2.1b6.dev | Key + BPM detection | C++ accuracy; RhythmExtractor2013 + KeyExtractor |
-| soundfile | 0.13.x | WAV I/O | Required by librosa |
-
-### System Packages Required on Railway
-
-| Package | Why | How to Install on Railway |
-|---------|-----|--------------------------|
-| `ffmpeg` + `ffprobe` | yt-dlp postprocessor + WAV validation | `nixpacks.toml`: `nixPkgs = ["ffmpeg"]` |
-| `libsndfile1` | soundfile/librosa WAV I/O on Linux | Typically included with nixpacks Python build |
+- [yt-dlp GitHub repository](https://github.com/yt-dlp/yt-dlp)
+- [yt-dlp PO Token Guide](https://github.com/yt-dlp/yt-dlp/wiki/PO-Token-Guide)
+- [yt-dlp GitHub issue #13067 — bot detection](https://github.com/yt-dlp/yt-dlp/issues/13067)
+- [yt-dlp GitHub issue #13891 — VPS cookie auth](https://github.com/yt-dlp/yt-dlp/issues/13891)
+- [librosa 0.11 beat_track documentation](https://librosa.org/doc/main/generated/librosa.beat.beat_track.html)
+- [librosa 0.11 beat and tempo module](https://librosa.org/doc/0.11.0/beat.html)
+- [Essentia KeyExtractor algorithm reference](https://essentia.upf.edu/reference/std_KeyExtractor.html)
+- [Essentia RhythmExtractor2013 reference](https://essentia.upf.edu/reference/std_RhythmExtractor2013.html)
+- [Essentia beat detection tutorial](https://essentia.upf.edu/tutorial_rhythm_beatdetection.html)
+- [FastAPI background tasks documentation](https://fastapi.tiangolo.com/tutorial/background-tasks/)
+- [StemSplit BPM/key detection feature article (2025)](https://stemsplit.io/blog/bpm-key-detection-feature)
+- [Audet — librosa + Essentia BPM/key tool on GitHub](https://github.com/makalin/Audet)
+- [ARQ vs Celery comparison](https://leapcell.io/blog/celery-versus-arq-choosing-the-right-task-queue-for-python-applications)
+- [FastAPI BackgroundTasks vs ARQ + Redis](https://davidmuraya.com/blog/fastapi-background-tasks-arq-vs-built-in/)
+- [Render FastAPI deployment](https://render.com/articles/fastapi-deployment-options)
+- [Railway FastAPI guide](https://docs.railway.com/guides/fastapi)
+- [Python hosting comparison 2025](https://www.nandann.com/blog/python-hosting-options-comparison)
+- [HTMX vs React 2025](https://cssauthor.com/htmx-vs-react-which-is-better-for-your-next-project/)
