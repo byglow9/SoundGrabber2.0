@@ -158,20 +158,17 @@
 | SEC-INFRA-02 | Phase 7 | Pending |
 | SEC-INFRA-03 | Phase 7 | Pending |
 | SEC-INFRA-04 | Phase 7 | Pending |
+| PIPE-01 | Phase 8 | Pending |
+| PIPE-02 | Phase 8 | Pending |
+| PIPE-03 | Phase 8 | Pending |
+| PIPE-04 | Phase 8 | Pending |
+| PIPE-05 | Phase 8 | Pending |
+| PIPE-06 | Phase 10 | Pending |
+| PIPE-07 | Phase 10 | Pending |
+| DEPLOY-01 | Phase 8 | Pending |
+| DEPLOY-02 | Phase 9 | Pending |
+| DEPLOY-03 | Phase 9 | Pending |
 
 ---
 
-| PIPE-01 | Phase TBD | Pending |
-| PIPE-02 | Phase TBD | Pending |
-| PIPE-03 | Phase TBD | Pending |
-| PIPE-04 | Phase TBD | Pending |
-| PIPE-05 | Phase TBD | Pending |
-| PIPE-06 | Phase TBD | Pending |
-| PIPE-07 | Phase TBD | Pending |
-| DEPLOY-01 | Phase TBD | Pending |
-| DEPLOY-02 | Phase TBD | Pending |
-| DEPLOY-03 | Phase TBD | Pending |
-
----
-
-*Last updated: 2026-05-10 — v1.2 YouTube Pipeline Fix requirements added (10 requirements: PIPE-01..07, DEPLOY-01..03)*
+*Last updated: 2026-05-10 — v1.2 traceability complete: PIPE-01..07 e DEPLOY-01..03 mapeados para Phases 8, 9, 10*
