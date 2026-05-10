@@ -152,7 +152,11 @@ Plans:
   2. Deploying to Railway with nixpacks.toml present results in `ffprobe -version` succeeding inside the container (system ffmpeg is on PATH)
   3. Starting the application with a cookies.txt that lacks `__Secure-3PSID` produces a CRITICAL log line visible in Railway logs before any job is processed
   4. Submitting a beat URL to a freshly deployed Railway instance (no cached JS) completes download without nsig extraction errors caused by stale yt-dlp cache
-**Plans**: TBD
+**Plans:** 3 plans
+Plans:
+- [ ] 08-01-PLAN.md — Wave 1 (TDD): RED tests for all 6 behaviors — ffprobe resolution, ffmpeg_location directory, no_cache_dir, retries, cookies CRITICAL log, nixpacks.toml existence
+- [ ] 08-02-PLAN.md — Wave 2: fix pipeline.py — shutil.which ffprobe (PIPE-01), _FFMPEG_DIR variable (PIPE-02), no_cache_dir in both ydl_opts (PIPE-03), retries in download_audio (PIPE-04)
+- [ ] 08-03-PLAN.md — Wave 2: add _check_cookies to api/main.py lifespan (PIPE-05) + create nixpacks.toml with aptPkgs=["ffmpeg"] (DEPLOY-01)
 
 ### Phase 9: Railway bgutil Deployment
 **Goal**: The bgutil PO Token service is running on Railway and both the web service and Celery worker can reach it via private networking
@@ -188,7 +192,7 @@ Plans:
 | 5. Visual Identity | 4/4 | Done | 2026-05-08 |
 | 6. Application Security | 0/3 | Planned | - |
 | 7. Infrastructure Security | 0/4 | Planned | - |
-| 8. Pipeline Code Fixes | 0/TBD | Not started | - |
+| 8. Pipeline Code Fixes | 0/3 | Planned | - |
 | 9. Railway bgutil Deployment | 0/TBD | Not started | - |
 | 10. Failure Hardening and E2E Validation | 0/TBD | Not started | - |
 
