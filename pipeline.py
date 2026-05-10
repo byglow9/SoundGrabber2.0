@@ -55,11 +55,10 @@ def check_duration(url: str, cookies_path: str, bgutil_base_url: str = "") -> di
         ValueError: If the video duration exceeds MAX_DURATION_SEC (15 minutes),
                     or if duration metadata is missing.
     """
-    # Use web client when auth is available (best quality: 160kbps Opus).
-    # Fall back to android,web only when running without any auth — android
-    # skips PO token requirements but may be blocked on datacenter IPs.
-    has_auth = bool(cookies_path or bgutil_base_url)
-    player_client = "web" if has_auth else "android,web"
+    # web client requires a PO token even with cookies to select formats.
+    # Use web only when bgutil (the PO token provider) is available.
+    # Android client works with cookies alone and doesn't need a PO token.
+    player_client = "web" if bgutil_base_url else "android"
     ydl_opts: dict[str, Any] = {
         "quiet": True,
         "no_warnings": True,
@@ -123,7 +122,10 @@ def download_audio(url: str, cookies_path: str, po_token: str, bgutil_base_url: 
     # extractor_args MUST be a list of strings, NOT a nested dict.
     # Pitfall: nested dict format causes "Requested format is not available" error.
     # Correct format verified via: github.com/yt-dlp/yt-dlp/issues/14307
-    extractor_args: dict[str, list[str]] = {"youtube": ["player_client=web"]}
+    # web client requires a PO token to select formats even with cookies.
+    # Use web only when bgutil is available; otherwise android works with cookies alone.
+    dl_player = "web" if bgutil_base_url else "android"
+    extractor_args: dict[str, list[str]] = {"youtube": [f"player_client={dl_player}"]}
     if po_token:
         extractor_args["youtube"].append(f"po_token=web.gvs+{po_token}")
     if bgutil_base_url:
