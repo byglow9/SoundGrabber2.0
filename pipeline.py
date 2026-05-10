@@ -55,6 +55,11 @@ def check_duration(url: str, cookies_path: str, bgutil_base_url: str = "") -> di
         ValueError: If the video duration exceeds MAX_DURATION_SEC (15 minutes),
                     or if duration metadata is missing.
     """
+    # Use web client when auth is available (best quality: 160kbps Opus).
+    # Fall back to android,web only when running without any auth — android
+    # skips PO token requirements but may be blocked on datacenter IPs.
+    has_auth = bool(cookies_path or bgutil_base_url)
+    player_client = "web" if has_auth else "android,web"
     ydl_opts: dict[str, Any] = {
         "quiet": True,
         "no_warnings": True,
@@ -63,7 +68,7 @@ def check_duration(url: str, cookies_path: str, bgutil_base_url: str = "") -> di
         "noplaylist": True,
         "format": "bestaudio/best",
         "ffmpeg_location": _FFMPEG_PATH,
-        "extractor_args": {"youtube": ["player_client=android,web"]},
+        "extractor_args": {"youtube": [f"player_client={player_client}"]},
     }
     if bgutil_base_url:
         ydl_opts["extractor_args"]["youtubepot-bgutilhttp"] = [f"base_url={bgutil_base_url}"]
