@@ -66,7 +66,6 @@ def check_duration(url: str, cookies_path: str, bgutil_base_url: str = "") -> di
         "skip_download": True,
         "socket_timeout": 30,
         "noplaylist": True,
-        "format": "bestaudio/best",
         "ffmpeg_location": _FFMPEG_PATH,
         "extractor_args": {"youtube": [f"player_client={player_client}"]},
     }
