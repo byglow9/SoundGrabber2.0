@@ -168,7 +168,7 @@ Plans:
   3. The web service and Celery worker logs show no "BGUTIL_BASE_URL not set" or connection-refused errors at startup
 **Plans:** 1 plan
 Plans:
-- [ ] 09-01-PLAN.md — Wave 1: verify Celery Worker (10ec98b3) and Uvicorn (02cda13b) deployments, confirm clean startup logs (no BGUTIL_BASE_URL errors), discover Uvicorn public URL, and run end-to-end smoke test (POST /jobs with real beat URL → status=done with WAV)
+- [x] 09-01-PLAN.md — Wave 1: verify Celery Worker (10ec98b3) and Uvicorn (02cda13b) deployments, confirm clean startup logs (no BGUTIL_BASE_URL errors), discover Uvicorn public URL, and run end-to-end smoke test (POST /jobs with real beat URL → status=done with WAV)
 **Note**: Human checkpoint on Task 4 — operator must supply a real YouTube beat URL for end-to-end validation
 
 ### Phase 10: Failure Hardening and E2E Validation
