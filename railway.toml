@@ -4,12 +4,14 @@
 # container from direct internet access via its edge proxy (D-11). HTTPS termination
 # and HTTP->HTTPS 301 redirect happen at the Railway edge automatically (D-04, D-05).
 #
-# Use start.sh for local development; this file controls production deploys only (D-12).
+# start-all.sh starts both Uvicorn (foreground, PID 1) and Celery Worker (background).
+# This single-service approach replaces the previous two-service setup that had isolated
+# /tmp directories (bug documented in 09-01-SMOKE-TEST.md Task 4).
 #
 # Schema reference: https://docs.railway.com/config-as-code/reference
 
 [deploy]
-startCommand = "uvicorn api.main:app --host 0.0.0.0 --port $PORT --limit-concurrency 100 --timeout-keep-alive 5"
+startCommand = "bash start-all.sh"
 healthcheckPath = "/health"
 healthcheckTimeout = 60
 restartPolicyType = "ON_FAILURE"

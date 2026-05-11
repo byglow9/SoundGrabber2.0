@@ -1,9 +1,15 @@
-# Railway config para o serviço Celery Worker.
-# No dashboard do worker: Settings → Config-as-code → Railway Config File → railway-worker.toml
+# APOSENTADO — Phase 10 (2026-05-11)
 #
-# Schema reference: https://docs.railway.com/config-as-code/reference
-
-[deploy]
-startCommand = "celery -A api.tasks worker --loglevel=info --concurrency=3"
-restartPolicyType = "ON_FAILURE"
-restartPolicyMaxRetries = 3
+# Este arquivo foi substituído por start-all.sh + railway.toml single-service setup.
+# Uvicorn e Celery Worker agora rodam no mesmo container para compartilhar /tmp.
+# Bug original: containers separados isolavam /tmp, causando GET /files/{id} → 410.
+# Solução: D-01 de .planning/phases/10-failure-hardening-and-e2e-validation/10-CONTEXT.md
+#
+# Para reativar workers separados: descomentar o bloco abaixo e configurar o serviço
+# Railway para apontar para este arquivo (Settings → Config-as-code → Railway Config File).
+# Requer object storage (S3/R2) para compartilhar WAV entre serviços.
+#
+# [deploy]
+# startCommand = "celery -A api.tasks worker --loglevel=info --concurrency=3"
+# restartPolicyType = "ON_FAILURE"
+# restartPolicyMaxRetries = 3
