@@ -37,8 +37,9 @@ def test_pipe02_ffmpeg_dir_attribute_exists():
         "Add _FFMPEG_DIR = str(Path(_FFMPEG_PATH).parent) to pipeline.py."
     )
     assert os.path.isdir(pipeline._FFMPEG_DIR), (
-        f"PIPE-02 fix missing: _FFMPEG_DIR={pipeline._FFMPEG_DIR!r} is not a directory. "
-        "ffmpeg_location passed to yt-dlp must be the directory containing the binary."
+        f"PIPE-02 fix missing: _FFMPEG_DIR={pipeline._FFMPEG_DIR!r} nao e um diretorio. "
+        "_FFMPEG_DIR e o diretorio-pai do binario; _YTDLP_FFMPEG_LOCATION aponta para "
+        "o executavel (que pode ter nome versionado). Ambos devem ser definidos."
     )
 
 
