@@ -35,7 +35,7 @@ import yt_dlp
 logger = logging.getLogger(__name__)
 
 _FFMPEG_PATH = imageio_ffmpeg.get_ffmpeg_exe()
-_FFMPEG_DIR = str(Path(_FFMPEG_PATH).parent)  # directory — for ffmpeg_location in yt-dlp (D-02)
+_FFMPEG_DIR = str(Path(_FFMPEG_PATH).parent)  # directory — for subprocess calls in validate_wav
 _system_ffprobe = shutil.which("ffprobe")
 if _system_ffprobe is None:
     logger.warning(
@@ -43,7 +43,20 @@ if _system_ffprobe is None:
         "path: %s. Install ffmpeg system package for reliable ffprobe resolution.",
         str(Path(_FFMPEG_PATH).parent / "ffprobe"),
     )
-_FFPROBE_PATH = _system_ffprobe or str(Path(_FFMPEG_PATH).parent / "ffprobe")  # D-01: system first
+# D-01: system ffprobe first; if unavailable, fall back to imageio-ffmpeg dir/ffprobe path.
+# Note: when the system has no ffprobe and imageio-ffmpeg only ships the ffmpeg binary,
+# _FFPROBE_PATH may point to a non-existent file. validate_wav handles this by falling
+# back to the ffmpeg executable via the _YTDLP_FFMPEG_LOCATION path.
+_FFPROBE_PATH = _system_ffprobe or str(Path(_FFMPEG_PATH).parent / "ffprobe")
+
+# DEPLOY-01 fix: yt-dlp ffmpeg_location must point to the executable (not directory) when the
+# imageio-ffmpeg binary has a versioned name (e.g. ffmpeg-linux-x86_64-v7.0.2) rather than the
+# plain 'ffmpeg' name. When a directory is passed and neither 'ffmpeg' nor 'ffprobe' exist with
+# plain names, yt-dlp raises "ffprobe and ffmpeg not found". Passing the executable path lets
+# yt-dlp detect the binary and use ffmpeg as a ffprobe fallback via `ffmpeg -i`.
+# If the system has ffmpeg on PATH, prefer it (gives proper ffprobe too).
+_system_ffmpeg = shutil.which("ffmpeg")
+_YTDLP_FFMPEG_LOCATION = _system_ffmpeg if _system_ffmpeg else _FFMPEG_PATH
 
 
 # Constants
@@ -78,7 +91,7 @@ def check_duration(url: str, cookies_path: str, bgutil_base_url: str = "") -> di
         "socket_timeout": 30,
         "noplaylist": True,
         "no_cache_dir": True,           # D-04: prevent stale nsig between Railway deploys
-        "ffmpeg_location": _FFMPEG_DIR,  # D-02: directory, not binary path
+        "ffmpeg_location": _YTDLP_FFMPEG_LOCATION,  # executable path — see _YTDLP_FFMPEG_LOCATION
         "extractor_args": {"youtube": [f"player_client={player_client}"]},
     }
     if bgutil_base_url:
@@ -160,7 +173,7 @@ def download_audio(url: str, cookies_path: str, po_token: str, bgutil_base_url: 
         "retries": 3,                   # D-05: tolerate transient connection failures
         "fragment_retries": 3,          # D-05: tolerate transient fragment failures
         "http_chunk_size": 10485760,  # 10MB — avoids YouTube throttling on long downloads
-        "ffmpeg_location": _FFMPEG_DIR,  # D-02: directory, not binary path
+        "ffmpeg_location": _YTDLP_FFMPEG_LOCATION,  # executable path — see _YTDLP_FFMPEG_LOCATION
     }
     if cookies_path:
         ydl_opts["cookiefile"] = cookies_path
@@ -246,38 +259,64 @@ def validate_wav(wav_path: Path) -> float:
     if not wav_path.exists():
         raise ValueError(f"WAV file does not exist: {wav_path}")
 
+    # DEPLOY-01 fix: when system ffprobe is unavailable and imageio-ffmpeg ships only
+    # the ffmpeg binary (versioned name, no ffprobe), _FFPROBE_PATH may not exist on disk.
+    # Fall back to using ffmpeg with -i flag to extract duration from stderr.
+    _use_ffmpeg_fallback = not Path(_FFPROBE_PATH).exists()
+    if _use_ffmpeg_fallback:
+        probe_exe = _YTDLP_FFMPEG_LOCATION
+        probe_cmd = [probe_exe, "-i", str(wav_path)]
+    else:
+        probe_exe = _FFPROBE_PATH
+        probe_cmd = [
+            probe_exe,
+            "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "json",
+            str(wav_path),
+        ]
+
     try:
         result = subprocess.run(
-            [
-                _FFPROBE_PATH,
-                "-v", "error",
-                "-show_entries", "format=duration",
-                "-of", "json",
-                str(wav_path),
-            ],
+            probe_cmd,
             capture_output=True,
             text=True,
             timeout=10,
         )
     except FileNotFoundError as e:
         raise ValueError(
-            "ffprobe binary not found on PATH. Install FFmpeg >= 6.0: `apt-get install -y ffmpeg`"
+            f"ffprobe/ffmpeg binary not found: {probe_exe}. "
+            "Install FFmpeg >= 6.0 or ensure imageio-ffmpeg is installed."
         ) from e
     except subprocess.TimeoutExpired as e:
         raise ValueError(f"ffprobe timed out after 10s on {wav_path}") from e
 
-    if result.returncode != 0:
-        stderr = (result.stderr or "").strip()[:200]
-        raise ValueError(f"ffprobe failed on {wav_path}: {stderr}")
+    if _use_ffmpeg_fallback:
+        # ffmpeg -i always exits non-zero; parse duration from stderr
+        # Expected line: "  Duration: HH:MM:SS.ss, start: ..."
+        import re as _re
+        stderr_text = result.stderr or ""
+        dur_match = _re.search(r"Duration:\s+(\d+):(\d+):([\d.]+)", stderr_text)
+        if not dur_match:
+            raise ValueError(
+                f"ffmpeg -i could not determine duration of {wav_path}. "
+                f"stderr excerpt: {stderr_text[:300]}"
+            )
+        h, m, s = int(dur_match.group(1)), int(dur_match.group(2)), float(dur_match.group(3))
+        duration_str = str(h * 3600 + m * 60 + s)
+    else:
+        if result.returncode != 0:
+            stderr = (result.stderr or "").strip()[:200]
+            raise ValueError(f"ffprobe failed on {wav_path}: {stderr}")
 
-    try:
-        data = json.loads(result.stdout)
-    except json.JSONDecodeError as e:
-        raise ValueError(f"ffprobe output not valid JSON: {result.stdout[:200]}") from e
+        try:
+            data = json.loads(result.stdout)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"ffprobe output not valid JSON: {result.stdout[:200]}") from e
 
-    duration_str = data.get("format", {}).get("duration")
-    if duration_str is None:
-        raise ValueError(f"ffprobe could not determine duration of {wav_path}")
+        duration_str = data.get("format", {}).get("duration")
+        if duration_str is None:
+            raise ValueError(f"ffprobe could not determine duration of {wav_path}")
 
     try:
         duration = float(duration_str)

@@ -42,12 +42,19 @@ def test_pipe02_ffmpeg_dir_attribute_exists():
     )
 
 
-def test_pipe02_check_duration_uses_ffmpeg_dir():
-    """PIPE-02: check_duration ydl_opts must use _FFMPEG_DIR (directory), not _FFMPEG_PATH."""
+def test_pipe02_check_duration_uses_ffmpeg_location():
+    """PIPE-02: check_duration ydl_opts must set ffmpeg_location for yt-dlp.
+
+    The original check used _FFMPEG_DIR (directory). After the DEPLOY-01 fix, the module
+    uses _YTDLP_FFMPEG_LOCATION (executable path) so yt-dlp can find the binary when the
+    imageio-ffmpeg binary has a versioned name (not the plain 'ffmpeg' name).
+    Accept either symbol to remain backward compatible with Phase 8 test intent.
+    """
     src = inspect.getsource(pipeline.check_duration)
-    assert "_FFMPEG_DIR" in src, (
-        "PIPE-02 fix missing: check_duration must pass ffmpeg_location=_FFMPEG_DIR "
-        "(directory), not _FFMPEG_PATH (binary). Update the ydl_opts dict."
+    has_location = "_FFMPEG_DIR" in src or "_YTDLP_FFMPEG_LOCATION" in src
+    assert has_location, (
+        "PIPE-02 fix missing: check_duration must pass ffmpeg_location using either "
+        "_FFMPEG_DIR or _YTDLP_FFMPEG_LOCATION. Update the ydl_opts dict."
     )
 
 
