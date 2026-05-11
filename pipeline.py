@@ -18,7 +18,9 @@ Output (D-05): JSON to stdout via __main__ (implemented in Plan 04).
 from __future__ import annotations
 
 import json
+import logging
 import os
+import shutil
 import subprocess
 import uuid
 from pathlib import Path
@@ -30,8 +32,18 @@ import librosa
 import numpy as np
 import yt_dlp
 
+logger = logging.getLogger(__name__)
+
 _FFMPEG_PATH = imageio_ffmpeg.get_ffmpeg_exe()
-_FFPROBE_PATH = str(Path(_FFMPEG_PATH).parent / "ffprobe")
+_FFMPEG_DIR = str(Path(_FFMPEG_PATH).parent)  # directory — for ffmpeg_location in yt-dlp (D-02)
+_system_ffprobe = shutil.which("ffprobe")
+if _system_ffprobe is None:
+    logger.warning(
+        "System ffprobe not found via shutil.which(); falling back to imageio-ffmpeg "
+        "path: %s. Install ffmpeg system package for reliable ffprobe resolution.",
+        str(Path(_FFMPEG_PATH).parent / "ffprobe"),
+    )
+_FFPROBE_PATH = _system_ffprobe or str(Path(_FFMPEG_PATH).parent / "ffprobe")  # D-01: system first
 
 
 # Constants
@@ -65,7 +77,8 @@ def check_duration(url: str, cookies_path: str, bgutil_base_url: str = "") -> di
         "skip_download": True,
         "socket_timeout": 30,
         "noplaylist": True,
-        "ffmpeg_location": _FFMPEG_PATH,
+        "no_cache_dir": True,           # D-04: prevent stale nsig between Railway deploys
+        "ffmpeg_location": _FFMPEG_DIR,  # D-02: directory, not binary path
         "extractor_args": {"youtube": [f"player_client={player_client}"]},
     }
     if bgutil_base_url:
@@ -143,8 +156,11 @@ def download_audio(url: str, cookies_path: str, po_token: str, bgutil_base_url: 
             "key": "FFmpegExtractAudio",
             "preferredcodec": "wav",
         }],
+        "no_cache_dir": True,           # D-04: prevent stale nsig between Railway deploys
+        "retries": 3,                   # D-05: tolerate transient connection failures
+        "fragment_retries": 3,          # D-05: tolerate transient fragment failures
         "http_chunk_size": 10485760,  # 10MB — avoids YouTube throttling on long downloads
-        "ffmpeg_location": _FFMPEG_PATH,
+        "ffmpeg_location": _FFMPEG_DIR,  # D-02: directory, not binary path
     }
     if cookies_path:
         ydl_opts["cookiefile"] = cookies_path
