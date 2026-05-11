@@ -18,7 +18,9 @@ Output (D-05): JSON to stdout via __main__ (implemented in Plan 04).
 from __future__ import annotations
 
 import json
+import logging
 import os
+import shutil
 import subprocess
 import uuid
 from pathlib import Path
@@ -30,8 +32,18 @@ import librosa
 import numpy as np
 import yt_dlp
 
+logger = logging.getLogger(__name__)
+
 _FFMPEG_PATH = imageio_ffmpeg.get_ffmpeg_exe()
-_FFPROBE_PATH = str(Path(_FFMPEG_PATH).parent / "ffprobe")
+_FFMPEG_DIR = str(Path(_FFMPEG_PATH).parent)  # directory — for ffmpeg_location in yt-dlp (D-02)
+_system_ffprobe = shutil.which("ffprobe")
+if _system_ffprobe is None:
+    logger.warning(
+        "System ffprobe not found via shutil.which(); falling back to imageio-ffmpeg "
+        "path: %s. Install ffmpeg system package for reliable ffprobe resolution.",
+        str(Path(_FFMPEG_PATH).parent / "ffprobe"),
+    )
+_FFPROBE_PATH = _system_ffprobe or str(Path(_FFMPEG_PATH).parent / "ffprobe")  # D-01: system first
 
 
 # Constants
