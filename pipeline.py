@@ -77,7 +77,8 @@ def check_duration(url: str, cookies_path: str, bgutil_base_url: str = "") -> di
         "skip_download": True,
         "socket_timeout": 30,
         "noplaylist": True,
-        "ffmpeg_location": _FFMPEG_PATH,
+        "no_cache_dir": True,           # D-04: prevent stale nsig between Railway deploys
+        "ffmpeg_location": _FFMPEG_DIR,  # D-02: directory, not binary path
         "extractor_args": {"youtube": [f"player_client={player_client}"]},
     }
     if bgutil_base_url:
@@ -155,8 +156,11 @@ def download_audio(url: str, cookies_path: str, po_token: str, bgutil_base_url: 
             "key": "FFmpegExtractAudio",
             "preferredcodec": "wav",
         }],
+        "no_cache_dir": True,           # D-04: prevent stale nsig between Railway deploys
+        "retries": 3,                   # D-05: tolerate transient connection failures
+        "fragment_retries": 3,          # D-05: tolerate transient fragment failures
         "http_chunk_size": 10485760,  # 10MB — avoids YouTube throttling on long downloads
-        "ffmpeg_location": _FFMPEG_PATH,
+        "ffmpeg_location": _FFMPEG_DIR,  # D-02: directory, not binary path
     }
     if cookies_path:
         ydl_opts["cookiefile"] = cookies_path
