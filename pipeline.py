@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import shutil
 import subprocess
 import uuid
@@ -299,9 +300,8 @@ def validate_wav(wav_path: Path) -> float:
     if _use_ffmpeg_fallback:
         # ffmpeg -i always exits non-zero; parse duration from stderr
         # Expected line: "  Duration: HH:MM:SS.ss, start: ..."
-        import re as _re
         stderr_text = result.stderr or ""
-        dur_match = _re.search(r"Duration:\s+(\d+):(\d+):([\d.]+)", stderr_text)
+        dur_match = re.search(r"Duration:\s+(\d+):(\d+):([\d.]+)", stderr_text)
         if not dur_match:
             raise ValueError(
                 f"ffmpeg -i could not determine duration of {wav_path}. "
