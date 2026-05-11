@@ -179,10 +179,10 @@ Plans:
   1. Submitting a job when BGUTIL_BASE_URL is set but bgutil is unreachable causes the job to reach status=failed with an error message that explicitly names bgutil as unavailable — not a generic download error and not a silent retry with a different client
   2. Submitting three different beat URLs via POST /jobs on the live Railway deployment results in all three jobs reaching status=done with a downloadable WAV, a plausible BPM value, and a key in standard notation
   3. GET /files/{id} on a completed Railway job streams a WAV that can be opened in a DAW (not a 0-byte file or an HTML error page)
-**Plans:** 3 plans
+**Plans:** 2/3 plans executed
 Plans:
-- [ ] 10-01-PLAN.md — Wave 0 (TDD RED): 4 stubs RED para PIPE-06 em test_pipeline_fixes.py
-- [ ] 10-02-PLAN.md — Wave 1: BgutilUnavailable + probe HTTP em pipeline.py; except BgutilUnavailable em api/tasks.py; 4 stubs GREEN
+- [x] 10-01-PLAN.md — Wave 0 (TDD RED): 4 stubs RED para PIPE-06 em test_pipeline_fixes.py
+- [x] 10-02-PLAN.md — Wave 1: BgutilUnavailable + probe HTTP em pipeline.py; except BgutilUnavailable em api/tasks.py; 4 stubs GREEN
 - [ ] 10-03-PLAN.md — Wave 2: start-all.sh + railway.toml single-container; checkpoint humano E2E com 3 beats reais
 
 ---
@@ -200,7 +200,7 @@ Plans:
 | 7. Infrastructure Security | 0/4 | Planned | - |
 | 8. Pipeline Code Fixes | 3/3 | Done | 2026-05-11 |
 | 9. Railway bgutil Deployment | 0/1 | Planned | - |
-| 10. Failure Hardening and E2E Validation | 0/3 | Planned | - |
+| 10. Failure Hardening and E2E Validation | 2/3 | In Progress|  |
 
 ---
 
