@@ -166,8 +166,10 @@ Plans:
   1. A Railway service running `jim60105/bgutil-pot` is healthy and responds on its internal port 4416 (confirmed via Railway service health or curl from another service in the same project)
   2. The environment variable BGUTIL_BASE_URL is set in both the `web-service` and `celery-worker` Railway services and resolves to the bgutil internal URL
   3. The web service and Celery worker logs show no "BGUTIL_BASE_URL not set" or connection-refused errors at startup
-**Plans**: TBD
-**Note**: Human checkpoint — requires manual Railway dashboard actions (create service, set env vars)
+**Plans:** 1 plan
+Plans:
+- [ ] 09-01-PLAN.md — Wave 1: verify Celery Worker (10ec98b3) and Uvicorn (02cda13b) deployments, confirm clean startup logs (no BGUTIL_BASE_URL errors), discover Uvicorn public URL, and run end-to-end smoke test (POST /jobs with real beat URL → status=done with WAV)
+**Note**: Human checkpoint on Task 4 — operator must supply a real YouTube beat URL for end-to-end validation
 
 ### Phase 10: Failure Hardening and E2E Validation
 **Goal**: The pipeline fails loudly when bgutil is unavailable (no silent fallback), and the complete download-to-WAV-to-analysis pipeline succeeds on Railway for real beat URLs
@@ -193,7 +195,7 @@ Plans:
 | 6. Application Security | 0/3 | Planned | - |
 | 7. Infrastructure Security | 0/4 | Planned | - |
 | 8. Pipeline Code Fixes | 3/3 | Done | 2026-05-11 |
-| 9. Railway bgutil Deployment | 0/TBD | Not started | - |
+| 9. Railway bgutil Deployment | 0/1 | Planned | - |
 | 10. Failure Hardening and E2E Validation | 0/TBD | Not started | - |
 
 ---
