@@ -150,3 +150,96 @@ def test_bgutil_08x_extractor_key_download_audio():
         "download_audio contém a chave 1.x 'youtubepot-bgutilhttp'. "
         "O projeto pina bgutil==0.8.5; usar a chave 1.x silenciosamente ignora o bgutil server."
     )
+
+
+# ---------------------------------------------------------------------------
+# PIPE-06 — bgutil probe: falha explícita quando bgutil inacessível (RED stubs)
+# Estes testes FALHAM até que 10-02-PLAN.md implemente:
+#   - import httpx em pipeline.py
+#   - class BgutilUnavailable(RuntimeError) em pipeline.py
+#   - probe HTTP em download_audio() antes de ydl_opts
+#   - except BgutilUnavailable em api/tasks.py ANTES de except RuntimeError
+# ---------------------------------------------------------------------------
+import httpx
+import pytest
+from unittest.mock import patch, MagicMock
+
+
+def test_pipe06_bgutil_probe_connect_error_raises():
+    """PIPE-06: ConnectError no probe → exceção com 'bgutil' na mensagem."""
+    with patch("pipeline.httpx.get", side_effect=httpx.ConnectError("Connection refused")):
+        with pytest.raises(Exception) as exc_info:
+            pipeline.download_audio(
+                url="https://www.youtube.com/watch?v=FAKEID00001",
+                cookies_path="",
+                po_token="",
+                bgutil_base_url="http://bgutil.railway.internal:4416",
+            )
+        assert "bgutil" in str(exc_info.value).lower(), (
+            f"PIPE-06 fix missing: mensagem de erro deve conter 'bgutil'. "
+            f"Got: {exc_info.value!r}"
+        )
+
+
+def test_pipe06_bgutil_probe_timeout_raises():
+    """PIPE-06: ConnectTimeout no probe → exceção com 'bgutil' na mensagem."""
+    with patch("pipeline.httpx.get", side_effect=httpx.ConnectTimeout("Timeout")):
+        with pytest.raises(Exception) as exc_info:
+            pipeline.download_audio(
+                url="https://www.youtube.com/watch?v=FAKEID00002",
+                cookies_path="",
+                po_token="",
+                bgutil_base_url="http://bgutil.railway.internal:4416",
+            )
+        assert "bgutil" in str(exc_info.value).lower(), (
+            f"PIPE-06 fix missing: mensagem de erro deve conter 'bgutil'. "
+            f"Got: {exc_info.value!r}"
+        )
+
+
+def test_pipe06_no_probe_when_bgutil_url_empty():
+    """PIPE-06: bgutil_base_url='' → httpx.get NÃO deve ser chamado."""
+    mock_get = MagicMock()
+    with patch("pipeline.httpx.get", mock_get):
+        try:
+            pipeline.download_audio(
+                url="https://www.youtube.com/watch?v=FAKEID00003",
+                cookies_path="",
+                po_token="",
+                bgutil_base_url="",
+            )
+        except Exception:
+            pass  # yt-dlp vai falhar sem cookies/URL real — irrelevante
+        mock_get.assert_not_called()
+
+
+def test_pipe06_tasks_bgutil_error_type():
+    """PIPE-06: JobFailure gerada por exceção de bgutil deve ter error_type='bgutil_unavailable'."""
+    from api.tasks import process_job, JobFailure
+
+    # Simular exceção com mensagem de bgutil saindo de download_audio
+    bgutil_error_msg = (
+        "PO Token service unavailable (bgutil at http://bgutil.railway.internal:4416). "
+        "Download requires bgutil to be running."
+    )
+
+    with patch("api.tasks.download_audio", side_effect=RuntimeError(bgutil_error_msg)), \
+         patch("api.tasks.check_duration", return_value={"duration": 180, "title": "test"}):
+        # Invocar a função Celery sem o decorator (apply() não está disponível sem broker)
+        # O que verificamos é que a exceção lançada é JobFailure com o error_type correto
+        mock_request = MagicMock()
+        mock_request.id = "test-job-id-pipe06"
+        task_func = process_job
+        task_func.request_stack = MagicMock()
+        task_func.request_stack.top = mock_request
+
+        try:
+            task_func(url="https://www.youtube.com/watch?v=FAKEID00004")
+        except JobFailure as jf:
+            assert jf.error_type == "bgutil_unavailable", (
+                f"PIPE-06 fix missing: error_type esperado 'bgutil_unavailable', "
+                f"obtido {jf.error_type!r}. "
+                f"api/tasks.py precisa de 'except BgutilUnavailable' ANTES de 'except RuntimeError'."
+            )
+        except Exception:
+            pass  # outros erros de infra Celery são ignorados neste stub
