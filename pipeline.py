@@ -95,7 +95,10 @@ def check_duration(url: str, cookies_path: str, bgutil_base_url: str = "") -> di
         "extractor_args": {"youtube": [f"player_client={player_client}"]},
     }
     if bgutil_base_url:
-        ydl_opts["extractor_args"]["youtubepot-bgutilhttp"] = [f"base_url={bgutil_base_url}"]
+        # bgutil-ytdlp-pot-provider 0.8.x API: base_url is passed via youtube extractor arg
+        # key 'getpot_bgutil_baseurl'. In version 1.x the key moved to 'youtubepot-bgutilhttp:base_url'.
+        # We pin 0.8.5 to match bgutil server v0.8.1, so use the 0.8.x arg format.
+        ydl_opts["extractor_args"]["youtube"].append(f"getpot_bgutil_baseurl={bgutil_base_url}")
     if cookies_path:
         ydl_opts["cookiefile"] = cookies_path
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -155,7 +158,9 @@ def download_audio(url: str, cookies_path: str, po_token: str, bgutil_base_url: 
     if po_token:
         extractor_args["youtube"].append(f"po_token=web.gvs+{po_token}")
     if bgutil_base_url:
-        extractor_args["youtubepot-bgutilhttp"] = [f"base_url={bgutil_base_url}"]
+        # bgutil-ytdlp-pot-provider 0.8.x API: base_url is passed via youtube extractor arg
+        # key 'getpot_bgutil_baseurl'. In version 1.x the key moved to 'youtubepot-bgutilhttp:base_url'.
+        extractor_args["youtube"].append(f"getpot_bgutil_baseurl={bgutil_base_url}")
 
     ydl_opts: dict[str, Any] = {
         "format": "bestaudio/best",
