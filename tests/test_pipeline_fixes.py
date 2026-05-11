@@ -214,32 +214,38 @@ def test_pipe06_no_probe_when_bgutil_url_empty():
 
 
 def test_pipe06_tasks_bgutil_error_type():
-    """PIPE-06: JobFailure gerada por exceção de bgutil deve ter error_type='bgutil_unavailable'."""
-    from api.tasks import process_job, JobFailure
+    """PIPE-06: JobFailure gerada por BgutilUnavailable deve ter error_type='bgutil_unavailable'.
 
-    # Simular exceção com mensagem de bgutil saindo de download_audio
+    Rule 1 fix: o stub original usava RuntimeError genérico e não mockava update_state,
+    causando ConnectionError ao Redis antes de chegar no handler. Corrigido para:
+    - Usar BgutilUnavailable (importado de pipeline após a implementação do plano 10-02)
+    - Mockar process_job.update_state para evitar conexão Redis em teste unitário
+    """
+    from api.tasks import process_job, JobFailure
+    from pipeline import BgutilUnavailable
+
     bgutil_error_msg = (
         "PO Token service unavailable (bgutil at http://bgutil.railway.internal:4416). "
         "Download requires bgutil to be running."
     )
 
-    with patch("api.tasks.download_audio", side_effect=RuntimeError(bgutil_error_msg)), \
-         patch("api.tasks.check_duration", return_value={"duration": 180, "title": "test"}):
-        # Invocar a função Celery sem o decorator (apply() não está disponível sem broker)
-        # O que verificamos é que a exceção lançada é JobFailure com o error_type correto
-        mock_request = MagicMock()
-        mock_request.id = "test-job-id-pipe06"
-        task_func = process_job
-        task_func.request_stack = MagicMock()
-        task_func.request_stack.top = mock_request
-
+    with patch("api.tasks.download_audio", side_effect=BgutilUnavailable(bgutil_error_msg)), \
+         patch("api.tasks.check_duration", return_value={"duration": 180, "title": "test"}), \
+         patch.object(process_job, "update_state"):
+        # Chamar a função Celery diretamente (sem broker); update_state mockado evita Redis
+        caught_failure = None
         try:
-            task_func(url="https://www.youtube.com/watch?v=FAKEID00004")
+            process_job(url="https://www.youtube.com/watch?v=FAKEID00004")
         except JobFailure as jf:
-            assert jf.error_type == "bgutil_unavailable", (
-                f"PIPE-06 fix missing: error_type esperado 'bgutil_unavailable', "
-                f"obtido {jf.error_type!r}. "
-                f"api/tasks.py precisa de 'except BgutilUnavailable' ANTES de 'except RuntimeError'."
-            )
+            caught_failure = jf
         except Exception:
-            pass  # outros erros de infra Celery são ignorados neste stub
+            pass  # outros erros de infra Celery são ignorados
+
+        assert caught_failure is not None, (
+            "PIPE-06 fix missing: process_job deve levantar JobFailure para BgutilUnavailable."
+        )
+        assert caught_failure.error_type == "bgutil_unavailable", (
+            f"PIPE-06 fix missing: error_type esperado 'bgutil_unavailable', "
+            f"obtido {caught_failure.error_type!r}. "
+            f"api/tasks.py precisa de 'except BgutilUnavailable' ANTES de 'except RuntimeError'."
+        )

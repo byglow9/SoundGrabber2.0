@@ -6,7 +6,7 @@ from typing import Any
 
 from celery import Celery
 
-from pipeline import check_duration, download_audio, analyze_audio
+from pipeline import check_duration, download_audio, analyze_audio, BgutilUnavailable
 from api.config import settings
 
 logger = logging.getLogger(__name__)
@@ -99,6 +99,13 @@ def process_job(self, url: str) -> dict[str, Any]:
         raise JobFailure(
             error="Download failed: audio file not produced.",
             error_type="download_error",
+        ) from e
+
+    except BgutilUnavailable as e:
+        logger.warning("Job %s bgutil_unavailable: %s", self.request.id, e)
+        raise JobFailure(
+            error=str(e),
+            error_type="bgutil_unavailable",
         ) from e
 
     except RuntimeError as e:
