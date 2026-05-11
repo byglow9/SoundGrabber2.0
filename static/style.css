@@ -278,6 +278,49 @@ td {
 }
 
 /* ============================================================
+   GitHub corner badge — fixed top-right
+   ============================================================ */
+
+#gh-corner {
+  position: fixed;
+  top: 10px;
+  right: 10px;
+  display: inline-block;
+  border: 1px solid #ff8800;
+  background-color: #000000;
+  padding: 5px 10px;
+  text-decoration: none;
+  color: #ff8800;
+  font-family: 'Sligoil', 'Courier New', monospace;
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  z-index: 999;
+  -webkit-font-smoothing: none;
+}
+
+#gh-corner:hover {
+  background-color: #ff8800;
+  color: #000000;
+}
+
+#gh-icon {
+  fill: #ff8800;
+  display: inline-block;
+  vertical-align: middle;
+  margin-right: 5px;
+  position: relative;
+  top: -1px;
+}
+
+#gh-corner:hover #gh-icon {
+  fill: #000000;
+}
+
+#gh-label {
+  vertical-align: middle;
+}
+
+/* ============================================================
    Modal de aviso legal
    ============================================================ */
 

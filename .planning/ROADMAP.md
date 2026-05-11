@@ -253,6 +253,16 @@ Plans:
 
 **Mapped: 45/45 (19 v1 + 16 v1.1 + 10 v1.2)**
 
+### Phase 11: Som da Semana — Curated sidebar panel featuring underground music releases, updated by the site operator via an authenticated API endpoint; displays artist, title, genre, link, and operator note; integrates with the download field when the featured link is from YouTube
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 10
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 11 to break down)
+
 ---
 
 *Roadmap created: 2026-04-29*

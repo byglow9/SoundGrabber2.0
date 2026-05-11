@@ -70,6 +70,10 @@ Progress: `[ ] [ ] [ ]` (0/3 phases complete)
 | Phase 9: human checkpoint for bgutil deploy (v1.2) | Deploying a Railway service and setting env vars requires dashboard access — this is a deliberate manual step, not automatable by Claude |
 | No silent fallback when bgutil unavailable (v1.2) | Silent client switching hides configuration errors and makes failures non-deterministic; explicit failure is required by PIPE-06 |
 
+### Roadmap Evolution
+
+- Phase 11 added: Som da Semana — painel lateral curado com lançamentos da cena underground, atualizado pelo operador via endpoint autenticado
+
 ### Known Risks
 
 | Risk | Severity | Mitigation |

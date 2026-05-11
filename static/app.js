@@ -350,13 +350,16 @@ function init() {
     setState('IDLE');
   });
 
-  // Wire info button — open speech bubble aligned to button
+  // Wire info button — toggle speech bubble
   $('info-btn').addEventListener('click', () => {
     const modal = $('info-modal');
+    if (!modal.hidden) {
+      modal.hidden = true;
+      return;
+    }
     const btn = $('info-btn').getBoundingClientRect();
     const app = $('app').getBoundingClientRect();
 
-    // Position bubble to the right of the app table, vertically centered on button
     const left = app.right + 16;
     const btnCenterY = btn.top + btn.height / 2;
     const top = btnCenterY - 20;
