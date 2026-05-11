@@ -134,3 +134,28 @@ def test_deploy01_nixpacks_toml_exists_with_ffmpeg():
         f"DEPLOY-01 fix missing: nixpacks.toml exists but does not mention 'ffmpeg'. "
         f"Content: {content!r}"
     )
+
+
+def test_bgutil_08x_extractor_key_check_duration():
+    """bgutil 0.8.x usa 'getpot_bgutil_baseurl', nao 'youtubepot-bgutilhttp:base_url'."""
+    src = inspect.getsource(pipeline.check_duration)
+    assert "getpot_bgutil_baseurl" in src, (
+        "DEPLOY-02 fix missing: check_duration deve usar a chave 0.8.x 'getpot_bgutil_baseurl'. "
+        "A chave 1.x era 'youtubepot-bgutilhttp:base_url'."
+    )
+    assert "youtubepot-bgutilhttp" not in src, (
+        "check_duration contém a chave 1.x 'youtubepot-bgutilhttp'. "
+        "O projeto pina bgutil==0.8.5; usar a chave 1.x silenciosamente ignora o bgutil server."
+    )
+
+
+def test_bgutil_08x_extractor_key_download_audio():
+    """bgutil 0.8.x usa 'getpot_bgutil_baseurl', nao 'youtubepot-bgutilhttp:base_url'."""
+    src = inspect.getsource(pipeline.download_audio)
+    assert "getpot_bgutil_baseurl" in src, (
+        "DEPLOY-02 fix missing: download_audio deve usar a chave 0.8.x 'getpot_bgutil_baseurl'."
+    )
+    assert "youtubepot-bgutilhttp" not in src, (
+        "download_audio contém a chave 1.x 'youtubepot-bgutilhttp'. "
+        "O projeto pina bgutil==0.8.5; usar a chave 1.x silenciosamente ignora o bgutil server."
+    )
