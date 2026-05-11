@@ -1,0 +1,47 @@
+{
+  "version": "1.0",
+  "timestamp": "2026-05-11T23:56:08.548Z",
+  "phase": "10",
+  "phase_name": "Failure Hardening and E2E Validation",
+  "phase_dir": ".planning/phases/10-failure-hardening-and-e2e-validation",
+  "plan": 3,
+  "task": 2,
+  "total_tasks": 5,
+  "status": "paused",
+  "completed_tasks": [
+    {"id": "10-01-T1", "name": "TDD RED stubs PIPE-06 em test_pipeline_fixes.py", "status": "done", "commit": "65ed34a"},
+    {"id": "10-02-T1", "name": "BgutilUnavailable + httpx probe em pipeline.py", "status": "done", "commit": "9e06692"},
+    {"id": "10-02-T2", "name": "except BgutilUnavailable em api/tasks.py", "status": "done", "commit": "84aee97"},
+    {"id": "10-03-T1", "name": "start-all.sh + railway.toml container único", "status": "done", "commit": "50b4e09"}
+  ],
+  "remaining_tasks": [
+    {"id": "10-03-T2", "name": "E2E checkpoint: 2 jobs adicionais + 10-SMOKE-TEST.md", "status": "in_progress", "progress": "1 de 3 jobs completos (Rick Astley, BPM=113, Key=Ab major, WAV 40MB OK)"}
+  ],
+  "blockers": [
+    {
+      "description": "Jobs 2 e 3 falharam com bot detection do YouTube (Gangnam Style, Despacito) — vídeos muito populares com restrições extras. Não é bug da app.",
+      "type": "external",
+      "workaround": "Usar URLs de beats menos populares / menos restritos pelo YouTube. O bgutil está funcionando (job 1 prova)."
+    }
+  ],
+  "human_actions_pending": [
+    {
+      "action": "Submeter 2 jobs adicionais com beats instrumentais menos populares e confirmar status=done + WAV válido",
+      "context": "Critério PIPE-07: 3 jobs distintos chegando a status=done. Já temos 1/3.",
+      "blocking": true
+    },
+    {
+      "action": "Criar 10-SMOKE-TEST.md com resultados dos 3 jobs",
+      "context": "Mesmo formato de 09-01-SMOKE-TEST.md (tabela gate checks, JSON dos jobs, tamanho WAV)",
+      "blocking": true
+    }
+  ],
+  "decisions": [
+    {"decision": "Container único Railway via start-all.sh — resolve bug de /tmp isolado", "rationale": "D-01 do CONTEXT.md", "phase": "10"},
+    {"decision": "Celery Worker Railway separado deletado", "rationale": "Evitar workers duplicados competindo por Redis após migração para container único", "phase": "10"},
+    {"decision": "Probe bgutil só captura httpx.RequestError — não verifica resp.is_success", "rationale": "Qualquer resposta HTTP = servidor up; apenas falha de conexão = bgutil indisponível", "phase": "10"}
+  ],
+  "uncommitted_files": [".claude/worktrees/agent-a03dbb583c173de08/ (stale worktree dir — pode ignorar)"],
+  "next_action": "Submeter 2 beats menos populares (ex: SoundCloud rips, beats de canais pequenos), aguardar status=done, verificar WAV, escrever 10-SMOKE-TEST.md, depois continuar executor via SendMessage to a761644f49f2ed174",
+  "context_notes": "Pipeline funciona em produção. Container único OK. 14/14 testes passando. bgutil operacional. Só falta concluir o checkpoint E2E com 2 URLs adicionais e documentar resultados."
+}
