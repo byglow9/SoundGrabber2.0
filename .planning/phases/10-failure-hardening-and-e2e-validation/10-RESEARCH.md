@@ -63,11 +63,11 @@
 
 Phase 10 tem dois entregáveis independentes que precisam acontecer em ordem: primeiro o hardening de código (PIPE-06), depois a validação E2E no Railway (PIPE-07). O hardening é 100% testável localmente — mock de `httpx.get` + novo `except` em `tasks.py`. A validação E2E requer a migração de arquitetura Railway (D-01) para que Uvicorn e Celery Worker compartilhem `/tmp` no mesmo container.
 
-O projeto já tem `httpx>=0.27` explicitamente em `requirements.txt` (versão local: 0.28.1). Nenhuma dependência nova é necessária. O `httpx.get()` com `timeout=2.0` é o mecanismo correto para o probe de bgutil — `httpx.RequestError` captura tanto `ConnectError` quanto `TimeoutException` (e `ConnectTimeout`) em uma única cláusula. Respostas non-2xx são detectadas via `response.is_success`.
+O projeto já tem `httpx>=0.27` explicitamente em `requirements.txt` (versão local: 0.28.1). Nenhuma dependência nova é necessária. O `httpx.get()` com `timeout=2.0` é o mecanismo correto para o probe de bgutil — `httpx.RequestError` captura tanto `ConnectError` quanto `TimeoutException` (e `ConnectTimeout`) em uma única cláusula. O probe verifica apenas "o servidor está respondendo?" — qualquer resposta HTTP (200, 404, 500) indica que o bgutil está up; somente `httpx.RequestError` indica inacessibilidade.
 
 A migração para container único no Railway é um `start-all.sh` simples (bash puro, sem supervisord ou honcho — nenhum dos dois está disponível na máquina de desenvolvimento nem como dependência Python). O padrão exato já existe em `start.sh` local: Celery em background com `&`, Uvicorn em foreground com `exec`. O `railway.toml` recebe o novo `startCommand = "bash start-all.sh"` e o `railway-worker.toml` é aposentado (removido ou documentado como inativo).
 
-**Recomendação primária:** Use `httpx.get(f"{bgutil_base_url}/", timeout=2.0)` no início de `download_audio`. Capture `httpx.RequestError` e respostas `not response.is_success` juntos. Raise `RuntimeError` com a mensagem exata de D-07. Em `tasks.py`, adicione `except RuntimeError as e` com filtro de string `"bgutil"` antes do catch genérico de RuntimeError existente.
+**Recomendação primária:** Use `httpx.get(f"{bgutil_base_url}/", timeout=2.0)` no início de `download_audio`. Capture apenas `httpx.RequestError` — NÃO verificar `response.is_success`. Qualquer resposta HTTP significa que o servidor está up. Raise `BgutilUnavailable(RuntimeError)` com a mensagem exata de D-07. Em `tasks.py`, adicione `except BgutilUnavailable` ANTES do catch genérico de RuntimeError existente.
 
 ---
 
@@ -104,55 +104,43 @@ import httpx  # adicionar no topo do arquivo
 # Em download_audio, antes de ydl_opts:
 if bgutil_base_url:
     try:
-        resp = httpx.get(f"{bgutil_base_url}/", timeout=2.0)
-        if not resp.is_success:
-            raise RuntimeError(
-                f"PO Token service unavailable (bgutil at {bgutil_base_url}). "
-                f"Download requires bgutil to be running."
-            )
+        httpx.get(f"{bgutil_base_url}/", timeout=2.0)
+        logger.info("bgutil probe OK — server responded")
     except httpx.RequestError as exc:
-        raise RuntimeError(
+        raise BgutilUnavailable(
             f"PO Token service unavailable (bgutil at {bgutil_base_url}). "
             f"Download requires bgutil to be running."
         ) from exc
 ```
 
-**Por que `httpx.RequestError`:**
+**Por que `httpx.RequestError` (e não verificação de status):**
 - `httpx.ConnectError` (connection refused) → subclasse de `httpx.RequestError` [VERIFIED: MRO local]
 - `httpx.TimeoutException` (timeout) → subclasse de `httpx.RequestError` [VERIFIED: MRO local]
 - `httpx.ConnectTimeout` (connect timeout) → subclasse de `httpx.RequestError` [VERIFIED: MRO local]
 - Uma única cláusula `except httpx.RequestError` captura todos os casos de falha de rede
+- NÃO usar `resp.is_success`: o probe verifica apenas "o servidor está respondendo?", não a semântica da resposta. bgutil pode retornar 404 na rota `/` quando saudável — verificar `is_success` produziria falsos negativos em produção.
+- Qualquer resposta HTTP (200, 404, 500) = servidor up = prosseguir com yt-dlp
 
-**Por que `resp.is_success`:**
-- `httpx.Response(200).is_success == True` [VERIFIED: local]
-- `httpx.Response(503).is_success == False` [VERIFIED: local]
-- Cobertura de BGutil que responde mas retorna erro (reiniciando, etc.)
-
-**Endpoint do probe:** `GET {bgutil_base_url}/` (raiz). O bgutil v0.8.1 escuta em `0.0.0.0:4416` — qualquer GET na raiz devolve resposta HTTP. Alternativa TCP connect seria mais robusta mas requer `socket` e é menos legível. GET na raiz é suficiente conforme D-04. [ASSUMED — bgutil raiz responde HTTP válido; confirmado por D-01 do 09-CONTEXT.md que diz "POT server v0.8.1 listening on 0.0.0.0:4416"]
+**Endpoint do probe:** `GET {bgutil_base_url}/` (raiz). O bgutil v0.8.1 escuta em `0.0.0.0:4416` — qualquer GET na raiz devolve resposta HTTP. [ASSUMED — bgutil raiz responde HTTP válido; confirmado por D-01 do 09-CONTEXT.md que diz "POT server v0.8.1 listening on 0.0.0.0:4416"]
 
 ### Padrão 2: Captura em tasks.py com error_type Distinto
 
 **Problema:** O `except RuntimeError` existente em `tasks.py` (linha 104) capturaria a nova exceção do probe e produziria `error_type="download_error"` — misturando falha de infra com vídeo bloqueado pelo YouTube. Isso viola D-08 e D-09.
 
-**Solução:** Adicionar um `except RuntimeError` específico ANTES do genérico, com filtro por string `"bgutil"` na mensagem:
+**Solução:** Usar exceção customizada `BgutilUnavailable(RuntimeError)` e capturá-la diretamente ANTES do handler RuntimeError genérico:
 
 ```python
 # Source: análise de api/tasks.py estrutura de exceções existente [VERIFIED: codebase]
 # Inserir ANTES do 'except RuntimeError as e' existente (linha 104):
-except RuntimeError as e:
-    if "bgutil" in str(e).lower():
+    except BgutilUnavailable as e:
         logger.warning("Job %s bgutil_unavailable: %s", self.request.id, e)
         raise JobFailure(
-            error=str(e),  # mensagem exata de D-07 gerada pelo probe
+            error=str(e),
             error_type="bgutil_unavailable",
         ) from e
-    # não-bgutil RuntimeError: cai no próximo except RuntimeError abaixo
-    raise  # re-raise para o catch genérico existente
 ```
 
-**Alternativa mais limpa:** Criar exceção customizada `BgutilUnavailable(RuntimeError)` em `pipeline.py` — o probe levanta `BgutilUnavailable`, o `tasks.py` captura `BgutilUnavailable` diretamente sem filtro por string. Isso evita fragilidade de detecção por string. Recomendado se o planner concordar com a adição de um tipo de exceção.
-
-**Exceção customizada (recomendado):**
+**Exceção customizada:**
 
 ```python
 # pipeline.py — adicionar perto do topo do módulo
@@ -275,6 +263,7 @@ def test_pipe06_bgutil_not_called_without_bgutil_base_url():
 - **Usar `except Exception` para capturar a exceção do bgutil:** O catch genérico em `tasks.py` já existe e produziria `error_type="internal_error"`. A nova exceção DEVE ser capturada ANTES, em handler específico.
 - **Usar `requests.get` em vez de `httpx.get`:** `requests` não está em `requirements.txt` como dependência direta. `httpx` está. [VERIFIED: requirements.txt]
 - **`start-all.sh` sem `exec` antes do uvicorn:** Sem `exec`, SIGTERM do Railway não chega ao uvicorn — graceful shutdown não funciona.
+- **Verificar `resp.is_success` no probe:** O probe detecta "servidor inacessível", não "servidor retornando sucesso semântico". bgutil pode retornar 404 na raiz `/` quando saudável. Usar `resp.is_success` produziria falsos negativos — probe levantaria BgutilUnavailable mesmo com bgutil funcionando.
 
 ---
 
@@ -282,7 +271,7 @@ def test_pipe06_bgutil_not_called_without_bgutil_base_url():
 
 | Problem | Don't Build | Use Instead | Why |
 |---------|-------------|-------------|-----|
-| Probe de disponibilidade HTTP | Custom socket TCP check | `httpx.get(..., timeout=2.0)` | httpx já é dependência; API limpa; exceções tipadas; `is_success` cobre non-2xx |
+| Probe de disponibilidade HTTP | Custom socket TCP check | `httpx.get(..., timeout=2.0)` | httpx já é dependência; API limpa; exceções tipadas; captura apenas RequestError (sem verificação de status) |
 | Process management em container | supervisord config file | bash `&` + `exec` | Sem deps extras; Railway monitora PID 1 naturalmente; já funciona em `start.sh` |
 | Detecção de tipo de falha do bgutil | Parsing de stderr/stdout | Exceção customizada `BgutilUnavailable(RuntimeError)` | Captura tipada em `tasks.py`; sem fragilidade de string matching |
 
@@ -338,14 +327,8 @@ O probe entra nas linhas 148-165 de `pipeline.py` (antes de `ydl_opts`):
 if bgutil_base_url:
     logger.info("Probing bgutil availability at %s", bgutil_base_url)
     try:
-        resp = httpx.get(f"{bgutil_base_url}/", timeout=2.0)
-        if not resp.is_success:
-            logger.warning("bgutil probe returned HTTP %s", resp.status_code)
-            raise BgutilUnavailable(
-                f"PO Token service unavailable (bgutil at {bgutil_base_url}). "
-                f"Download requires bgutil to be running."
-            )
-        logger.info("bgutil probe OK (HTTP %s)", resp.status_code)
+        httpx.get(f"{bgutil_base_url}/", timeout=2.0)
+        logger.info("bgutil probe OK — server responded")
     except httpx.RequestError as exc:
         logger.warning("bgutil probe failed: %s", exc)
         raise BgutilUnavailable(
@@ -423,7 +406,7 @@ Seguir exatamente o padrão de `09-01-SMOKE-TEST.md` — tabela de gate checks p
 |--------------|------------------|--------------|--------|
 | Dois containers Railway (web + worker) | Único container com start-all.sh | Phase 10 (D-01) | `/tmp` compartilhado — WAV produzido pelo worker é acessível ao web server |
 | `RuntimeError` genérico para falha de bgutil | `BgutilUnavailable(RuntimeError)` específico | Phase 10 (D-08/D-09) | `error_type="bgutil_unavailable"` distinto de `"download_error"` |
-| Sem probe de bgutil — falha obscura no yt-dlp | Probe HTTP 2s antes de chamar yt-dlp | Phase 10 (D-04/D-06) | Erro imediato e claro; sem silent fallback para android client |
+| Sem probe de bgutil — falha obscura no yt-dlp | Probe HTTP 2s antes de chamar yt-dlp (captura apenas RequestError) | Phase 10 (D-04/D-06) | Erro imediato e claro; sem silent fallback para android client |
 
 ---
 
@@ -431,24 +414,21 @@ Seguir exatamente o padrão de `09-01-SMOKE-TEST.md` — tabela de gate checks p
 
 | # | Claim | Section | Risk if Wrong |
 |---|-------|---------|---------------|
-| A1 | bgutil v0.8.1 responde HTTP na raiz `GET /` com status 2xx quando saudável | Padrão 1 (probe endpoint) | Probe sempre falha mesmo com bgutil funcionando → jobs falham em produção. Mitigation: testar manualmente `curl http://bgutil.railway.internal:4416/` após deploy |
+| A1 | bgutil v0.8.1 responde com qualquer resposta HTTP na raiz `GET /` quando saudável (200, 404, ou outro) | Padrão 1 (probe endpoint) | Nenhum — o probe captura apenas httpx.RequestError; qualquer resposta HTTP (incluindo 404) = servidor up |
 | A2 | Railway envia SIGTERM ao PID 1 com timeout suficiente antes de SIGKILL | Pitfall 2 | Jobs interrompidos no meio durante redeploys |
 | A3 | Serviço Celery Worker Railway precisa ser desativado manualmente no dashboard após migração para container único | Pitfall 4 | Workers duplicados em produção — dois containers processando jobs do mesmo Redis |
-| A4 | yt-dlp internamente não usa httpx (usa urllib3/requests) — `patch("pipeline.httpx.get")` não intercepta calls internas do yt-dlp | Pitfall 1, Padrão 5 | Mock insuficiente; yt-dlp chamado antes do probe | 
+| A4 | yt-dlp internamente não usa httpx (usa urllib3/requests) — `patch("pipeline.httpx.get")` não intercepta calls internas do yt-dlp | Pitfall 1, Padrão 5 | Mock insuficiente; yt-dlp chamado antes do probe |
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **bgutil GET / responde 2xx ou retorna algo diferente?**
-   - O que sabemos: bgutil v0.8.1 escuta na porta 4416 (confirmado em 09-CONTEXT.md D-01); é um servidor HTTP (não gRPC puro, pois o yt-dlp plugin se comunica via HTTP)
-   - O que está incerto: o endpoint raiz `/` retorna 200, 404, ou outro status?
-   - Recomendação: o probe pode usar `not resp.is_error` em vez de `resp.is_success` — `is_error` é True apenas para 5xx. Isso aceita 2xx e 4xx (404 significa "servidor up, rota não existe" — bgutil está funcionando). Alternativamente, capturar apenas `httpx.RequestError` (sem verificar status) é mais robusto: se o servidor responde qualquer coisa, está up.
+1. **bgutil GET / responde 2xx ou retorna algo diferente? (RESOLVED)**
+   - **Resolução:** A questão é irrelevante para a implementação. O probe foi simplificado para capturar apenas `httpx.RequestError` — sem verificação de `resp.is_success`. Qualquer resposta HTTP (200, 404, 500) significa que o servidor bgutil está up e aceitando conexões TCP. Somente falhas de conexão (`ConnectError`, `ConnectTimeout`, etc.) indicam inacessibilidade. Isso elimina falsos negativos independentemente do status HTTP retornado pela rota raiz do bgutil.
+   - **Impacto no plano 10-02:** Task 1 usa `httpx.get(...); except httpx.RequestError: raise BgutilUnavailable(...)` — sem atribuição do retorno e sem verificação de `resp.is_success`.
 
-2. **Celery Worker Railway precisa ser desativado explicitamente?**
-   - O que sabemos: após D-01, o single-container usa `railway.toml` com o novo `startCommand`
-   - O que está incerto: se o dashboard Railway ainda tem o Celery Worker como serviço separado, ele continuará deployando `railway-worker.toml` — duplicando workers
-   - Recomendação: o plano deve incluir task de checkpoint humano para desativar o serviço `celery-worker` no dashboard Railway
+2. **Celery Worker Railway precisa ser desativado explicitamente? (RESOLVED)**
+   - **Resolução:** Sim. O plano 10-03 Task 2 inclui checkpoint humano explícito com instrução de desativação do serviço "celery-worker" no dashboard Railway (Settings → Danger Zone → Remove Service) como pré-requisito antes do deploy. Isso evita workers duplicados processando jobs do mesmo Redis.
 
 ---
 
@@ -481,8 +461,8 @@ Seguir exatamente o padrão de `09-01-SMOKE-TEST.md` — tabela de gate checks p
 
 | Req ID | Behavior | Test Type | Automated Command | File Exists? |
 |--------|----------|-----------|-------------------|-------------|
-| PIPE-06 | probe falha (ConnectError) → RuntimeError com "bgutil" na msg | unit (mock) | `pytest tests/test_pipeline_fixes.py::test_pipe06_bgutil_probe_fails_raises_with_bgutil_message -x` | ❌ Wave 0 |
-| PIPE-06 | probe timeout → RuntimeError com "bgutil" na msg | unit (mock) | `pytest tests/test_pipeline_fixes.py::test_pipe06_bgutil_probe_timeout_raises -x` | ❌ Wave 0 |
+| PIPE-06 | probe falha (ConnectError) → BgutilUnavailable com "bgutil" na msg | unit (mock) | `pytest tests/test_pipeline_fixes.py::test_pipe06_bgutil_probe_connect_error_raises -x` | ❌ Wave 0 |
+| PIPE-06 | probe timeout → BgutilUnavailable com "bgutil" na msg | unit (mock) | `pytest tests/test_pipeline_fixes.py::test_pipe06_bgutil_probe_timeout_raises -x` | ❌ Wave 0 |
 | PIPE-06 | bgutil_base_url="" → probe NÃO executado | unit (mock) | `pytest tests/test_pipeline_fixes.py::test_pipe06_no_probe_without_bgutil_url -x` | ❌ Wave 0 |
 | PIPE-06 | tasks.py: BgutilUnavailable → error_type="bgutil_unavailable" | unit (mock) | `pytest tests/test_pipeline_fixes.py::test_pipe06_tasks_bgutil_error_type -x` | ❌ Wave 0 |
 | PIPE-07 | 3 beat URLs → status=done com WAV, BPM, key | manual + smoke test | `10-SMOKE-TEST.md` (checkpoint humano) | ❌ Wave 0 (template) |
@@ -528,12 +508,12 @@ Seguir exatamente o padrão de `09-01-SMOKE-TEST.md` — tabela de gate checks p
 
 ### Secondary (MEDIUM confidence)
 - httpx exception MRO verificado localmente: `httpx.RequestError` captura `ConnectError`, `TimeoutException`, `ConnectTimeout`
-- `httpx.Response.is_success` verificado localmente: `True` para 2xx, `False` para 5xx
+- `httpx.Response.is_success` verificado localmente (mas NÃO usado no probe — qualquer resposta HTTP aceita)
 - `which supervisord`, `which honcho` — confirmados "not found" localmente
 
 ### Tertiary (LOW confidence)
 - Comportamento Railway SIGTERM/SIGKILL para container single-process com `exec` [ASSUMED — baseado em convenção Docker]
-- bgutil `GET /` retorna HTTP 2xx quando saudável [ASSUMED — não verificado com instance real]
+- bgutil `GET /` retorna algum status HTTP quando saudável [ASSUMED — não verificado com instance real, mas irrelevante dado que probe não verifica status]
 
 ---
 
@@ -541,11 +521,11 @@ Seguir exatamente o padrão de `09-01-SMOKE-TEST.md` — tabela de gate checks p
 
 **Confidence breakdown:**
 - Standard stack: HIGH — httpx em requirements.txt verificado, versão local confirmada
-- Architecture (probe pattern): HIGH — código verificado, MRO de exceções confirmado localmente
+- Architecture (probe pattern): HIGH — código verificado, MRO de exceções confirmado localmente; sem verificação de resp.is_success elimina risco de falso negativo
 - Architecture (start-all.sh): HIGH — padrão existente em start.sh, exec + background já documentado no projeto
 - Architecture (tasks.py exception order): HIGH — comportamento Python determinístico, código verificado
 - Mock patch paths: HIGH — verificado comportamento de `hasattr(pipeline, 'httpx')`
-- bgutil probe endpoint: MEDIUM — PORT confirmada (4416), resposta da raiz HTTP não testada diretamente
+- bgutil probe endpoint: HIGH — PORT confirmada (4416); status HTTP irrelevante (probe captura apenas RequestError)
 - Railway SIGTERM behavior: LOW — convenção padrão mas não verificada com Railway específico
 
 **Research date:** 2026-05-11
