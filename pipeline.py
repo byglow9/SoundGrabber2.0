@@ -543,6 +543,7 @@ if __name__ == "__main__":
     url = sys.argv[1]
     cookies_path = os.environ.get("YTDLP_COOKIES_FILE", "")
     po_token = os.environ.get("YTDLP_PO_TOKEN", "")
+    bgutil_base_url = os.environ.get("BGUTIL_BASE_URL", "")
 
     # Up-front config check — fail fast with a clear envelope rather than a Python traceback.
     if not cookies_path:
@@ -562,9 +563,9 @@ if __name__ == "__main__":
 
     try:
         # Stage 0: pre-download duration check (CORE-05, D-10)
-        info = check_duration(url, cookies_path)
+        info = check_duration(url, cookies_path, bgutil_base_url)
         # Stage 1: download + WAV conversion (CORE-03, CORE-04)
-        wav_path = download_audio(url, cookies_path, po_token)
+        wav_path = download_audio(url, cookies_path, po_token, bgutil_base_url)
         # Stage 2-5: validate + bpm + key + camelot + half/double (ANALYSIS-01..04)
         result = analyze_audio(wav_path)
         # Prefer YouTube's reported duration over ffprobe's (whole-second integer is the user-facing value).
