@@ -135,11 +135,61 @@ def _check_redis_auth(redis_url: str, dev_mode: bool) -> None:
         )
 
 
+def _check_cookies(cookies_path: str) -> None:
+    """PIPE-05: Validate cookies.txt contains __Secure-3PSID sentinel.
+
+    Non-blocking — logs CRITICAL and returns. Does NOT raise. Does NOT prevent startup.
+    Rationale (D-06, D-07, D-08): the log is an operator warning visible in Railway logs
+    before any job is processed. Blocking startup would cause unnecessary downtime if
+    cookies need to be rotated during a live deploy.
+
+    Args:
+        cookies_path: Absolute path to Netscape-format cookies.txt (from settings).
+                      Empty string means no cookies configured.
+    """
+    if not cookies_path:
+        logger.critical(
+            "PIPE-05: cookies_path is not configured (YTDLP_COOKIES_FILE or "
+            "YTDLP_COOKIES_B64 not set). YouTube downloads will likely fail with "
+            "bot detection. Set cookies in Railway environment variables."
+        )
+        return
+
+    cookies_file = Path(cookies_path)
+    if not cookies_file.exists():
+        logger.critical(
+            "PIPE-05: cookies file not found at %s. YouTube downloads will likely "
+            "fail with bot detection. Verify YTDLP_COOKIES_FILE or YTDLP_COOKIES_B64.",
+            cookies_path,
+        )
+        return
+
+    try:
+        content = cookies_file.read_text(encoding="utf-8", errors="ignore")
+    except OSError as e:
+        logger.critical(
+            "PIPE-05: could not read cookies file %s: %s. "
+            "YouTube downloads may fail.",
+            cookies_path, e,
+        )
+        return
+
+    if "__Secure-3PSID" not in content:
+        logger.critical(
+            "PIPE-05: cookies file %s does not contain '__Secure-3PSID'. "
+            "The cookie may be expired or from a non-authenticated export. "
+            "Re-export cookies after logging into YouTube.",
+            cookies_path,
+        )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # SEC-INFRA-01: Redis auth enforcement (D-06, D-07).
     # _check_redis_auth levanta RuntimeError se sem senha e nao em DEV_MODE — startup falha cedo.
     _check_redis_auth(settings.redis_url, settings.dev_mode)
+    # PIPE-05: cookies validation — non-blocking, log only (D-06, D-07, D-08).
+    _check_cookies(settings.cookies_path)
     sweeper = threading.Thread(
         target=_run_sweeper_loop,
         daemon=True,
