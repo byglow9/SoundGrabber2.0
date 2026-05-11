@@ -28,10 +28,22 @@ from pathlib import Path
 from typing import Any
 
 import essentia.standard as es
+import httpx
 import imageio_ffmpeg
 import librosa
 import numpy as np
 import yt_dlp
+
+
+class BgutilUnavailable(RuntimeError):
+    """Raised when the bgutil PO Token service is unreachable.
+
+    Caught by api/tasks.py process_job to produce JobFailure(error_type='bgutil_unavailable').
+    This is a RuntimeError subclass so callers that only catch RuntimeError still work,
+    but api/tasks.py catches BgutilUnavailable FIRST to set the distinct error_type.
+    """
+    pass
+
 
 logger = logging.getLogger(__name__)
 
@@ -162,6 +174,26 @@ def download_audio(url: str, cookies_path: str, po_token: str, bgutil_base_url: 
         # bgutil-ytdlp-pot-provider 0.8.x API: base_url is passed via youtube extractor arg
         # key 'getpot_bgutil_baseurl'. We pin bgutil==0.8.5; version 1.x uses a different key format.
         extractor_args["youtube"].append(f"getpot_bgutil_baseurl={bgutil_base_url}")
+
+    # PIPE-06: probe de disponibilidade do bgutil antes de chamar yt-dlp.
+    # Se bgutil_base_url está configurado mas inacessível, falha imediatamente
+    # com mensagem explícita — sem silent fallback para android client (D-06).
+    #
+    # Lógica: o probe verifica APENAS "o servidor está respondendo?".
+    # Qualquer resposta HTTP (200, 404, 500) = servidor up = prosseguir.
+    # httpx.RequestError (ConnectError, ConnectTimeout, etc.) = servidor inacessível = falhar.
+    # Sem verificação de resp.is_success — bgutil pode retornar 404 na raiz e ainda estar saudável.
+    if bgutil_base_url:
+        logger.info("Probing bgutil availability at %s", bgutil_base_url)
+        try:
+            httpx.get(f"{bgutil_base_url}/", timeout=2.0)
+            logger.info("bgutil probe OK — server responded")
+        except httpx.RequestError as exc:
+            logger.warning("bgutil probe failed: %s", exc)
+            raise BgutilUnavailable(
+                f"PO Token service unavailable (bgutil at {bgutil_base_url}). "
+                f"Download requires bgutil to be running."
+            ) from exc
 
     ydl_opts: dict[str, Any] = {
         "format": "bestaudio/best",
