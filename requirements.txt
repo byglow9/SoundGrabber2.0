@@ -13,4 +13,4 @@ redis==6.4.0
 httpx>=0.27
 essentia==2.1b6.dev1389
 imageio-ffmpeg>=0.5.1
-bgutil-ytdlp-pot-provider>=0.11.0
+bgutil-ytdlp-pot-provider==0.8.5
