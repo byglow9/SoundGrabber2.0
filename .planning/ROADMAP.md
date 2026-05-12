@@ -138,7 +138,7 @@ Plans:
 - [ ] **Phase 8: Pipeline Code Fixes** - Fix ffprobe resolution, yt-dlp hardening, cookies validation, and nixpacks.toml so the pipeline is correct and deployable
 - [ ] **Phase 9: Railway bgutil Deployment** - Deploy the bgutil PO Token service on Railway and wire env vars so the worker and web service can reach it
 - [ ] **Phase 10: Failure Hardening and E2E Validation** - Make pipeline failure explicit when bgutil is unavailable and validate the complete pipeline on Railway with real YouTube URLs
-- [ ] **Phase 10.1: OAuth2 + Railway Volume Auth Migration** (INSERTED) - Migrate yt-dlp authentication from browser cookies to OAuth2 device flow with token persisted in Railway Volume, eliminating cookie expiration and removing bgutil dependency
+- [ ] **Phase 10.1: OAuth2 + Railway Volume Auth Migration** (INSERTED) - Migrate yt-dlp authentication from a base64-encoded env var (`YTDLP_COOKIES_B64`) to cookies.txt persisted in a Railway Volume at `/data/yt-dlp-cache`, eliminating redeploy-on-cookie-rotation and removing the bgutil PO Token dependency. Note: original CONTEXT.md D-03 specified OAuth2 device flow; 10.1-RESEARCH.md verified OAuth2 was removed from yt-dlp in 2024.11.18 — phase adapted to cookies-on-Volume per Plan 02 human checkpoint.
 
 ---
 
@@ -187,17 +187,21 @@ Plans:
 - [ ] 10-03-PLAN.md — Wave 2: start-all.sh + railway.toml single-container; checkpoint humano E2E com 3 beats reais
 
 ### Phase 10.1: OAuth2 + Railway Volume Auth Migration (INSERTED)
-**Goal**: yt-dlp authenticates via OAuth2 device flow with token persisted in a Railway Volume, eliminating cookie expiration and removing the bgutil PO Token dependency
+**Goal**: yt-dlp authenticates via cookies.txt persisted in a Railway Volume at `/data/yt-dlp-cache` (D-03 adapted — OAuth2 was removed from yt-dlp 2024.11.18 per 10.1-RESEARCH.md), eliminating reliance on `YTDLP_COOKIES_B64` env var and removing the bgutil PO Token dependency
 **Depends on**: Phase 10
 **Requirements**: AUTH-01, AUTH-02, AUTH-03 (new)
 **Success Criteria** (what must be TRUE):
-  1. Running yt-dlp on Railway authenticates via OAuth2 — no `YTDLP_COOKIES_B64` env var needed — and the OAuth2 token survives container restarts (persisted in Railway Volume at `/data/yt-dlp-cache`)
-  2. Submitting three different beat URLs via POST /jobs results in all three reaching status=done — without cookies, without bgutil, without "Sign in to confirm you're not a bot" errors
-  3. After a forced Railway redeploy, the next job submission succeeds immediately (token loaded from Volume, no re-auth required)
-**Plans:** 0 plans
+  1. Running yt-dlp on Railway uses cookiefile from Railway Volume (`/data/yt-dlp-cache/cookies.txt`) — no `YTDLP_COOKIES_B64` env var needed — and cookies survive container restarts (persisted in Railway Volume at `/data/yt-dlp-cache`)
+  2. Submitting three different beat URLs via POST /jobs results in all three reaching status=done — without `YTDLP_COOKIES_B64` env var, without bgutil, without "Sign in to confirm you're not a bot" errors
+  3. After a forced Railway redeploy, the next job submission succeeds immediately (cookies loaded from Volume, no `YTDLP_COOKIES_B64` env var needed)
+**Plans:** 5 plans
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 10.1 to break down)
+- [ ] 10.1-01-PLAN.md — Wave 0 (TDD RED): criar tests/test_pipeline_oauth.py com 7+ testes AUTH-01 (cookiefile do Volume, sem OAuth2, _check_oauth_cache CRITICAL logs, ausência de bgutil) + inverter testes bgutil_08x_* + remover testes PIPE-06 em tests/test_pipeline_fixes.py
+- [ ] 10.1-02-PLAN.md — Wave 1 (checkpoint humano BLOCKING): confirmar adaptação D-03 — OAuth2 foi removido do yt-dlp 2026.3.17; usar cookies no Railway Volume em vez de username=oauth2/cachedir
+- [ ] 10.1-03-PLAN.md — Wave 2 (refactor): pipeline.py (check_duration/download_audio com assinatura cache_dir, sem BgutilUnavailable/httpx probe), api/config.py (cache_dir adicionado; cookies_path/po_token/bgutil_base_url removidos), api/main.py (_check_oauth_cache substitui _check_cookies), api/tasks.py (sem BgutilUnavailable), requirements.txt (sem bgutil-ytdlp-pot-provider), start-all.sh (chmod 700 do Volume); testes Wave 0 GREEN; adicionar testes _check_oauth_cache em tests/test_security.py + atualizar .planning/SECURITY-CHECKLIST.md
+- [ ] 10.1-04-PLAN.md — Wave 3 (Railway infra + checkpoint humano): criar Railway Volume em /data/yt-dlp-cache no serviço 248e8eaf, setar YTDLP_CACHE_DIR, checkpoint humano para operador popular cookies.txt via railway run, redeploy + verificar startup logs limpos
+- [ ] 10.1-05-PLAN.md — Wave 4 (E2E + teardown): 3 beats reais via POST /jobs (AUTH-02), redeploy forçado validando AUTH-03, deletar serviço bgutil (2fc3a8a5), remover env vars BGUTIL_BASE_URL e YTDLP_COOKIES_B64
 
 ---
 
@@ -215,7 +219,7 @@ Plans:
 | 8. Pipeline Code Fixes | 3/3 | Done | 2026-05-11 |
 | 9. Railway bgutil Deployment | 0/1 | Planned | - |
 | 10. Failure Hardening and E2E Validation | 2/3 | In Progress|  |
-| 10.1. OAuth2 + Railway Volume Auth Migration | 0/0 | Not planned | - |
+| 10.1. OAuth2 + Railway Volume Auth Migration | 0/5 | Planned | - |
 
 ---
 
