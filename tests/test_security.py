@@ -339,3 +339,196 @@ def test_hsts_header(api_client):
     assert hsts is not None, "Header Strict-Transport-Security ausente"
     assert "max-age=31536000" in hsts, f"max-age=31536000 ausente: {hsts}"
     assert "includeSubDomains" in hsts, f"includeSubDomains ausente: {hsts}"
+
+
+# ---------------------------------------------------------------------------
+# Phase 11: Som da Semana operator panel and featured storage contract
+# ---------------------------------------------------------------------------
+
+def _featured_payload(links=None):
+    return {
+        "artista": "DJ Subsolo",
+        "titulo": "Noite Laranja",
+        "genero": "phonk",
+        "descricao": "Beat underground escolhido para a semana.",
+        "links": links if links is not None else [
+            {"label": "Spotify", "url": "https://open.spotify.com/track/test"},
+            {"label": "Instagram", "url": "https://instagram.com/djsubsolo"},
+        ],
+    }
+
+
+def test_featured_get_rate_limit(api_client):
+    """D-01d/D-06: GET /featured retorna conteudo ou vazio e limita 60/min."""
+    from api.main import _redis
+
+    with patch.object(_redis, "get", return_value=None):
+        for i in range(60):
+            response = api_client.get("/featured")
+            assert response.status_code in (200, 204), (
+                f"GET /featured {i + 1}/60 deve retornar 200 ou 204, "
+                f"recebeu {response.status_code}: {response.text}"
+            )
+
+        response = api_client.get("/featured")
+        assert response.status_code == 429, (
+            f"61a requisicao de GET /featured deveria ser 429, "
+            f"recebeu {response.status_code}: {response.text}"
+        )
+
+
+def test_yonkou_panel_rate_limit(api_client):
+    """D-01e/D-06: GET /yonkou e protegido por rate limit 60/min."""
+    for i in range(60):
+        response = api_client.get("/yonkou")
+        assert response.status_code == 200, (
+            f"GET /yonkou {i + 1}/60 deveria renderizar o painel de login, "
+            f"recebeu {response.status_code}: {response.text}"
+        )
+
+    response = api_client.get("/yonkou")
+    assert response.status_code == 429, (
+        f"61a requisicao de GET /yonkou deveria ser 429, "
+        f"recebeu {response.status_code}: {response.text}"
+    )
+
+
+def test_yonkou_panel_requires_no_public_link(api_client):
+    """D-01e: visitante direto ve somente login, nunca o formulario de edicao."""
+    response = api_client.get("/yonkou")
+
+    assert response.status_code == 200, (
+        f"GET /yonkou deveria renderizar login, recebeu {response.status_code}: {response.text}"
+    )
+    assert "Entrar no painel" in response.text
+    assert "Salvar Som" not in response.text
+    assert "featured-title" not in response.text
+    assert "current-release" not in response.text
+
+
+def test_yonkou_login_rate_limit(api_client, monkeypatch):
+    """D-01b/D-06: POST /yonkou/login limita brute force a 5/min."""
+    monkeypatch.setenv("ADMIN_PASSWORD", "correct horse")
+    monkeypatch.setenv("ADMIN_SESSION_SECRET", "test-secret-for-signed-cookie")
+
+    for i in range(5):
+        response = api_client.post("/yonkou/login", data={"password": "wrong"})
+        assert response.status_code in (401, 403), (
+            f"login incorreto {i + 1}/5 deveria ser 401/403, "
+            f"recebeu {response.status_code}: {response.text}"
+        )
+
+    response = api_client.post("/yonkou/login", data={"password": "wrong"})
+    assert response.status_code == 429, (
+        f"6a tentativa de login deveria ser 429, recebeu {response.status_code}: {response.text}"
+    )
+
+
+def test_yonkou_login_sets_secure_session_cookie(api_client, monkeypatch):
+    """D-01b: senha valida cria cookie de sessao assinado HttpOnly SameSite."""
+    monkeypatch.setenv("ADMIN_PASSWORD", "correct horse")
+    monkeypatch.setenv("ADMIN_SESSION_SECRET", "test-secret-for-signed-cookie")
+
+    response = api_client.post("/yonkou/login", data={"password": "correct horse"})
+
+    assert response.status_code in (200, 303), (
+        f"login valido deveria retornar 200 ou redirect 303, recebeu {response.status_code}: {response.text}"
+    )
+    cookie_headers = response.headers.get_list("set-cookie")
+    session_cookie = next((cookie for cookie in cookie_headers if "sg_admin=" in cookie), "")
+    assert session_cookie, f"cookie sg_admin ausente em Set-Cookie: {cookie_headers}"
+    assert "HttpOnly" in session_cookie
+    assert "SameSite=Lax" in session_cookie or "SameSite=Strict" in session_cookie
+    assert "correct horse" not in session_cookie
+
+
+def test_post_featured_requires_operator_session(api_client):
+    """D-01b/D-03/D-06: POST /featured exige cookie operador valido."""
+    response = api_client.post("/featured", json=_featured_payload())
+
+    assert response.status_code == 401, (
+        f"POST /featured sem sg_admin deveria ser 401, recebeu {response.status_code}: {response.text}"
+    )
+
+
+def test_post_featured_validates_links(api_client):
+    """D-03/D-06: ate tres links e URLs http/https obrigatorias."""
+    cookies = {"sg_admin": "signed-test-session"}
+
+    too_many_links = [
+        {"label": "Spotify", "url": "https://open.spotify.com/track/test"},
+        {"label": "Instagram", "url": "https://instagram.com/djsubsolo"},
+        {"label": "Bandcamp", "url": "https://djsubsolo.bandcamp.com"},
+        {"label": "Site", "url": "https://example.com"},
+    ]
+    response = api_client.post(
+        "/featured",
+        json=_featured_payload(links=too_many_links),
+        cookies=cookies,
+    )
+    assert response.status_code == 422, (
+        f"POST /featured com mais de 3 links deveria ser 422, "
+        f"recebeu {response.status_code}: {response.text}"
+    )
+
+    response = api_client.post(
+        "/featured",
+        json=_featured_payload(links=[{"label": "Arquivo", "url": "javascript:alert(1)"}]),
+        cookies=cookies,
+    )
+    assert response.status_code == 422, (
+        f"POST /featured com URL nao-http deveria ser 422, recebeu {response.status_code}: {response.text}"
+    )
+
+
+def test_post_featured_rate_limit(api_client):
+    """D-06: POST /featured autenticado limita updates a 10/min."""
+    cookies = {"sg_admin": "signed-test-session"}
+
+    for i in range(10):
+        response = api_client.post("/featured", json=_featured_payload(), cookies=cookies)
+        assert response.status_code in (200, 204), (
+            f"update autenticado {i + 1}/10 deveria salvar, "
+            f"recebeu {response.status_code}: {response.text}"
+        )
+
+    response = api_client.post("/featured", json=_featured_payload(), cookies=cookies)
+    assert response.status_code == 429, (
+        f"11o POST /featured deveria ser 429, recebeu {response.status_code}: {response.text}"
+    )
+
+
+def test_featured_redis_fallback(api_client, tmp_path, monkeypatch):
+    """D-01d/T-11-06: falha Redis usa JSON fallback para featured:current."""
+    import redis as redis_lib
+    from api.main import _redis
+
+    fallback_path = tmp_path / "featured-fallback.json"
+    monkeypatch.setenv("FEATURED_FALLBACK_PATH", str(fallback_path))
+    payload = _featured_payload()
+    cookies = {"sg_admin": "signed-test-session"}
+
+    with patch.object(
+        _redis,
+        "set",
+        side_effect=redis_lib.exceptions.ConnectionError("mock redis down"),
+    ), patch.object(
+        _redis,
+        "get",
+        side_effect=redis_lib.exceptions.TimeoutError("mock redis timeout"),
+    ):
+        save_response = api_client.post("/featured", json=payload, cookies=cookies)
+        assert save_response.status_code in (200, 204), (
+            f"POST /featured deveria salvar via fallback JSON, "
+            f"recebeu {save_response.status_code}: {save_response.text}"
+        )
+
+        get_response = api_client.get("/featured")
+        assert get_response.status_code == 200, (
+            f"GET /featured deveria ler fallback JSON de featured:current, "
+            f"recebeu {get_response.status_code}: {get_response.text}"
+        )
+        body = get_response.json()
+        assert body["artista"] == payload["artista"]
+        assert body["links"][0]["url"].startswith("https://")
+        assert fallback_path.exists(), "FEATURED_FALLBACK_PATH deveria conter fallback JSON"

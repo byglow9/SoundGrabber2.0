@@ -9,6 +9,18 @@ VENV="$PROJECT_DIR/.venv"
 
 cd "$PROJECT_DIR"
 
+if [ "$(id -u)" -eq 0 ]; then
+    echo "[start] Nao rode este script com sudo. Use: ./start.sh"
+    echo "[start] O sudo faz o pip tentar instalar pacotes no Python do sistema (PEP 668)."
+    exit 1
+fi
+
+if [ ! -x "$VENV/bin/python" ]; then
+    echo "[start] Virtualenv nao encontrado em $VENV"
+    echo "[start] Crie com: python3 -m venv .venv && .venv/bin/python -m pip install -r requirements.txt"
+    exit 1
+fi
+
 source "$VENV/bin/activate"
 
 if [ -f "$PROJECT_DIR/.env" ]; then
@@ -26,15 +38,27 @@ C_START='\033[33m'    # amarelo
 
 log() { echo -e "${C_START}[start]${C_RESET} $1"; }
 
-# Verificar dependências críticas
-if ! python -c "import essentia.standard" &>/dev/null; then
-    log "Instalando essentia (necessário para BPM/key Essentia)..."
-    pip install -q essentia==2.1b6.dev1389
+REDIS_CLI_ARGS=()
+if [ -n "${REDIS_URL:-}" ]; then
+    REDIS_CLI_ARGS=(-u "$REDIS_URL")
 fi
 
-if ! redis-cli ping &>/dev/null; then
+# Verificar dependências críticas
+if ! "$VENV/bin/python" -c "import essentia.standard" &>/dev/null; then
+    log "Instalando essentia (necessário para BPM/key Essentia)..."
+    "$VENV/bin/python" -m pip install -q essentia==2.1b6.dev1389
+fi
+
+if ! redis-cli "${REDIS_CLI_ARGS[@]}" ping &>/dev/null; then
     log "Iniciando Redis..."
-    sudo service redis-server start
+    if command -v redis-server &>/dev/null; then
+        redis-server --daemonize yes --save '' --appendonly no --dir /tmp
+    fi
+    if ! redis-cli "${REDIS_CLI_ARGS[@]}" ping &>/dev/null; then
+        echo "[start] Redis nao iniciou automaticamente."
+        echo "[start] Inicie em outro terminal com: sudo service redis-server start"
+        exit 1
+    fi
 else
     log "Redis já está rodando."
 fi
@@ -42,7 +66,7 @@ fi
 pkill -f "celery -A api.tasks" 2>/dev/null || true
 
 log "Iniciando Celery..."
-celery -A api.tasks worker --loglevel=info --concurrency=3 2>&1 \
+"$VENV/bin/python" -m celery -A api.tasks worker --loglevel=info --concurrency=3 2>&1 \
     | sed "s/^/$(printf "${C_CELERY}")[celery]$(printf "${C_RESET}") /" &
 
 log "Iniciando servidor em http://localhost:8000"
@@ -56,5 +80,5 @@ cleanup() {
 }
 trap cleanup EXIT
 
-uvicorn api.main:app --host 0.0.0.0 --port 8000 --limit-concurrency 100 --timeout-keep-alive 5 2>&1 \
+"$VENV/bin/python" -m uvicorn api.main:app --host 0.0.0.0 --port 8000 --limit-concurrency 100 --timeout-keep-alive 5 2>&1 \
     | sed "s/^/$(printf "${C_SERVER}")[server]$(printf "${C_RESET}") /"
