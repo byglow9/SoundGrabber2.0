@@ -1,7 +1,7 @@
 ---
 phase: 11
 slug: som-da-semana-curated-sidebar-panel-featuring-underground-mu
-status: draft
+status: approved
 shadcn_initialized: false
 preset: none
 created: 2026-05-12
@@ -210,4 +210,4 @@ Operator layout rules:
 - [ ] Dimension 5 Spacing: PASS
 - [ ] Dimension 6 Registry Safety: PASS
 
-**Approval:** pending
+**Approval:** approved 2026-05-12
