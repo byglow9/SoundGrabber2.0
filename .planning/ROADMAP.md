@@ -138,6 +138,7 @@ Plans:
 - [ ] **Phase 8: Pipeline Code Fixes** - Fix ffprobe resolution, yt-dlp hardening, cookies validation, and nixpacks.toml so the pipeline is correct and deployable
 - [ ] **Phase 9: Railway bgutil Deployment** - Deploy the bgutil PO Token service on Railway and wire env vars so the worker and web service can reach it
 - [ ] **Phase 10: Failure Hardening and E2E Validation** - Make pipeline failure explicit when bgutil is unavailable and validate the complete pipeline on Railway with real YouTube URLs
+- [ ] **Phase 10.1: OAuth2 + Railway Volume Auth Migration** (INSERTED) - Migrate yt-dlp authentication from browser cookies to OAuth2 device flow with token persisted in Railway Volume, eliminating cookie expiration and removing bgutil dependency
 
 ---
 
@@ -185,6 +186,19 @@ Plans:
 - [x] 10-02-PLAN.md — Wave 1: BgutilUnavailable + probe HTTP em pipeline.py; except BgutilUnavailable em api/tasks.py; 4 stubs GREEN
 - [ ] 10-03-PLAN.md — Wave 2: start-all.sh + railway.toml single-container; checkpoint humano E2E com 3 beats reais
 
+### Phase 10.1: OAuth2 + Railway Volume Auth Migration (INSERTED)
+**Goal**: yt-dlp authenticates via OAuth2 device flow with token persisted in a Railway Volume, eliminating cookie expiration and removing the bgutil PO Token dependency
+**Depends on**: Phase 10
+**Requirements**: AUTH-01, AUTH-02, AUTH-03 (new)
+**Success Criteria** (what must be TRUE):
+  1. Running yt-dlp on Railway authenticates via OAuth2 — no `YTDLP_COOKIES_B64` env var needed — and the OAuth2 token survives container restarts (persisted in Railway Volume at `/data/yt-dlp-cache`)
+  2. Submitting three different beat URLs via POST /jobs results in all three reaching status=done — without cookies, without bgutil, without "Sign in to confirm you're not a bot" errors
+  3. After a forced Railway redeploy, the next job submission succeeds immediately (token loaded from Volume, no re-auth required)
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 10.1 to break down)
+
 ---
 
 ## Progress Table
@@ -201,6 +215,7 @@ Plans:
 | 8. Pipeline Code Fixes | 3/3 | Done | 2026-05-11 |
 | 9. Railway bgutil Deployment | 0/1 | Planned | - |
 | 10. Failure Hardening and E2E Validation | 2/3 | In Progress|  |
+| 10.1. OAuth2 + Railway Volume Auth Migration | 0/0 | Not planned | - |
 
 ---
 

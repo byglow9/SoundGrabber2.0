@@ -73,6 +73,7 @@ Progress: `[ ] [ ] [ ]` (0/3 phases complete)
 ### Roadmap Evolution
 
 - Phase 11 added: Som da Semana — painel lateral curado com lançamentos da cena underground, atualizado pelo operador via endpoint autenticado
+- Phase 10.1 inserted after Phase 10 (URGENT): OAuth2 + Railway Volume auth migration — elimina expiração de cookies e dependência do bgutil
 
 ### Known Risks
 
