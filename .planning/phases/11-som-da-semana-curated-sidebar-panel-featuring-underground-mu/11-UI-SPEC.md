@@ -29,7 +29,8 @@ Contract:
 - No React, Next.js, Vite, Tailwind, shadcn, Radix, icon packs, frontend build step, CDN fonts, CSS variables, flexbox, grid, border radius, shadows, transitions, animations, or transforms.
 - Continue the HTML 4.01 Transitional table-layout idiom already used by `static/index.html`.
 - Visitor-facing sidebar is added as a right-side table column only when `GET /featured` returns content.
-- Admin UI at `/admin` uses the same Y2K table/form vocabulary as the public page. It must not introduce a modern dashboard layout.
+- Operator UI at `/yonkou` uses the same Y2K table/form vocabulary as the public page. It must not introduce a modern dashboard layout.
+- The public page must not include any visible button, link, menu item, or copy that reveals `/yonkou`.
 
 ---
 
@@ -39,10 +40,10 @@ Declared values (must be multiples of 4):
 
 | Token | Value | Usage |
 |-------|-------|-------|
-| xs | 4px | Tight gaps inside admin form help text, link-list row gaps, footer button gaps |
+| xs | 4px | Tight gaps inside operator form help text, link-list row gaps, footer button gaps |
 | sm | 8px | Default table cell padding, form input padding, sidebar internal padding |
-| md | 16px | Space between main table and sidebar, primary button horizontal padding, modal-like admin section padding |
-| lg | 24px | Vertical grouping inside `/admin` edit form |
+| md | 16px | Space between main table and sidebar, primary button horizontal padding, modal-like operator section padding |
+| lg | 24px | Vertical grouping inside `/yonkou` edit form |
 | xl | 32px | Existing page bottom padding and major static-page breathing room |
 | 2xl | 48px | Reserved for page-level breaks only; do not add to sidebar |
 | 3xl | 64px | Reserved; not used in Phase 11 UI |
@@ -61,7 +62,7 @@ Exceptions: existing `body` top padding remains `235px` to preserve the current 
 | Display | 32px | 700 | 1.2 |
 
 Contract:
-- Use only these four sizes for new Phase 11 public/admin UI.
+- Use only these four sizes for new Phase 11 public/operator UI.
 - Use exactly two declared weights: `400` for normal UI text and `700` only for strong fallback emphasis if the browser can render it; prefer changing font family to `Dela Gothic One` for display emphasis instead of adding more weights.
 - Sidebar header `:: SOM DA SEMANA ::` uses `Sligoil`, uppercase, `13px`, `400`, line-height `1.2`.
 - Artist and title use `16px`; genre, description, date, and link labels use `13px` or `11px` according to the table above.
@@ -73,17 +74,21 @@ Contract:
 
 | Role | Value | Usage |
 |------|-------|-------|
-| Dominant (60%) | `#000000` | Page background, table surfaces, sidebar background, admin form background |
+| Dominant (60%) | `#000000` | Page background, table surfaces, sidebar background, operator form background |
 | Secondary (30%) | `#804400` | Metadata date, placeholders, muted helper/error-adjacent text, low-emphasis separators |
 | Accent (10%) | `#ff8800` | Borders, primary text, sidebar title, button border/text, active button fill |
 | Destructive | `#ff3300` | Destructive or invalid states only |
 
-Accent reserved for: table borders, sidebar left border, `:: SOM DA SEMANA ::`, primary readable text, link-button borders, link-button hover/fill states, admin submit button, login button, current-field outlines, and focus outlines.
+Accent reserved for: table borders, sidebar left border, `:: SOM DA SEMANA ::`, primary readable text, link-button borders, link-button hover/fill states, operator submit button, login button, current-field outlines, and focus outlines.
 
 Contract:
 - Do not introduce additional palette colors, gradients, alpha overlays, modern neutral grays, or platform-specific brand colors for Spotify/Instagram/etc.
 - Date text in the featured card is `#804400` at `11px`.
-- Invalid admin fields and validation failures use `#ff3300`; there is no destructive action in this phase unless an explicit "clear featured" action is added later.
+- Invalid operator fields and validation failures use `#ff3300`; there is no destructive action in this phase unless an explicit "clear featured" action is added later.
+
+Visual hierarchy:
+- When featured content exists, the primary visual anchor is the `:: SOM DA SEMANA ::` sidebar header; the downloader form remains the primary task surface.
+- When no featured content exists, the downloader form remains the only primary visual anchor and `#app` stays centered.
 
 ---
 
@@ -105,8 +110,8 @@ Additional fixed copy:
 - Genre label: `GENERO`
 - Description label: `NOTA`
 - Date prefix: `adicionado em `
-- Admin login CTA: `Entrar`
-- Admin success message: `Som da Semana salvo.`
+- Operator login CTA: `Entrar no painel`
+- Operator success message: `Som da Semana salvo.`
 - Link buttons use the operator-provided labels exactly after validation, with text rendered via `textContent`.
 
 Copy rules:
@@ -149,20 +154,20 @@ Rendering rules:
 
 | State | Visual Contract | Interaction Contract |
 |-------|-----------------|----------------------|
-| Logged out | Centered table panel using the existing border/button/input style | Password field + `Entrar`; submit to `POST /admin/login` |
+| Logged out | Centered table panel using the existing border/button/input style | Password field + `Entrar no painel`; submit to `POST /yonkou/login` |
 | Logged in, no current featured | Same table panel with blank form fields | Operator fills required fields and saves via `Salvar Som` |
 | Logged in, current featured exists | Form is pre-populated from current content | Saving replaces the single current feature manually |
-| Save success | Short inline status row in orange | Keep operator on `/admin` with updated values visible |
+| Save success | Short inline status row in orange | Keep operator on `/yonkou` with updated values visible |
 | Validation/auth failure | Inline message in `#ff3300` or existing error styling | Keep entered values in the form where possible |
 
-Required admin fields:
+Required operator fields:
 - `artista`: text input
 - `titulo`: text input
 - `genero`: text input
 - `descricao`: textarea sized to 1-3 short sentences
 - `links`: three fixed rows of `label` + `url` inputs; empty rows are ignored
 
-Admin layout rules:
+Operator layout rules:
 - Use table rows and cells for grouping.
 - Inputs reuse the visual language of `#url-input`.
 - Buttons reuse the visual language of `#submit-btn` or `#retry-btn`.
@@ -180,8 +185,8 @@ Admin layout rules:
 | Featured title | `#featured-title` | Copy is exactly `:: SOM DA SEMANA ::` |
 | Featured separator | `#featured-separator` | Text separator exactly `----` |
 | Featured links | `.featured-link` | Up to 3 anchor buttons, same black/orange hover inversion as existing buttons |
-| Admin login panel | `/admin` logged-out view | Table-based password form, no extra auth affordances |
-| Admin edit panel | `/admin` logged-in view | Table-based form for the single current featured release |
+| Operator login panel | `/yonkou` logged-out view | Table-based password form, no extra auth affordances |
+| Operator edit panel | `/yonkou` logged-in view | Table-based form for the single current featured release |
 
 ---
 
@@ -206,4 +211,3 @@ Admin layout rules:
 - [ ] Dimension 6 Registry Safety: PASS
 
 **Approval:** pending
-

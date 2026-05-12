@@ -6,7 +6,7 @@
 <domain>
 ## Phase Boundary
 
-Painel curado de lançamentos underground: o operador (dono do site) cadastra um "Som da Semana" via mini painel `/admin` e todos os visitantes veem o card na sidebar direita do site. A fase entrega o painel frontend, o mini admin, a rota de API e o armazenamento do conteúdo curado.
+Painel curado de lançamentos underground: o operador (dono do site) cadastra um "Som da Semana" via mini painel `/yonkou` e todos os visitantes veem o card na sidebar direita do site. A fase entrega o painel frontend, o mini painel operador-only, a rota de API e o armazenamento do conteúdo curado.
 
 </domain>
 
@@ -14,10 +14,11 @@ Painel curado de lançamentos underground: o operador (dono do site) cadastra um
 ## Implementation Decisions
 
 ### D-01 — Gestão do conteúdo
-- **D-01a:** Mini painel `/admin` com formulário HTML visual — o operador preenche os campos e salva via submit.
+- **D-01a:** Mini painel `/yonkou` com formulário HTML visual — o operador preenche os campos e salva via submit.
 - **D-01b:** Autenticação via senha simples: variável de ambiente `ADMIN_PASSWORD`. Ao fazer login, gera cookie de sessão assinado. Sem dependências extras de auth.
 - **D-01c:** Controle de troca manual — o operador atualiza quando quiser, sem expiração automática por data.
 - **D-01d:** Armazenamento em Redis (já disponível na stack) sob chave `featured:current`. Fallback para arquivo JSON se Redis estiver indisponível (graceful degradation).
+- **D-01e:** Não haverá botão, link, menu ou affordance pública apontando para o painel. A rota canônica é `/yonkou`. Isso reduz descoberta casual, mas NÃO substitui autenticação, cookie assinado e rate limit.
 
 ### D-02 — Layout e posição no site
 - **D-02a:** Sidebar à direita da tabela `#app` (640px). Implementada como coluna adicional na tabela HTML raiz — sem flexbox/grid, fiel à estética Y2K.
@@ -25,7 +26,7 @@ Painel curado de lançamentos underground: o operador (dono do site) cadastra um
 - **D-02c:** Largura da sidebar: ~220px. Separação visual por borda `1px solid #ff8800` no lado esquerdo do card.
 
 ### D-03 — Campos do card
-Campos cadastrados via `/admin` e exibidos no card da sidebar:
+Campos cadastrados via `/yonkou` e exibidos no card da sidebar:
 - **artista** — nome do artista/projeto
 - **titulo** — título da obra/release
 - **genero** — estilo musical em texto livre (ex: phonk, trap, boom bap)
@@ -48,14 +49,14 @@ Campos cadastrados via `/admin` e exibidos no card da sidebar:
 ### D-06 — Security Gate (obrigatório pelo CLAUDE.md)
 Todo endpoint novo DEVE seguir o Security Gate:
 - `GET /featured` — rate limit 60/min, `request: Request, response: Response` na assinatura.
-- `POST /featured` (admin) — rate limit 10/min, Pydantic BaseModel para o body, autenticação via cookie de sessão.
-- `POST /admin/login` — rate limit 5/min para mitigar brute force.
-- Testes em `tests/test_security.py` para rate limit e validação do endpoint admin.
+- `POST /featured` (operador) — rate limit 10/min, Pydantic BaseModel para o body, autenticação via cookie de sessão.
+- `POST /yonkou/login` — rate limit 5/min para mitigar brute force.
+- Testes em `tests/test_security.py` para rate limit e validação do endpoint operador-only.
 
 ### Claude's Discretion
 - Estrutura interna do armazenamento Redis (hash vs string JSON serializado).
 - Token/assinatura do cookie de sessão (itsdangerous ou HMAC simples).
-- Organização interna do painel admin (HTML separado ou inline em main.py).
+- Organização interna do painel operador-only (HTML separado ou inline em main.py).
 
 </decisions>
 
@@ -96,7 +97,7 @@ Todo endpoint novo DEVE seguir o Security Gate:
 - **Fetch polling no app.js**: padrão de `fetch('/jobs/{id}')` pode ser reusado para `fetch('/featured')` na inicialização da página.
 
 ### Integration Points
-- `api/main.py`: novo endpoint `GET /featured` e rotas `/admin/*` se encaixam após as rotas de jobs e antes do mount de StaticFiles.
+- `api/main.py`: novo endpoint `GET /featured` e rotas `/yonkou/*` se encaixam após as rotas de jobs e antes do mount de StaticFiles.
 - `static/index.html`: a tabela raiz (`<table id="app">`) precisa receber uma coluna adicional `<td id="sidebar">` que o JS popula dinamicamente.
 - `api/config.py`: nova variável `admin_password: str` + `admin_session_secret: str` seguindo o padrão de `Settings` existente.
 

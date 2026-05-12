@@ -11,10 +11,11 @@
 ## Implementation Decisions
 
 ### D-01 — Gestão do conteúdo
-- **D-01a:** Mini painel `/admin` com formulário HTML visual — o operador preenche os campos e salva via submit.
+- **D-01a:** Mini painel `/yonkou` com formulário HTML visual — o operador preenche os campos e salva via submit.
 - **D-01b:** Autenticação via senha simples: variável de ambiente `ADMIN_PASSWORD`. Ao fazer login, gera cookie de sessão assinado. Sem dependências extras de auth.
 - **D-01c:** Controle de troca manual — o operador atualiza quando quiser, sem expiração automática por data.
 - **D-01d:** Armazenamento em Redis (já disponível na stack) sob chave `featured:current`. Fallback para arquivo JSON se Redis estiver indisponível (graceful degradation).
+- **D-01e:** Não haverá botão, link, menu ou affordance pública apontando para o painel. A rota canônica é `/yonkou`. Isso reduz descoberta casual, mas NÃO substitui autenticação, cookie assinado e rate limit.
 
 ### D-02 — Layout e posição no site
 - **D-02a:** Sidebar à direita da tabela `#app` (640px). Implementada como coluna adicional na tabela HTML raiz — sem flexbox/grid, fiel à estética Y2K.
@@ -22,7 +23,7 @@
 - **D-02c:** Largura da sidebar: ~220px. Separação visual por borda `1px solid #ff8800` no lado esquerdo do card.
 
 ### D-03 — Campos do card
-Campos cadastrados via `/admin` e exibidos no card da sidebar:
+Campos cadastrados via `/yonkou` e exibidos no card da sidebar:
 - **artista** — nome do artista/projeto
 - **titulo** — título da obra/release
 - **genero** — estilo musical em texto livre (ex: phonk, trap, boom bap)
@@ -45,14 +46,14 @@ Campos cadastrados via `/admin` e exibidos no card da sidebar:
 ### D-06 — Security Gate (obrigatório pelo CLAUDE.md)
 Todo endpoint novo DEVE seguir o Security Gate:
 - `GET /featured` — rate limit 60/min, `request: Request, response: Response` na assinatura.
-- `POST /featured` (admin) — rate limit 10/min, Pydantic BaseModel para o body, autenticação via cookie de sessão.
-- `POST /admin/login` — rate limit 5/min para mitigar brute force.
-- Testes em `tests/test_security.py` para rate limit e validação do endpoint admin.
+- `POST /featured` (operador) — rate limit 10/min, Pydantic BaseModel para o body, autenticação via cookie de sessão.
+- `POST /yonkou/login` — rate limit 5/min para mitigar brute force.
+- Testes em `tests/test_security.py` para rate limit e validação do endpoint operador.
 
 ### the agent's Discretion
 - Estrutura interna do armazenamento Redis (hash vs string JSON serializado).
 - Token/assinatura do cookie de sessão (itsdangerous ou HMAC simples).
-- Organização interna do painel admin (HTML separado ou inline em main.py).
+- Organização interna do painel operador-only (HTML separado ou inline em main.py).
 
 ### Deferred Ideas (OUT OF SCOPE)
 ## Deferred Ideas
@@ -64,7 +65,7 @@ Todo endpoint novo DEVE seguir o Security Gate:
 
 ## Summary
 
-Phase 11 should be planned as a narrow vertical slice: add settings for `ADMIN_PASSWORD` and a session signing secret, add authenticated admin routes before the static mount, persist exactly one current featured release at `featured:current`, and make the static homepage fetch `GET /featured` on load before injecting the right-side table column [VERIFIED: 11-CONTEXT.md, api/main.py, static/index.html]. The backend already has the required shape for this work: FastAPI path operations, module-level Redis client, slowapi rate limiting with Redis storage, Pydantic validation, unified 422 and 429 handlers, and security headers [VERIFIED: api/main.py].
+Phase 11 should be planned as a narrow vertical slice: add settings for `ADMIN_PASSWORD` and a session signing secret, add authenticated operator-only routes at `/yonkou` before the static mount, persist exactly one current featured release at `featured:current`, and make the static homepage fetch `GET /featured` on load before injecting the right-side table column [VERIFIED: 11-CONTEXT.md, api/main.py, static/index.html]. The public homepage must not expose a button or link to `/yonkou`; this is discovery reduction only, not a security boundary [VERIFIED: updated 11-CONTEXT.md]. The backend already has the required shape for this work: FastAPI path operations, module-level Redis client, slowapi rate limiting with Redis storage, Pydantic validation, unified 422 and 429 handlers, and security headers [VERIFIED: api/main.py].
 
 The recommended storage shape is a single JSON string in Redis rather than a hash because the card is fetched and replaced as one document, links are a nested list, and the phase has no partial update or query requirement [VERIFIED: 11-CONTEXT.md, Redis docs]. Use `json.dumps` / `json.loads` in Python and `_redis.set("featured:current", payload)` / `_redis.get("featured:current")`; if Redis raises connection or timeout errors, read/write a local JSON fallback file in the writable app directory, not `/tmp`, because `/tmp` is governed by audio-file cleanup conventions [VERIFIED: redis-py docs, CLAUDE.md] [ASSUMED].
 
@@ -75,7 +76,7 @@ The recommended storage shape is a single JSON string in Redis rather than a has
 | Capability | Primary Tier | Secondary Tier | Rationale |
 |------------|--------------|----------------|-----------|
 | Operator login | API / Backend [VERIFIED: 11-CONTEXT.md] | Browser / Client [VERIFIED: 11-CONTEXT.md] | Password verification, session signing, and cookie issuance belong server-side; browser only submits the form [VERIFIED: FastAPI/Starlette cookie docs]. |
-| Admin content update | API / Backend [VERIFIED: 11-CONTEXT.md] | Database / Storage [VERIFIED: 11-CONTEXT.md] | Backend validates schema and auth, then writes the canonical featured document to Redis/fallback JSON [VERIFIED: api/main.py, Redis docs]. |
+| Operator content update | API / Backend [VERIFIED: 11-CONTEXT.md] | Database / Storage [VERIFIED: 11-CONTEXT.md] | Backend validates schema and auth, then writes the canonical featured document to Redis/fallback JSON [VERIFIED: api/main.py, Redis docs]. |
 | Public featured card read | API / Backend [VERIFIED: 11-CONTEXT.md] | Browser / Client [VERIFIED: static/app.js] | Backend returns empty/no-content or JSON; client decides whether to inject the sidebar [VERIFIED: 11-CONTEXT.md]. |
 | Sidebar rendering | Browser / Client [VERIFIED: static/index.html, static/app.js] | CDN / Static [VERIFIED: api/main.py] | DOM insertion, `hidden` state, text formatting, and `target="_blank"` link creation are static frontend responsibilities [VERIFIED: static/app.js, MDN noopener docs]. |
 | Persistent current release | Database / Storage [VERIFIED: 11-CONTEXT.md] | API / Backend [VERIFIED: api/main.py] | Redis owns fast persistence when available; backend owns fallback and schema compatibility [VERIFIED: Redis docs]. |
@@ -85,7 +86,7 @@ The recommended storage shape is a single JSON string in Redis rather than a has
 
 | ID | Description | Research Support |
 |----|-------------|------------------|
-| D-01 | Mini `/admin`, password login, signed cookie, manual update, Redis plus JSON fallback [VERIFIED: 11-CONTEXT.md] | Use FastAPI routes, Starlette cookie flags, Redis string JSON, and itsdangerous timed signing [VERIFIED: FastAPI docs, Starlette docs, Redis docs, ItsDangerous docs]. |
+| D-01 | Mini `/yonkou`, password login, signed cookie, manual update, Redis plus JSON fallback [VERIFIED: 11-CONTEXT.md] | Use FastAPI routes, Starlette cookie flags, Redis string JSON, and itsdangerous timed signing [VERIFIED: FastAPI docs, Starlette docs, Redis docs, ItsDangerous docs]. |
 | D-02 | Right sidebar as additional root table column, hidden when no content [VERIFIED: 11-CONTEXT.md] | Modify `static/index.html` table structure conservatively and make `app.js` inject/remove the column after `GET /featured` [VERIFIED: static/index.html, static/app.js]. |
 | D-03 | Artist/title/genre/description/auto date/up to 3 links [VERIFIED: 11-CONTEXT.md] | Pydantic model validators should enforce string length, max 3 links, URL schemes, and label/url pairs [VERIFIED: Pydantic docs]. |
 | D-04 | External links open in new tab with `rel="noopener"` [VERIFIED: 11-CONTEXT.md] | MDN documents `noopener` as preventing the opened page from accessing `window.opener` [CITED: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Attributes/rel/noopener]. |
@@ -109,10 +110,10 @@ The recommended storage shape is a single JSON string in Redis rather than a has
 
 | Library | Version | Purpose | Why Standard |
 |---------|---------|---------|--------------|
-| FastAPI | 0.136.1 pinned and current on PyPI [VERIFIED: requirements.txt, pip index] | HTTP routes for `/featured`, `/admin`, and `/admin/login` [VERIFIED: api/main.py] | Existing app already uses FastAPI route functions, response objects, and exception handlers [VERIFIED: api/main.py]. |
+| FastAPI | 0.136.1 pinned and current on PyPI [VERIFIED: requirements.txt, pip index] | HTTP routes for `/featured`, `/yonkou`, and `/yonkou/login` [VERIFIED: api/main.py] | Existing app already uses FastAPI route functions, response objects, and exception handlers [VERIFIED: api/main.py]. |
 | slowapi | 0.1.9 pinned and current on PyPI [VERIFIED: requirements.txt, pip index] | Per-route rate limits with Redis-backed counters [VERIFIED: api/main.py, SlowAPI docs] | Security Gate requires slowapi on all new routes [VERIFIED: CLAUDE.md]. |
 | redis-py | 6.4.0 pinned; latest PyPI is 7.4.0 [VERIFIED: requirements.txt, pip index] | `featured:current` persistence and graceful fallback trigger on connection errors [VERIFIED: 11-CONTEXT.md, Redis docs] | Existing app has module-level `_redis = redis.from_url(..., decode_responses=True)` [VERIFIED: api/main.py]. |
-| Pydantic | Transitive via FastAPI; latest PyPI is 2.13.4 [VERIFIED: pip index, api/main.py] | Validate admin login and featured payload models [VERIFIED: Pydantic docs] | Existing `JobRequest` uses `BaseModel` and `field_validator`, matching CLAUDE.md [VERIFIED: api/main.py]. |
+| Pydantic | Transitive via FastAPI; latest PyPI is 2.13.4 [VERIFIED: pip index, api/main.py] | Validate operator login and featured payload models [VERIFIED: Pydantic docs] | Existing `JobRequest` uses `BaseModel` and `field_validator`, matching CLAUDE.md [VERIFIED: api/main.py]. |
 | itsdangerous | 2.2.0 current on PyPI, not currently in requirements [VERIFIED: pip index, requirements.txt] | Signed, optionally timed session cookie payloads [VERIFIED: ItsDangerous docs] | Avoids hand-rolled signing while staying lightweight [VERIFIED: ItsDangerous docs]. |
 | Vanilla JS/HTML/CSS | No package version [VERIFIED: static/app.js, static/index.html] | Fetch `/featured`, inject table sidebar, and render text safely [VERIFIED: static/app.js] | Project forbids frontend frameworks and already uses DOM APIs directly [VERIFIED: CLAUDE.md, static/app.js]. |
 
@@ -130,8 +131,8 @@ The recommended storage shape is a single JSON string in Redis rather than a has
 |------------|-----------|----------|
 | Redis JSON string | Redis hash | Hashes are fine for flat fields, but nested links become extra serialization anyway; full-document JSON matches whole-card replacement [VERIFIED: Redis docs, 11-CONTEXT.md]. |
 | `itsdangerous` | HMAC using `hmac` and `secrets` | HMAC avoids dependency but recreates timestamp, serialization, exception handling, and key-rotation concerns [VERIFIED: Python stdlib docs assumption, ItsDangerous docs] [ASSUMED]. |
-| JSON POST admin API | FastAPI form model | HTML forms need `python-multipart`, which is not in `requirements.txt`; JSON POST from the admin page avoids a new parser dependency while still giving a visual HTML form [VERIFIED: FastAPI form docs, requirements.txt]. |
-| Separate admin HTML file | Inline `HTMLResponse` | Separate file is cleaner for markup, but inline is acceptable for a tiny operator-only page; planner should choose based on testability and minimal file churn [ASSUMED]. |
+| JSON POST operator API | FastAPI form model | HTML forms need `python-multipart`, which is not in `requirements.txt`; JSON POST from the operator page avoids a new parser dependency while still giving a visual HTML form [VERIFIED: FastAPI form docs, requirements.txt]. |
+| Separate operator HTML file | Inline `HTMLResponse` | Separate file is cleaner for markup, but inline is acceptable for a tiny operator-only page; planner should choose based on testability and minimal file churn [ASSUMED]. |
 
 **Installation:**
 ```bash
@@ -166,10 +167,10 @@ Visitor browser
       -> browser injects right-side table column only when payload exists
 
 Operator browser
-  -> GET /admin
+  -> GET /yonkou
       -> if no valid signed cookie: render login form
       -> if valid cookie: render edit form with current featured data
-  -> POST /admin/login
+  -> POST /yonkou/login
       -> rate limit 5/min
       -> compare ADMIN_PASSWORD using constant-time comparison
       -> set signed HttpOnly SameSite cookie
@@ -186,14 +187,14 @@ Operator browser
 
 ```text
 api/
-├── main.py        # add models, helpers, /featured and /admin routes before StaticFiles mount [VERIFIED: api/main.py]
+├── main.py        # add models, helpers, /featured and /yonkou routes before StaticFiles mount [VERIFIED: api/main.py]
 ├── config.py      # add ADMIN_PASSWORD, ADMIN_SESSION_SECRET, FEATURED_FALLBACK_PATH [VERIFIED: api/config.py]
 static/
 ├── index.html     # add optional sidebar anchor/column structure or JS insertion target [VERIFIED: static/index.html]
 ├── app.js         # fetch/render featured card with textContent and safe anchors [VERIFIED: static/app.js]
 └── style.css      # add sidebar/card styles using raw hex and table-era CSS [VERIFIED: static/style.css]
 tests/
-├── test_security.py   # admin auth, rate limit, validation, Redis fallback tests [VERIFIED: CLAUDE.md]
+├── test_security.py   # operator auth, rate limit, validation, Redis fallback tests [VERIFIED: CLAUDE.md]
 └── test_frontend.py   # sidebar IDs, no modern CSS, safe link attributes [VERIFIED: tests/test_frontend.py]
 ```
 
@@ -235,7 +236,7 @@ class FeaturedLink(BaseModel):
 ### Pattern 3: Signed Session Cookie
 
 **What:** Use a serializer to sign a small payload such as `{"admin": True}` and validate it on protected routes [VERIFIED: ItsDangerous docs].
-**When to use:** Operator-only `/admin` and `POST /featured` [VERIFIED: 11-CONTEXT.md].
+**When to use:** Operator-only `/yonkou` and `POST /featured` [VERIFIED: 11-CONTEXT.md].
 **Example:**
 ```python
 serializer = URLSafeTimedSerializer(settings.admin_session_secret)
@@ -254,7 +255,7 @@ response.set_cookie(
 
 - **Hand-rolled auth framework:** The phase requires one operator password, not accounts, roles, registration, OAuth, or user storage [VERIFIED: 11-CONTEXT.md, CLAUDE.md].
 - **Rendering curated text with `innerHTML`:** Artist/title/description/link labels are operator input and must use `textContent` to preserve the existing XSS-safe frontend pattern [VERIFIED: static/app.js].
-- **Adding `python-multipart` just for admin forms:** JSON submission from the admin HTML keeps the dependency set smaller and still supports a visual form [VERIFIED: FastAPI form docs, requirements.txt].
+- **Adding `python-multipart` just for operator forms:** JSON submission from the operator HTML keeps the dependency set smaller and still supports a visual form [VERIFIED: FastAPI form docs, requirements.txt].
 - **Always reserving sidebar width:** The layout must remain centered when `GET /featured` is empty [VERIFIED: 11-CONTEXT.md].
 - **Changing global CSS architecture:** Existing tests forbid modern CSS properties; sidebar CSS must use raw selectors, raw hex colors, borders, and table-compatible layout [VERIFIED: tests/test_frontend.py].
 
@@ -278,8 +279,8 @@ response.set_cookie(
 **Warning signs:** Tests pass route import but requests fail at runtime with slowapi wrapper errors [VERIFIED: CLAUDE.md].
 
 ### Pitfall 2: Admin POST Bypasses Pydantic
-**What goes wrong:** The admin page posts raw form data and code calls `request.form()` or `request.json()` directly [VERIFIED: CLAUDE.md].
-**How to avoid:** Make admin JS submit JSON to `POST /featured` and validate with `FeaturedReleaseRequest` [VERIFIED: FastAPI form docs, CLAUDE.md].
+**What goes wrong:** The operator page posts raw form data and code calls `request.form()` or `request.json()` directly [VERIFIED: CLAUDE.md].
+**How to avoid:** Make operator JS submit JSON to `POST /featured` and validate with `FeaturedReleaseRequest` [VERIFIED: FastAPI form docs, CLAUDE.md].
 **Warning signs:** No `BaseModel` for links, no tests for more than three links, and no tests for invalid URL schemes [VERIFIED: 11-CONTEXT.md].
 
 ### Pitfall 3: Redis Down Breaks Public Page
@@ -350,7 +351,7 @@ a.rel = 'noopener';
 | `target="_blank"` alone | Explicit `target="_blank" rel="noopener"` [VERIFIED: MDN docs, 11-CONTEXT.md] | Modern browsers imply noopener, but explicit attribute remains clearer [VERIFIED: MDN docs] | Implement exactly as D-04 states [VERIFIED: 11-CONTEXT.md]. |
 
 **Deprecated/outdated:**
-- Adding full user accounts for this phase is out of scope because project policy says no accounts and Phase 11 only needs operator-only admin [VERIFIED: CLAUDE.md, 11-CONTEXT.md].
+- Adding full user accounts for this phase is out of scope because project policy says no accounts and Phase 11 only needs one operator-only panel [VERIFIED: CLAUDE.md, 11-CONTEXT.md].
 - Adding embeds, artwork, platform detection, archive pages, reactions, RSS, or email notifications is out of scope [VERIFIED: 11-CONTEXT.md].
 
 ## Assumptions Log
@@ -368,9 +369,9 @@ a.rel = 'noopener';
    - What's unclear: Whether Railway/web service has a durable writable path besides Redis [ASSUMED].
    - Recommendation: Add `FEATURED_FALLBACK_PATH` setting defaulting to a repo-local or `/tmp`-avoiding path in development, then let deployment override if needed [ASSUMED].
 
-2. **Should `/admin` be inline HTML or `static/admin.html`?** [ASSUMED]
+2. **Should `/yonkou` be inline HTML or `static/yonkou.html`?** [ASSUMED]
    - What we know: Context allows either [VERIFIED: 11-CONTEXT.md].
-   - What's unclear: Whether the operator wants admin styling kept near the static frontend files [ASSUMED].
+   - What's unclear: Whether the operator wants operator styling kept near the static frontend files [ASSUMED].
    - Recommendation: Prefer a small `HTMLResponse` in `api/main.py` for minimum surface unless markup becomes large [ASSUMED].
 
 ## Environment Availability
@@ -410,7 +411,7 @@ a.rel = 'noopener';
 | D-03 | Featured payload validates fields and max 3 links [VERIFIED: 11-CONTEXT.md] | unit | `pytest tests/test_security.py -x -q` | Existing file, new tests needed [VERIFIED: tests/test_security.py]. |
 | D-04 | Links use `target="_blank" rel="noopener"` [VERIFIED: 11-CONTEXT.md] | frontend integration | `pytest tests/test_frontend.py -x -q` | Existing file, new tests needed [VERIFIED: tests/test_frontend.py]. |
 | D-05 | Card CSS uses existing Y2K palette and avoids forbidden properties [VERIFIED: 11-CONTEXT.md] | frontend static | `pytest tests/test_frontend.py -x -q` | Existing CSS tests can be extended [VERIFIED: tests/test_frontend.py]. |
-| D-06 | All new endpoints have rate limits and admin validation/auth [VERIFIED: 11-CONTEXT.md, CLAUDE.md] | security | `pytest tests/test_security.py -x -q` | Existing file, new tests required [VERIFIED: tests/test_security.py]. |
+| D-06 | All new endpoints have rate limits and operator validation/auth [VERIFIED: 11-CONTEXT.md, CLAUDE.md] | security | `pytest tests/test_security.py -x -q` | Existing file, new tests required [VERIFIED: tests/test_security.py]. |
 
 ### Sampling Rate
 
@@ -420,7 +421,7 @@ a.rel = 'noopener';
 
 ### Wave 0 Gaps
 
-- [ ] `tests/test_security.py` - add `test_featured_get_rate_limit`, `test_admin_login_rate_limit`, `test_post_featured_requires_admin`, `test_post_featured_validates_links`, `test_featured_redis_fallback` [VERIFIED: CLAUDE.md, 11-CONTEXT.md].
+- [ ] `tests/test_security.py` - add `test_featured_get_rate_limit`, `test_yonkou_login_rate_limit`, `test_post_featured_requires_operator_session`, `test_post_featured_validates_links`, `test_featured_redis_fallback` [VERIFIED: CLAUDE.md, 11-CONTEXT.md].
 - [ ] `tests/test_frontend.py` - add sidebar markup/style tests for empty/non-empty behavior, link attributes, and CSS forbidden-property preservation [VERIFIED: tests/test_frontend.py, 11-CONTEXT.md].
 - [ ] `requirements.txt` - add `itsdangerous==2.2.0` only if planner chooses the recommended serializer [VERIFIED: pip index, requirements.txt].
 
@@ -432,7 +433,7 @@ a.rel = 'noopener';
 |---------------|---------|------------------|
 | V2 Authentication | yes [VERIFIED: 11-CONTEXT.md] | `ADMIN_PASSWORD`, constant-time comparison, rate-limited login, signed cookie [VERIFIED: CLAUDE.md, ItsDangerous docs] |
 | V3 Session Management | yes [VERIFIED: 11-CONTEXT.md] | HttpOnly SameSite cookie with signed timed payload and explicit max age [VERIFIED: Starlette docs, ItsDangerous docs] |
-| V4 Access Control | yes [VERIFIED: 11-CONTEXT.md] | Reject `POST /featured` without valid admin cookie [VERIFIED: 11-CONTEXT.md] |
+| V4 Access Control | yes [VERIFIED: 11-CONTEXT.md] | Reject `POST /featured` without valid operator session cookie [VERIFIED: 11-CONTEXT.md] |
 | V5 Input Validation | yes [VERIFIED: CLAUDE.md] | Pydantic `BaseModel` and validators for strings, links, max link count [VERIFIED: Pydantic docs] |
 | V6 Cryptography | yes [VERIFIED: 11-CONTEXT.md] | Library-backed signing; do not implement custom crypto [VERIFIED: ItsDangerous docs] |
 | V7 Error Handling | yes [VERIFIED: api/main.py] | Reuse JSON 422/429 patterns and avoid leaking password/session details [VERIFIED: api/main.py] |
@@ -442,7 +443,7 @@ a.rel = 'noopener';
 
 | Pattern | STRIDE | Standard Mitigation |
 |---------|--------|---------------------|
-| Login brute force | Denial of Service / Elevation [ASSUMED] | `POST /admin/login` rate limit 5/min and constant-time password comparison [VERIFIED: 11-CONTEXT.md]. |
+| Login brute force | Denial of Service / Elevation [ASSUMED] | `POST /yonkou/login` rate limit 5/min and constant-time password comparison [VERIFIED: 11-CONTEXT.md]. |
 | Session cookie tampering | Elevation [VERIFIED: ItsDangerous docs] | Signed serializer with `loads(..., max_age=...)`, catch `BadSignature`, return 401 [VERIFIED: ItsDangerous docs]. |
 | XSS from curated fields | Tampering / Elevation [ASSUMED] | Pydantic length/url validation plus frontend `textContent` rendering [VERIFIED: Pydantic docs, static/app.js]. |
 | Reverse-tabnabbing via external links | Spoofing [VERIFIED: MDN docs] | `rel="noopener"` on every `_blank` link [VERIFIED: 11-CONTEXT.md, MDN docs]. |
