@@ -362,17 +362,15 @@ a.rel = 'noopener';
 | A2 | A small `_load_featured` / `_save_featured` helper is enough; no repository layer is needed [ASSUMED]. | Don't Hand-Roll | If Phase 11 later grows archive/history, planner may need a storage module. |
 | A3 | Sidebar should be created/removed by JS instead of statically reserving a cell [ASSUMED]. | Common Pitfalls | If static HTML is preferred, tests must prove no empty-state layout shift. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **What exact fallback JSON path should production use?** [ASSUMED]
+1. **What exact fallback JSON path should production use?** [RESOLVED]
    - What we know: Redis fallback is required [VERIFIED: 11-CONTEXT.md].
-   - What's unclear: Whether Railway/web service has a durable writable path besides Redis [ASSUMED].
-   - Recommendation: Add `FEATURED_FALLBACK_PATH` setting defaulting to a repo-local or `/tmp`-avoiding path in development, then let deployment override if needed [ASSUMED].
+   - Resolution: add `FEATURED_FALLBACK_PATH` and default it to `.data/featured-current.json`, a project-local non-`/tmp` path. Deployment may override the env var if Railway requires a different writable location. This matches 11-02-PLAN.md and keeps `/tmp` reserved for audio cleanup conventions [RESOLVED: 11-02-PLAN.md].
 
-2. **Should `/yonkou` be inline HTML or `static/yonkou.html`?** [ASSUMED]
+2. **Should `/yonkou` be inline HTML or `static/yonkou.html`?** [RESOLVED]
    - What we know: Context allows either [VERIFIED: 11-CONTEXT.md].
-   - What's unclear: Whether the operator wants operator styling kept near the static frontend files [ASSUMED].
-   - Recommendation: Prefer a small `HTMLResponse` in `api/main.py` for minimum surface unless markup becomes large [ASSUMED].
+   - Resolution: implement `/yonkou` as a small inline `HTMLResponse` in `api/main.py`. This avoids adding a public static HTML artifact for a hidden operator-only route, keeps route behavior near its authentication/session helpers, and matches the minimal-surface recommendation captured in the plan [RESOLVED: 11-02-PLAN.md].
 
 ## Environment Availability
 
