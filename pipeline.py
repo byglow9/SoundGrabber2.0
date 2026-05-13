@@ -16,7 +16,7 @@ Authentication (Phase 10.1 gap closure — plan 06 — hybrid architecture):
   BGUTIL_BASE_URL — URL do serviço bgutil para JS challenge PO Token
   cookies.txt lido de Path(cache_dir)/"cookies.txt" se existir
   bgutil URL lida de os.environ.get("BGUTIL_BASE_URL", "") — sem mudança de assinatura (D-02)
-  player_client=web quando bgutil presente (web requer PO Token; bgutil fornece)
+  player_client=web_safari,web quando bgutil presente (clientes suportados pelo bgutil)
   player_client=android quando bgutil ausente (fallback degradado — datacenter IP pode ser bloqueado)
   Probe PIPE-06 (httpx.get) e classe BgutilUnavailable NÃO reintroduzidos (Wave 2 decisão mantida).
 
@@ -107,9 +107,9 @@ def check_duration(url: str, cache_dir: str) -> dict[str, Any]:
     """
     # Phase 10.1 gap closure (plan 06): hybrid auth — bgutil URL lida do env (sem signature change D-02)
     bgutil_base_url = os.environ.get("BGUTIL_BASE_URL", "")
-    # web client requer PO Token (bgutil fornece); android é fallback degradado sem bgutil
-    player_client = "web" if bgutil_base_url else "android"
-    youtube_args: dict[str, list[str]] = {"player_client": [player_client]}
+    # Clientes web requerem PO Token; bgutil 0.8.5 suporta web_safari e web.
+    player_clients = ["web_safari", "web"] if bgutil_base_url else ["android"]
+    youtube_args: dict[str, list[str]] = {"player_client": player_clients}
     if bgutil_base_url:
         youtube_args["getpot_bgutil_baseurl"] = [bgutil_base_url]
     ydl_opts: dict[str, Any] = {
@@ -126,7 +126,7 @@ def check_duration(url: str, cache_dir: str) -> dict[str, Any]:
     logger.warning(
         "AUTH: check_duration bgutil_base_url=%s player_client=%s",
         "set" if bgutil_base_url else "empty",
-        player_client,
+        ",".join(player_clients),
     )
     _configure_youtube_js_runtime(ydl_opts)
     # Cookies do Railway Volume — se existirem, yt-dlp usa autenticado (web_creator+mweb)
@@ -200,16 +200,16 @@ def download_audio(url: str, cache_dir: str) -> Path:
 
     # Phase 10.1 gap closure (plan 06): hybrid auth — bgutil URL lida do env (sem signature change D-02)
     bgutil_base_url = os.environ.get("BGUTIL_BASE_URL", "")
-    # web client requer PO Token (bgutil fornece); android é fallback degradado sem bgutil
-    dl_player = "web" if bgutil_base_url else "android"
-    youtube_args: dict[str, list[str]] = {"player_client": [dl_player]}
+    # Clientes web requerem PO Token; bgutil 0.8.5 suporta web_safari e web.
+    dl_players = ["web_safari", "web"] if bgutil_base_url else ["android"]
+    youtube_args: dict[str, list[str]] = {"player_client": dl_players}
     if bgutil_base_url:
         youtube_args["getpot_bgutil_baseurl"] = [bgutil_base_url]
     extractor_args: dict[str, dict[str, list[str]]] = {"youtube": youtube_args}
     logger.warning(
         "AUTH: download_audio bgutil_base_url=%s player_client=%s",
         "set" if bgutil_base_url else "empty",
-        dl_player,
+        ",".join(dl_players),
     )
 
     # Cookies do Railway Volume — se existirem, yt-dlp usa autenticado (web_creator+mweb)
