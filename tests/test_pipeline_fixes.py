@@ -127,125 +127,60 @@ def test_deploy01_nixpacks_toml_exists_with_ffmpeg():
     )
 
 
-def test_bgutil_08x_extractor_key_check_duration():
-    """bgutil 0.8.x usa 'getpot_bgutil_baseurl', nao 'youtubepot-bgutilhttp:base_url'."""
+def test_bgutil_removed_from_check_duration():
+    """AUTH: check_duration nao deve conter nenhuma referencia a bgutil apos a migracao (D-03/D-04)."""
     src = inspect.getsource(pipeline.check_duration)
-    assert "getpot_bgutil_baseurl" in src, (
-        "DEPLOY-02 fix missing: check_duration deve usar a chave 0.8.x 'getpot_bgutil_baseurl'. "
-        "A chave 1.x era 'youtubepot-bgutilhttp:base_url'."
+    assert "getpot_bgutil_baseurl" not in src, (
+        "bgutil nao foi removido de check_duration apos migracao. "
+        "Remover extractor_args de bgutil conforme D-03/D-04 (Wave 2, Plan 03)."
     )
-    assert "youtubepot-bgutilhttp" not in src, (
-        "check_duration contém a chave 1.x 'youtubepot-bgutilhttp'. "
-        "O projeto pina bgutil==0.8.5; usar a chave 1.x silenciosamente ignora o bgutil server."
+    assert "bgutil" not in src.lower(), (
+        "check_duration ainda contem referencia a bgutil (case-insensitive). "
+        "Verificar comentarios e strings que referenciam bgutil."
     )
 
 
-def test_bgutil_08x_extractor_key_download_audio():
-    """bgutil 0.8.x usa 'getpot_bgutil_baseurl', nao 'youtubepot-bgutilhttp:base_url'."""
+def test_bgutil_removed_from_download_audio():
+    """AUTH: download_audio nao deve conter nenhuma referencia a bgutil apos a migracao (D-04)."""
     src = inspect.getsource(pipeline.download_audio)
-    assert "getpot_bgutil_baseurl" in src, (
-        "DEPLOY-02 fix missing: download_audio deve usar a chave 0.8.x 'getpot_bgutil_baseurl'."
+    assert "getpot_bgutil_baseurl" not in src, (
+        "bgutil nao foi removido de download_audio. "
+        "Remover getpot_bgutil_baseurl conforme D-04 (Wave 2, Plan 03)."
     )
-    assert "youtubepot-bgutilhttp" not in src, (
-        "download_audio contém a chave 1.x 'youtubepot-bgutilhttp'. "
-        "O projeto pina bgutil==0.8.5; usar a chave 1.x silenciosamente ignora o bgutil server."
+    assert "BgutilUnavailable" not in src, (
+        "BgutilUnavailable ainda referenciado em download_audio. "
+        "Remover a classe e todas as referencias conforme D-04."
+    )
+    assert "httpx.get" not in src, (
+        "probe httpx.get ainda presente em download_audio. "
+        "Remover o probe de disponibilidade do bgutil conforme D-04."
     )
 
 
 # ---------------------------------------------------------------------------
-# PIPE-06 — bgutil probe: falha explícita quando bgutil inacessível (RED stubs)
-# Estes testes FALHAM até que 10-02-PLAN.md implemente:
-#   - import httpx em pipeline.py
-#   - class BgutilUnavailable(RuntimeError) em pipeline.py
-#   - probe HTTP em download_audio() antes de ydl_opts
-#   - except BgutilUnavailable em api/tasks.py ANTES de except RuntimeError
+# PIPE-06 (migrado) — verificar ausencia do probe bgutil em download_audio
+# Os 4 testes PIPE-06 originais foram removidos na Phase 10.1 Wave 0
+# pois testavam comportamento que sera eliminado na migracao (Wave 2, Plan 03).
+# Este teste substitui todos os 4 e verifica que o probe foi removido.
 # ---------------------------------------------------------------------------
-import httpx
 import pytest
 from unittest.mock import patch, MagicMock
 
 
-def test_pipe06_bgutil_probe_connect_error_raises():
-    """PIPE-06: ConnectError no probe → exceção com 'bgutil' na mensagem."""
-    with patch("pipeline.httpx.get", side_effect=httpx.ConnectError("Connection refused")):
-        with pytest.raises(Exception) as exc_info:
-            pipeline.download_audio(
-                url="https://www.youtube.com/watch?v=FAKEID00001",
-                cookies_path="",
-                po_token="",
-                bgutil_base_url="http://bgutil.railway.internal:4416",
-            )
-        assert "bgutil" in str(exc_info.value).lower(), (
-            f"PIPE-06 fix missing: mensagem de erro deve conter 'bgutil'. "
-            f"Got: {exc_info.value!r}"
-        )
+def test_pipe06_no_bgutil_probe_in_download_audio():
+    """PIPE-06 (migrado): verificar que o probe bgutil foi removido de download_audio (D-04).
 
-
-def test_pipe06_bgutil_probe_timeout_raises():
-    """PIPE-06: ConnectTimeout no probe → exceção com 'bgutil' na mensagem."""
-    with patch("pipeline.httpx.get", side_effect=httpx.ConnectTimeout("Timeout")):
-        with pytest.raises(Exception) as exc_info:
-            pipeline.download_audio(
-                url="https://www.youtube.com/watch?v=FAKEID00002",
-                cookies_path="",
-                po_token="",
-                bgutil_base_url="http://bgutil.railway.internal:4416",
-            )
-        assert "bgutil" in str(exc_info.value).lower(), (
-            f"PIPE-06 fix missing: mensagem de erro deve conter 'bgutil'. "
-            f"Got: {exc_info.value!r}"
-        )
-
-
-def test_pipe06_no_probe_when_bgutil_url_empty():
-    """PIPE-06: bgutil_base_url='' → httpx.get NÃO deve ser chamado."""
-    mock_get = MagicMock()
-    with patch("pipeline.httpx.get", mock_get):
-        try:
-            pipeline.download_audio(
-                url="https://www.youtube.com/watch?v=FAKEID00003",
-                cookies_path="",
-                po_token="",
-                bgutil_base_url="",
-            )
-        except Exception:
-            pass  # yt-dlp vai falhar sem cookies/URL real — irrelevante
-        mock_get.assert_not_called()
-
-
-def test_pipe06_tasks_bgutil_error_type():
-    """PIPE-06: JobFailure gerada por BgutilUnavailable deve ter error_type='bgutil_unavailable'.
-
-    Rule 1 fix: o stub original usava RuntimeError genérico e não mockava update_state,
-    causando ConnectionError ao Redis antes de chegar no handler. Corrigido para:
-    - Usar BgutilUnavailable (importado de pipeline após a implementação do plano 10-02)
-    - Mockar process_job.update_state para evitar conexão Redis em teste unitário
+    Apos a migracao OAuth2/Volume, download_audio nao deve:
+    - Fazer httpx.get para verificar disponibilidade do bgutil
+    - Levantar BgutilUnavailable
+    - Aceitar parametro bgutil_base_url
     """
-    from api.tasks import process_job, JobFailure
-    from pipeline import BgutilUnavailable
-
-    bgutil_error_msg = (
-        "PO Token service unavailable (bgutil at http://bgutil.railway.internal:4416). "
-        "Download requires bgutil to be running."
+    src = inspect.getsource(pipeline.download_audio)
+    assert "httpx.get" not in src, (
+        "probe bgutil ainda presente em download_audio — remover conforme D-04. "
+        "Wave 2 (Plan 03) deve remover o probe httpx.get e a classe BgutilUnavailable."
     )
-
-    with patch("api.tasks.download_audio", side_effect=BgutilUnavailable(bgutil_error_msg)), \
-         patch("api.tasks.check_duration", return_value={"duration": 180, "title": "test"}), \
-         patch.object(process_job, "update_state"):
-        # Chamar a função Celery diretamente (sem broker); update_state mockado evita Redis
-        caught_failure = None
-        try:
-            process_job(url="https://www.youtube.com/watch?v=FAKEID00004")
-        except JobFailure as jf:
-            caught_failure = jf
-        except Exception:
-            pass  # outros erros de infra Celery são ignorados
-
-        assert caught_failure is not None, (
-            "PIPE-06 fix missing: process_job deve levantar JobFailure para BgutilUnavailable."
-        )
-        assert caught_failure.error_type == "bgutil_unavailable", (
-            f"PIPE-06 fix missing: error_type esperado 'bgutil_unavailable', "
-            f"obtido {caught_failure.error_type!r}. "
-            f"api/tasks.py precisa de 'except BgutilUnavailable' ANTES de 'except RuntimeError'."
-        )
+    assert "BgutilUnavailable" not in src, (
+        "BgutilUnavailable ainda referenciado em download_audio. "
+        "Remover conforme D-04."
+    )
