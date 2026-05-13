@@ -93,23 +93,25 @@ from pathlib import Path
 
 
 def test_pipe05_critical_log_when_cookies_missing_sentinel(caplog, tmp_path):
-    """PIPE-05: _check_cookies must log CRITICAL if cookies.txt lacks __Secure-3PSID."""
+    """PIPE-05 (migrado a AUTH): _check_oauth_cache deve logar CRITICAL se cookies.txt nao tem __Secure-3PSID.
+
+    Adaptado na Phase 10.1 Wave 2: _check_cookies foi substituida por _check_oauth_cache.
+    O comportamento PIPE-05 (log CRITICAL quando sentinel ausente) e preservado na nova funcao.
+    """
     # Create a cookies.txt that is present but lacks the required sentinel
     fake_cookies = tmp_path / "cookies.txt"
     fake_cookies.write_text("# Netscape HTTP Cookie File\nexample.com\tFALSE\t/\tFALSE\t0\tSOME_COOKIE\tvalue\n")
 
-    # Call _check_cookies directly — avoids sys.modules import-order fragility.
-    # If api.main was already imported by a prior test, the cached module is reused,
-    # which is fine because we are exercising _check_cookies in isolation, not lifespan.
-    from api.main import _check_cookies
+    # Call _check_oauth_cache directly — _check_cookies foi substituida na Phase 10.1 D-08.
+    from api.main import _check_oauth_cache
     with caplog.at_level(logging.CRITICAL, logger="api.main"):
-        _check_cookies(str(fake_cookies))
+        _check_oauth_cache(str(tmp_path))
 
     critical_msgs = [r for r in caplog.records if r.levelno >= logging.CRITICAL]
-    cookie_msgs = [r for r in critical_msgs if "3PSID" in r.message or "cookie" in r.message.lower()]
+    cookie_msgs = [r for r in critical_msgs if "3PSID" in r.message or "cookie" in r.message.lower() or "expirado" in r.message.lower()]
     assert len(cookie_msgs) >= 1, (
-        "PIPE-05 fix missing: no CRITICAL log about __Secure-3PSID was emitted by _check_cookies. "
-        "Add cookies validation in _check_cookies in api/main.py."
+        "AUTH (ex-PIPE-05): nenhum log CRITICAL sobre __Secure-3PSID emitido por _check_oauth_cache. "
+        "A funcao deve logar CRITICAL quando cookies.txt nao contem o sentinel __Secure-3PSID."
     )
 
 

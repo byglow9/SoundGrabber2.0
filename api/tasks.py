@@ -6,7 +6,7 @@ from typing import Any
 
 from celery import Celery
 
-from pipeline import check_duration, download_audio, analyze_audio, BgutilUnavailable
+from pipeline import check_duration, download_audio, analyze_audio
 from api.config import settings
 
 logger = logging.getLogger(__name__)
@@ -54,11 +54,11 @@ def process_job(self, url: str) -> dict[str, Any]:
     try:
         # Stage 0: duration check — raises ValueError if > 900s (CORE-05)
         self.update_state(state="DOWNLOADING", meta={"stage": "checking_duration"})
-        info = check_duration(url, settings.cookies_path, settings.bgutil_base_url)
+        info = check_duration(url, settings.cache_dir)
 
         # Stage 1: download + convert (yt-dlp FFmpegExtractAudio postprocessor produces WAV)
         self.update_state(state="DOWNLOADING", meta={"stage": "downloading"})
-        wav_path = download_audio(url, settings.cookies_path, settings.po_token, settings.bgutil_base_url)
+        wav_path = download_audio(url, settings.cache_dir)
 
         # Stage 2: converting — discrete contract state (yt-dlp already produced the WAV,
         # but CONVERTING is part of the 5-state API contract from ROADMAP)
@@ -99,13 +99,6 @@ def process_job(self, url: str) -> dict[str, Any]:
         raise JobFailure(
             error="Download failed: audio file not produced.",
             error_type="download_error",
-        ) from e
-
-    except BgutilUnavailable as e:
-        logger.warning("Job %s bgutil_unavailable: %s", self.request.id, e)
-        raise JobFailure(
-            error=str(e),
-            error_type="bgutil_unavailable",
         ) from e
 
     except RuntimeError as e:
