@@ -19,9 +19,8 @@ set -e
 echo "AUTH_BOOTSTRAP: node_version=$(node --version 2>/dev/null || echo missing)"
 echo "AUTH_BOOTSTRAP: ytdlp_version=$(python -m yt_dlp --version 2>/dev/null || echo missing)"
 echo "AUTH_BOOTSTRAP: ytdlp_plugins=$(python - <<'PY' 2>/dev/null || echo check_failed
-import pkgutil
-mods = [m.name for m in pkgutil.iter_modules() if m.name == 'yt_dlp_plugins']
-print('present' if mods else 'missing')
+import importlib.util
+print('present' if importlib.util.find_spec('yt_dlp_plugins') else 'missing')
 PY
 )"
 
