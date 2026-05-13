@@ -24,9 +24,9 @@ if [ -d /data/yt-dlp-cache ]; then
 fi
 
 # Phase 10.1 D-07: bootstrap cookies.txt do Volume a partir de YTDLP_COOKIES_B64.
-# Executa uma vez (arquivo inexistente) e e-silenciosamente skip quando Volume ja populado.
+# Enquanto YTDLP_COOKIES_B64 existir, ele e a fonte de refresh dos cookies.
 # Wave 4 remove YTDLP_COOKIES_B64 apos confirmar E2E — arquivo persiste no Volume.
-if [ -n "${YTDLP_COOKIES_B64:-}" ] && [ ! -f /data/yt-dlp-cache/cookies.txt ]; then
+if [ -n "${YTDLP_COOKIES_B64:-}" ] && [ -d /data/yt-dlp-cache ]; then
     printf '%s' "$YTDLP_COOKIES_B64" | base64 -d > /data/yt-dlp-cache/cookies.txt
     chmod 600 /data/yt-dlp-cache/cookies.txt
 fi
