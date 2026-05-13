@@ -61,6 +61,12 @@ _system_ffmpeg = shutil.which("ffmpeg")
 _YTDLP_FFMPEG_LOCATION = _system_ffmpeg if _system_ffmpeg else _FFMPEG_PATH
 
 
+def _enable_ytdlp_debug(ydl_opts: dict[str, Any]) -> None:
+    """Enable yt-dlp verbose diagnostics without changing production defaults."""
+    if os.environ.get("YTDLP_DEBUG", "").lower() in {"1", "true", "yes"}:
+        ydl_opts["verbose"] = True
+
+
 # Constants
 MAX_DURATION_SEC = 900  # 15 minutes — locked by CORE-05 and D-10
 TMP_PREFIX = "sg_"      # /tmp/sg_{12hex}.wav per D-08
@@ -108,6 +114,7 @@ def check_duration(url: str, cache_dir: str) -> dict[str, Any]:
             logger.warning("AUTH: check_duration sem cookiefile existente path=%s", cookies_file)
     else:
         logger.warning("AUTH: check_duration sem YTDLP_CACHE_DIR/cache_dir")
+    _enable_ytdlp_debug(ydl_opts)
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
@@ -197,6 +204,7 @@ def download_audio(url: str, cache_dir: str) -> Path:
     }
     if cookies_file_path:
         ydl_opts["cookiefile"] = cookies_file_path
+    _enable_ytdlp_debug(ydl_opts)
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:

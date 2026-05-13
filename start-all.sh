@@ -19,6 +19,8 @@ set -e
 # Phase 10.1: impede que plugins GetPOT antigos permaneçam ativos por cache de venv.
 # yt-dlp 2026.x usa provedores JS internos; o build instala nodejs para esses desafios.
 export YTDLP_NO_PLUGINS=1
+echo "AUTH_BOOTSTRAP: node_version=$(node --version 2>/dev/null || echo missing)"
+echo "AUTH_BOOTSTRAP: ytdlp_version=$(python -m yt_dlp --version 2>/dev/null || echo missing)"
 
 # Phase 10.1 D-06/D-07: bootstrap seguro dos cookies no Railway Volume.
 # Usa YTDLP_CACHE_DIR como fonte unica para evitar divergencia entre env var e mount real.
