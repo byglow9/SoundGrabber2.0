@@ -107,7 +107,7 @@ def check_duration(url: str, cache_dir: str) -> dict[str, Any]:
     """
     # Phase 10.1 gap closure (plan 06): hybrid auth — bgutil URL lida do env (sem signature change D-02)
     bgutil_base_url = os.environ.get("BGUTIL_BASE_URL", "")
-    # Clientes web requerem PO Token; bgutil 0.8.5 suporta web_safari e web.
+    # Clientes web requerem PO Token; bgutil 0.8.x suporta web_safari e web.
     player_clients = ["web_safari", "web"] if bgutil_base_url else ["android"]
     youtube_args: dict[str, list[str]] = {"player_client": player_clients}
     if bgutil_base_url:
@@ -200,7 +200,7 @@ def download_audio(url: str, cache_dir: str) -> Path:
 
     # Phase 10.1 gap closure (plan 06): hybrid auth — bgutil URL lida do env (sem signature change D-02)
     bgutil_base_url = os.environ.get("BGUTIL_BASE_URL", "")
-    # Clientes web requerem PO Token; bgutil 0.8.5 suporta web_safari e web.
+    # Clientes web requerem PO Token; bgutil 0.8.x suporta web_safari e web.
     dl_players = ["web_safari", "web"] if bgutil_base_url else ["android"]
     youtube_args: dict[str, list[str]] = {"player_client": dl_players}
     if bgutil_base_url:

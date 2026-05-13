@@ -286,15 +286,15 @@ def test_check_oauth_cache_critical_when_no_file(caplog, tmp_path):
 
 
 def test_requirements_has_bgutil():
-    """plan-06: bgutil-ytdlp-pot-provider==0.8.5 deve estar em requirements.txt (reintroduzido no gap closure)."""
+    """plan-06: bgutil-ytdlp-pot-provider==0.8.1 deve estar em requirements.txt (alinhado ao servidor)."""
     req_path = Path(__file__).parent.parent / "requirements.txt"
     assert req_path.exists(), (
         f"requirements.txt nao encontrado em {req_path}. "
         "O arquivo deve existir na raiz do projeto."
     )
     content = req_path.read_text()
-    assert "bgutil-ytdlp-pot-provider==0.8.5" in content, (
-        "plan-06: bgutil-ytdlp-pot-provider==0.8.5 deve estar em requirements.txt. "
+    assert "bgutil-ytdlp-pot-provider==0.8.1" in content, (
+        "plan-06: bgutil-ytdlp-pot-provider==0.8.1 deve estar em requirements.txt. "
         "Re-adicionado no gap closure plan 06 para arquitetura hibrida (cookies + bgutil)."
     )
 
