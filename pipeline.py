@@ -3,15 +3,15 @@
 Single-module Python implementation of the download → convert → analyze pipeline.
 Designed to be imported directly by Phase 2 (FastAPI + Celery) without rework.
 
-Contract per D-03 (.planning/phases/01-processing-pipeline/01-CONTEXT.md):
-  download_audio(url, cookies_path, po_token) -> Path
+Contract per D-02 (.planning/phases/10.1-oauth2-railway-volume-auth-migration/10.1-CONTEXT.md):
+  check_duration(url, cache_dir) -> dict
+  download_audio(url, cache_dir) -> Path
   convert_to_wav(audio_path) -> Path
   analyze_audio(wav_path) -> dict
-  check_duration(url, cookies_path) -> dict  (helper, used by __main__)
 
-Authentication (D-01, D-02):
-  YTDLP_COOKIES_FILE — path to Netscape cookies.txt
-  YTDLP_PO_TOKEN     — GVS PO Token, formatted as web.gvs+TOKEN
+Authentication (D-03 adapted — Phase 10.1):
+  YTDLP_CACHE_DIR — path do Railway Volume com cookies.txt
+  cookies.txt lido de Path(cache_dir)/"cookies.txt" se existir
 
 Output (D-05): JSON to stdout via __main__ (implemented in Plan 04).
 """
@@ -28,21 +28,10 @@ from pathlib import Path
 from typing import Any
 
 import essentia.standard as es
-import httpx
 import imageio_ffmpeg
 import librosa
 import numpy as np
 import yt_dlp
-
-
-class BgutilUnavailable(RuntimeError):
-    """Raised when the bgutil PO Token service is unreachable.
-
-    Caught by api/tasks.py process_job to produce JobFailure(error_type='bgutil_unavailable').
-    This is a RuntimeError subclass so callers that only catch RuntimeError still work,
-    but api/tasks.py catches BgutilUnavailable FIRST to set the distinct error_type.
-    """
-    pass
 
 
 logger = logging.getLogger(__name__)
@@ -79,12 +68,13 @@ WAV_TMP_DIR = Path("/tmp")
 
 
 # Stage 0: Duration check (CORE-05, D-10)
-def check_duration(url: str, cookies_path: str, bgutil_base_url: str = "") -> dict[str, Any]:
+def check_duration(url: str, cache_dir: str) -> dict[str, Any]:
     """Fetch yt-dlp metadata WITHOUT downloading; verify duration <= MAX_DURATION_SEC.
 
     Args:
         url: YouTube URL to inspect.
-        cookies_path: Path to Netscape-format cookies.txt (D-01).
+        cache_dir: Railway Volume path (de YTDLP_CACHE_DIR). Cookies serão lidos de
+                   Path(cache_dir)/"cookies.txt" se existir.
 
     Returns:
         The yt-dlp info dict. Caller can read info['duration'] safely.
@@ -93,10 +83,6 @@ def check_duration(url: str, cookies_path: str, bgutil_base_url: str = "") -> di
         ValueError: If the video duration exceeds MAX_DURATION_SEC (15 minutes),
                     or if duration metadata is missing.
     """
-    # web client requires a PO token even with cookies to select formats.
-    # Use web only when bgutil (the PO token provider) is available.
-    # Android client works with cookies alone and doesn't need a PO token.
-    player_client = "web" if bgutil_base_url else "android"
     ydl_opts: dict[str, Any] = {
         "quiet": True,
         "no_warnings": True,
@@ -105,15 +91,14 @@ def check_duration(url: str, cookies_path: str, bgutil_base_url: str = "") -> di
         "noplaylist": True,
         "no_cache_dir": True,           # D-04: prevent stale nsig between Railway deploys
         "ffmpeg_location": _YTDLP_FFMPEG_LOCATION,  # executable path — see _YTDLP_FFMPEG_LOCATION
-        "extractor_args": {"youtube": [f"player_client={player_client}"]},
+        # Sem extractor_args — ios/mweb default não precisam de player_client manual
+        # ios/mweb não requerem PO Token [VERIFIED: INNERTUBE_CLIENTS]
     }
-    if bgutil_base_url:
-        # bgutil-ytdlp-pot-provider 0.8.x API: base_url is passed via youtube extractor arg
-        # key 'getpot_bgutil_baseurl'. We pin bgutil==0.8.5 to match bgutil server v0.8.1.
-        # Version 1.x uses a different key format — do NOT upgrade without updating this arg.
-        ydl_opts["extractor_args"]["youtube"].append(f"getpot_bgutil_baseurl={bgutil_base_url}")
-    if cookies_path:
-        ydl_opts["cookiefile"] = cookies_path
+    # Cookies do Railway Volume — se existirem, yt-dlp usa autenticado (web_creator+mweb)
+    if cache_dir:
+        cookies_file = Path(cache_dir) / "cookies.txt"
+        if cookies_file.exists():
+            ydl_opts["cookiefile"] = str(cookies_file)
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=False)
 
@@ -134,7 +119,7 @@ def check_duration(url: str, cookies_path: str, bgutil_base_url: str = "") -> di
 
 
 # Stage 1: Download + Conversion (CORE-03, CORE-04)
-def download_audio(url: str, cookies_path: str, po_token: str, bgutil_base_url: str = "") -> Path:
+def download_audio(url: str, cache_dir: str) -> Path:
     """Download YouTube audio and convert to WAV via yt-dlp's FFmpegExtractAudio postprocessor.
 
     Output: /tmp/sg_{12hex}.wav  (D-08). The intermediate audio file (webm/m4a) is
@@ -145,55 +130,26 @@ def download_audio(url: str, cookies_path: str, po_token: str, bgutil_base_url: 
 
     Args:
         url: YouTube URL.
-        cookies_path: Path to Netscape-format cookies.txt (D-01).
-        po_token: GVS PO Token. Will be formatted as web.gvs+{po_token} per Pattern 2.
-                  Pass empty string only if cookies alone are sufficient (rarely the case
-                  for datacenter IPs — see STATE.md "Datacenter IP flagging").
+        cache_dir: Railway Volume path. Cookies lidos de Path(cache_dir)/"cookies.txt"
+                   se existir. Se vazio, downloads sem autenticação (ios/mweb clients).
 
     Returns:
         Path to the resulting WAV file (/tmp/sg_{12hex}.wav).
 
     Raises:
-        RuntimeError: If yt-dlp fails (network error, bot detection, expired token).
+        RuntimeError: If yt-dlp fails (network error, bot detection, expired cookies).
         FileNotFoundError: If the WAV file is not present after a successful download.
     """
     wav_id = uuid.uuid4().hex[:12]
     outtmpl_base = str(WAV_TMP_DIR / f"{TMP_PREFIX}{wav_id}")
     wav_path = Path(f"{outtmpl_base}.wav")
 
-    # extractor_args MUST be a list of strings, NOT a nested dict.
-    # Pitfall: nested dict format causes "Requested format is not available" error.
-    # Correct format verified via: github.com/yt-dlp/yt-dlp/issues/14307
-    # web client requires a PO token to select formats even with cookies.
-    # Use web only when bgutil is available; otherwise android works with cookies alone.
-    dl_player = "web" if bgutil_base_url else "android"
-    extractor_args: dict[str, list[str]] = {"youtube": [f"player_client={dl_player}"]}
-    if po_token:
-        extractor_args["youtube"].append(f"po_token=web.gvs+{po_token}")
-    if bgutil_base_url:
-        # bgutil-ytdlp-pot-provider 0.8.x API: base_url is passed via youtube extractor arg
-        # key 'getpot_bgutil_baseurl'. We pin bgutil==0.8.5; version 1.x uses a different key format.
-        extractor_args["youtube"].append(f"getpot_bgutil_baseurl={bgutil_base_url}")
-
-    # PIPE-06: probe de disponibilidade do bgutil antes de chamar yt-dlp.
-    # Se bgutil_base_url está configurado mas inacessível, falha imediatamente
-    # com mensagem explícita — sem silent fallback para android client (D-06).
-    #
-    # Lógica: o probe verifica APENAS "o servidor está respondendo?".
-    # Qualquer resposta HTTP (200, 404, 500) = servidor up = prosseguir.
-    # httpx.RequestError (ConnectError, ConnectTimeout, etc.) = servidor inacessível = falhar.
-    # Sem verificação de resp.is_success — bgutil pode retornar 404 na raiz e ainda estar saudável.
-    if bgutil_base_url:
-        logger.info("Probing bgutil availability at %s", bgutil_base_url)
-        try:
-            httpx.get(f"{bgutil_base_url}/", timeout=2.0)
-            logger.info("bgutil probe OK — server responded")
-        except httpx.RequestError as exc:
-            logger.warning("bgutil probe failed: %s", exc)
-            raise BgutilUnavailable(
-                f"PO Token service unavailable (bgutil at {bgutil_base_url}). "
-                f"Download requires bgutil to be running."
-            ) from exc
+    # Cookies do Railway Volume — se existirem, yt-dlp usa autenticado (web_creator+mweb)
+    cookies_file_path: str | None = None
+    if cache_dir:
+        cookies_file = Path(cache_dir) / "cookies.txt"
+        if cookies_file.exists():
+            cookies_file_path = str(cookies_file)
 
     ydl_opts: dict[str, Any] = {
         "format": "bestaudio/best",
@@ -202,7 +158,7 @@ def download_audio(url: str, cookies_path: str, po_token: str, bgutil_base_url: 
         "no_warnings": True,
         "socket_timeout": 30,
         "noplaylist": True,
-        "extractor_args": extractor_args,
+        # Sem extractor_args — ios/mweb clients são default e não precisam de player_client manual
         "postprocessors": [{
             "key": "FFmpegExtractAudio",
             "preferredcodec": "wav",
@@ -213,8 +169,8 @@ def download_audio(url: str, cookies_path: str, po_token: str, bgutil_base_url: 
         "http_chunk_size": 10485760,  # 10MB — avoids YouTube throttling on long downloads
         "ffmpeg_location": _YTDLP_FFMPEG_LOCATION,  # executable path — see _YTDLP_FFMPEG_LOCATION
     }
-    if cookies_path:
-        ydl_opts["cookiefile"] = cookies_path
+    if cookies_file_path:
+        ydl_opts["cookiefile"] = cookies_file_path
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -573,31 +529,19 @@ if __name__ == "__main__":
         sys.exit(1)
 
     url = sys.argv[1]
-    cookies_path = os.environ.get("YTDLP_COOKIES_FILE", "")
-    po_token = os.environ.get("YTDLP_PO_TOKEN", "")
-    bgutil_base_url = os.environ.get("BGUTIL_BASE_URL", "")
+    cache_dir = os.environ.get("YTDLP_CACHE_DIR", "")
 
-    # Up-front config check — fail fast with a clear envelope rather than a Python traceback.
-    if not cookies_path:
-        _emit_error("config_error", "YTDLP_COOKIES_FILE env var is not set. See .env.example.")
-        sys.exit(1)
-    if not Path(cookies_path).exists():
-        _emit_error("config_error", f"YTDLP_COOKIES_FILE does not exist: {cookies_path}")
-        sys.exit(1)
-    # po_token is allowed to be empty (cookies-only flow); pipeline.download_audio handles it.
-    # We log a warning to stderr if missing — does NOT affect JSON output.
-    if not po_token:
+    if not cache_dir:
         print(
-            "WARNING: YTDLP_PO_TOKEN is empty. Datacenter IPs typically require a PO Token. "
-            "If downloads fail with 'Sign in to confirm you're not a bot', set YTDLP_PO_TOKEN.",
+            "WARNING: YTDLP_CACHE_DIR is empty. Downloads may fail with bot detection.",
             file=sys.stderr,
         )
 
     try:
         # Stage 0: pre-download duration check (CORE-05, D-10)
-        info = check_duration(url, cookies_path, bgutil_base_url)
+        info = check_duration(url, cache_dir)
         # Stage 1: download + WAV conversion (CORE-03, CORE-04)
-        wav_path = download_audio(url, cookies_path, po_token, bgutil_base_url)
+        wav_path = download_audio(url, cache_dir)
         # Stage 2-5: validate + bpm + key + camelot + half/double (ANALYSIS-01..04)
         result = analyze_audio(wav_path)
         # Prefer YouTube's reported duration over ffprobe's (whole-second integer is the user-facing value).
