@@ -30,6 +30,13 @@ if [ -f "$PROJECT_DIR/.env" ]; then
     set +a
 fi
 
+# Defaults locais de desenvolvimento. Produção deve definir valores próprios no Railway.
+export DEV_MODE="${DEV_MODE:-true}"
+export REDIS_URL="${REDIS_URL:-redis://localhost:6379/0}"
+export ADMIN_PASSWORD="${ADMIN_PASSWORD:-correct horse}"
+export ADMIN_SESSION_SECRET="${ADMIN_SESSION_SECRET:-local-dev-admin-session-secret}"
+export FEATURED_FALLBACK_PATH="${FEATURED_FALLBACK_PATH:-$PROJECT_DIR/.data/featured-current.json}"
+
 # Cores e log() definidos ANTES de qualquer uso (WR-03: evita crash sob set -e)
 C_RESET='\033[0m'
 C_CELERY='\033[36m'   # ciano
@@ -37,6 +44,13 @@ C_SERVER='\033[32m'   # verde
 C_START='\033[33m'    # amarelo
 
 log() { echo -e "${C_START}[start]${C_RESET} $1"; }
+
+REQ_STAMP="$VENV/.requirements.stamp"
+if [ ! -f "$REQ_STAMP" ] || [ "$PROJECT_DIR/requirements.txt" -nt "$REQ_STAMP" ]; then
+    log "Sincronizando dependências de requirements.txt..."
+    "$VENV/bin/python" -m pip install -q -r "$PROJECT_DIR/requirements.txt"
+    touch "$REQ_STAMP"
+fi
 
 REDIS_CLI_ARGS=()
 if [ -n "${REDIS_URL:-}" ]; then
@@ -70,6 +84,8 @@ log "Iniciando Celery..."
     | sed "s/^/$(printf "${C_CELERY}")[celery]$(printf "${C_RESET}") /" &
 
 log "Iniciando servidor em http://localhost:8000"
+log "Uvicorn reload ativo: alterações em Python recarregam o servidor automaticamente."
+log "Painel operador local: http://localhost:8000/yonkou (senha: ADMIN_PASSWORD do .env ou default local)."
 log "Pressione Ctrl+C para encerrar tudo."
 
 cleanup() {
@@ -80,5 +96,5 @@ cleanup() {
 }
 trap cleanup EXIT
 
-"$VENV/bin/python" -m uvicorn api.main:app --host 0.0.0.0 --port 8000 --limit-concurrency 100 --timeout-keep-alive 5 2>&1 \
+"$VENV/bin/python" -m uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload --limit-concurrency 100 --timeout-keep-alive 5 2>&1 \
     | sed "s/^/$(printf "${C_SERVER}")[server]$(printf "${C_RESET}") /"
