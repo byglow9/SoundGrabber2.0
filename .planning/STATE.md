@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Phases — YouTube Pipeline Fix
 status: executing
-last_updated: "2026-05-13T18:50:49.255Z"
+last_updated: "2026-05-13T20:09:31.757Z"
 last_activity: 2026-05-13 -- Phase 10.1 execution started
 progress:
   total_phases: 5
   completed_phases: 4
-  total_plans: 15
-  completed_plans: 14
-  percent: 93
+  total_plans: 16
+  completed_plans: 16
+  percent: 100
 ---
 
 # State — SoundGrabber
@@ -31,10 +31,10 @@ progress:
 
 ## Current Position
 
-Phase: 10.1 (oauth2-railway-volume-auth-migration) — BLOCKED
-Plan: 5 of 5 (Wave 4 blocked)
-Status: AUTH-02 E2E falhou — cookies sozinhos não passam no IP datacenter Railway
-Last activity: 2026-05-13 -- Wave 4 E2E blocked: LOGIN_REQUIRED mesmo com cookies válidos
+Phase: 10.1 (oauth2-railway-volume-auth-migration) — EXECUTING
+Plan: 1 of 1
+Status: Executing Phase 10.1
+Last activity: 2026-05-13 -- Phase 10.1 execution started
 
 Progress: [████████░░] 80% (Wave 3 completa, Wave 4 bloqueada)
 
@@ -90,23 +90,27 @@ Progress: [████████░░] 80% (Wave 3 completa, Wave 4 bloquead
 
 | Issue | Root Cause | Status |
 |-------|------------|--------|
-| Bot detection | Datacenter IP, sem auth completa | Parcialmente resolvido com cookies |
-| "Requested format is not available" | Web client precisa PO Token; android client falha com cookies web | Aberto |
-| nsig extraction failure | Diferença de versão yt-dlp (local 2024.12 vs Railway 2026.3) | Aberto |
-| ffprobe path no Railway | imageio-ffmpeg não no PATH do sistema Railway | Aberto — endereçado em Phase 8 (PIPE-01, DEPLOY-01) |
-| LOGIN_REQUIRED no Railway mesmo com cookies válidos (Phase 10.1) | Railway datacenter IP bloqueado pelo YouTube independente de cookies autenticados — cookies não são suficientes, PO Token/bgutil necessário | BLOQUEADOR ATUAL |
+| ffprobe path no Railway | imageio-ffmpeg não no PATH do sistema Railway | Resolvido em Phase 8 (PIPE-01, DEPLOY-01) |
+| nsig extraction failure | Diferença de versão yt-dlp (local vs Railway) | Resolvido por atualização yt-dlp |
+| `YTDLP_NO_PLUGINS=1` bloqueava GetPOT silenciosamente | Adicionado em fase anterior para "limpar plugins antigos" | Resolvido em 10.1-06 (`c1e5657`) |
+| extractor_args formato CLI vs Python API | yt-dlp 2026 Python API exige nested dict, não lista de strings | Resolvido em 10.1-06 (`4d88510`) |
+| bgutil plugin version mismatch (0.8.5 vs servidor 0.8.1) | Plugin PyPI não alinhado com servidor Railway | Resolvido em 10.1-06 (`3635498`) |
+| LOGIN_REQUIRED no Railway com GetPOT funcionando (2026-05-13) | Cookies no Volume expirados/rotacionados — YouTube rejeita sessão mesmo com PO Token válido | **BLOQUEADOR ATUAL** |
 
 ### Todos
 
 - [x] Implementar Phase 8: correções em pipeline.py + nixpacks.toml
 - [x] Deploy bgutil no Railway (Phase 9 — ação humana)
 - [x] Configurar BGUTIL_BASE_URL nos serviços Railway (Phase 9 — ação humana)
-- [ ] Validar pipeline end-to-end com 3 URLs de beats — BLOQUEADO por LOGIN_REQUIRED
-- [ ] Decidir estratégia: bgutil + cookies no Volume híbrido, ou VPS/proxy residencial
+- [x] Reintroduzir bgutil como PO Token provider (10.1-06 Task 1 — 6 commits)
+- [x] Corrigir 4 bugs descobertos durante execução (YTDLP_NO_PLUGINS, extractor_args format, version mismatch, player_clients)
+- [ ] **Renovar cookies no Volume Railway** — `YTDLP_COOKIES_B64` com arquivo fresco, redeploy, re-run E2E
+- [ ] Validar pipeline E2E com 3 URLs de beats (Task 2 do plano 10.1-06)
+- [ ] Cleanup YTDLP_COOKIES_B64 após E2E aprovado (Task 3 do plano 10.1-06)
 
 ### Blockers
 
-**CRÍTICO (2026-05-13):** YouTube retorna LOGIN_REQUIRED no Railway datacenter IP mesmo com cookies autenticados válidos (bytes=2987, `__Secure-3PSID` presente). yt-dlp reconhece cookies mas YouTube rejeita na camada de rede. Evidência: `Found YouTube account cookies` + `Sign in to confirm you're not a bot`. bgutil (serviço `2fc3a8a5`) mantido ativo enquanto bloqueio não resolvido.
+**CRÍTICO (2026-05-13):** YouTube retorna `LOGIN_REQUIRED` mesmo com GetPOT funcionando e PO Token gerado com sucesso. Stack técnico completo e correto: cookies chegam, Node ativo, bgutil gera PO Token (HTTP 200), extractor_args no formato certo, player_clients `web_safari,web`. YouTube rejeita na camada de autenticação. Diagnóstico aponta para **cookies expirados no Volume** — bytes caíram de 2987 para ~1600 durante tentativas (yt-dlp sobrescreve jar ao detectar sessão inválida). Próximo passo: exportar cookies frescos de conta Google autenticada e atualizar `YTDLP_COOKIES_B64`.
 
 ---
 
