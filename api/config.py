@@ -50,6 +50,9 @@ class Settings:
     # O default "false" (string) garante que esquecer de definir em producao = falha segura.
     dev_mode: bool = field(default_factory=lambda: os.environ.get("DEV_MODE", "false").lower() == "true")
     bgutil_base_url: str = field(default_factory=lambda: os.environ.get("BGUTIL_BASE_URL", ""))
+    admin_password: str = field(default_factory=lambda: os.environ.get("ADMIN_PASSWORD", ""))
+    admin_session_secret: str = field(default_factory=lambda: os.environ.get("ADMIN_SESSION_SECRET", ""))
+    featured_fallback_path: str = field(default_factory=lambda: os.environ.get("FEATURED_FALLBACK_PATH", ".data/featured-current.json"))
 
 
 settings = Settings()
