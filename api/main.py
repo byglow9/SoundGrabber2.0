@@ -1,11 +1,14 @@
 """FastAPI app — POST /jobs, GET /jobs/{id}, GET /files/{id}."""
 from __future__ import annotations
 
+import json
 import logging
 import os as _os
 import re
 import threading
 import time
+from datetime import date
+from hmac import compare_digest
 from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib.parse import urlparse
@@ -14,8 +17,9 @@ import redis as redis_lib
 from celery.result import AsyncResult
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
@@ -28,6 +32,9 @@ logger = logging.getLogger(__name__)
 
 YOUTUBE_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be"}
 JOB_ID_PATTERN = re.compile(r"^[a-zA-Z0-9-]{1,64}$")
+FEATURED_KEY = "featured:current"
+ADMIN_COOKIE_NAME = "sg_admin"
+ADMIN_SESSION_MAX_AGE = 60 * 60 * 24 * 7
 
 # Module-level Redis client — connection pool reused across requests.
 _redis = redis_lib.from_url(settings.redis_url, decode_responses=True)
@@ -70,6 +77,68 @@ class JobRequest(BaseModel):
                 f"URL must be a YouTube link (got: {parsed.netloc or '(empty)'})"
             )
         return v
+
+
+class FeaturedLink(BaseModel):
+    label: str
+    url: str
+
+    @field_validator("label")
+    @classmethod
+    def label_required(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Link label is required")
+        if len(value) > 40:
+            raise ValueError("Link label must be 40 characters or less")
+        return value
+
+    @field_validator("url")
+    @classmethod
+    def url_must_be_http(cls, value: str) -> str:
+        value = value.strip()
+        parsed = urlparse(value)
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            raise ValueError("Link URL must use http or https")
+        if len(value) > 500:
+            raise ValueError("Link URL must be 500 characters or less")
+        return value
+
+
+class FeaturedReleaseRequest(BaseModel):
+    artista: str
+    titulo: str
+    genero: str
+    descricao: str
+    links: list[FeaturedLink] = []
+
+    @field_validator("artista", "titulo", "genero", "descricao")
+    @classmethod
+    def text_required(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Featured fields cannot be empty")
+        if len(value) > 500:
+            raise ValueError("Featured text fields must be 500 characters or less")
+        return value
+
+    @field_validator("links")
+    @classmethod
+    def max_three_links(cls, value: list[FeaturedLink]) -> list[FeaturedLink]:
+        if len(value) > 3:
+            raise ValueError("Featured release supports at most three links")
+        return value
+
+
+class AdminLoginRequest(BaseModel):
+    password: str
+
+    @field_validator("password")
+    @classmethod
+    def password_required(cls, value: str) -> str:
+        if not value:
+            raise ValueError("Password is required")
+        return value
 
 
 def sweep_expired_wavs(directory: Path, ttl_seconds: int) -> int:
@@ -133,6 +202,145 @@ def _check_redis_auth(redis_url: str, dev_mode: bool) -> None:
             "Set a Redis URL with credentials: redis://:password@host:port/db. "
             "For local development only, set DEV_MODE=true."
         )
+
+
+def _featured_fallback_path() -> Path:
+    return Path(_os.environ.get("FEATURED_FALLBACK_PATH", settings.featured_fallback_path))
+
+
+def _read_featured_fallback() -> dict | None:
+    fallback_path = _featured_fallback_path()
+    if not fallback_path.exists():
+        return None
+    try:
+        data = json.loads(fallback_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        logger.exception("featured fallback read failed")
+        return None
+    return data if isinstance(data, dict) and data else None
+
+
+def _write_featured_fallback(payload: dict) -> None:
+    fallback_path = _featured_fallback_path()
+    fallback_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = fallback_path.with_suffix(f"{fallback_path.suffix}.tmp")
+    tmp_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    tmp_path.replace(fallback_path)
+
+
+def _load_featured() -> dict | None:
+    try:
+        raw = _redis.get(FEATURED_KEY)
+    except (redis_lib.exceptions.ConnectionError, redis_lib.exceptions.TimeoutError):
+        return _read_featured_fallback()
+
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        logger.exception("featured redis payload is invalid JSON")
+        return None
+    return data if isinstance(data, dict) and data else None
+
+
+def _save_featured(payload: dict) -> None:
+    raw = json.dumps(payload, ensure_ascii=False)
+    try:
+        _redis.set(FEATURED_KEY, raw)
+    except (redis_lib.exceptions.ConnectionError, redis_lib.exceptions.TimeoutError):
+        _write_featured_fallback(payload)
+        return
+    _write_featured_fallback(payload)
+
+
+def _admin_serializer() -> URLSafeTimedSerializer:
+    secret = settings.admin_session_secret or settings.admin_password
+    if not secret:
+        raise HTTPException(
+            status_code=503,
+            detail="Operator authentication is not configured.",
+        )
+    return URLSafeTimedSerializer(secret_key=secret, salt="soundgrabber-admin")
+
+
+def _sign_admin_session() -> str:
+    return _admin_serializer().dumps({"admin": True})
+
+
+def _require_admin(request: Request) -> None:
+    cookie = request.cookies.get(ADMIN_COOKIE_NAME)
+    if not cookie:
+        raise HTTPException(status_code=401, detail="Admin login required")
+    try:
+        payload = _admin_serializer().loads(cookie, max_age=ADMIN_SESSION_MAX_AGE)
+    except (BadSignature, SignatureExpired):
+        raise HTTPException(status_code=401, detail="Admin login required") from None
+    if not isinstance(payload, dict) or payload.get("admin") is not True:
+        raise HTTPException(status_code=401, detail="Admin login required")
+
+
+def _featured_document(request_body: FeaturedReleaseRequest) -> dict:
+    return {
+        "artista": request_body.artista,
+        "titulo": request_body.titulo,
+        "genero": request_body.genero,
+        "descricao": request_body.descricao,
+        "data_adicao": date.today().isoformat(),
+        "links": [link.model_dump() for link in request_body.links],
+    }
+
+
+def _operator_panel_html(authenticated: bool, featured: dict | None = None) -> str:
+    if not authenticated:
+        return """<!DOCTYPE html>
+<html lang="pt-BR">
+<head><meta charset="UTF-8"><title>Yonkou</title></head>
+<body bgcolor="#000000" text="#ff8800">
+<table width="420" align="center" cellpadding="8" cellspacing="0" border="1">
+<tr><td>
+<h1>Entrar no painel</h1>
+<form id="yonkou-login">
+<input id="password" name="password" type="password" autocomplete="current-password">
+<button type="submit">Entrar no painel</button>
+</form>
+<script>
+document.getElementById('yonkou-login').onsubmit = async function (event) {
+  event.preventDefault();
+  const password = document.getElementById('password').value;
+  const response = await fetch('/yonkou/login', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({password: password})
+  });
+  if (response.ok) window.location.reload();
+};
+</script>
+</td></tr>
+</table>
+</body>
+</html>"""
+
+    current = featured or {}
+    return f"""<!DOCTYPE html>
+<html lang="pt-BR">
+<head><meta charset="UTF-8"><title>Yonkou</title></head>
+<body bgcolor="#000000" text="#ff8800">
+<table width="640" align="center" cellpadding="8" cellspacing="0" border="1">
+<tr><td>
+<h1>Painel Yonkou</h1>
+<div id="current-release">Atual: {current.get("artista", "")} - {current.get("titulo", "")}</div>
+<form id="featured-editor">
+<label>Artista <input id="featured-artista" name="artista"></label><br>
+<label>Titulo <input id="featured-title" name="titulo"></label><br>
+<label>Genero <input id="featured-genero" name="genero"></label><br>
+<label>Descricao <textarea id="featured-descricao" name="descricao"></textarea></label><br>
+<button type="submit">Salvar Som</button>
+</form>
+</td></tr>
+</table>
+</body>
+</html>"""
 
 
 def _check_cookies(cookies_path: str) -> None:
@@ -423,6 +631,66 @@ def health_check(request: Request, response: Response) -> JSONResponse:
         return JSONResponse(status_code=200, content={"status": "ok"})
     except (redis_lib.exceptions.ConnectionError, redis_lib.exceptions.TimeoutError):
         return JSONResponse(status_code=503, content={"status": "unavailable"})
+
+
+@app.get("/featured")
+@limiter.limit("60/minute")
+def get_featured(request: Request, response: Response):
+    featured = _load_featured()
+    if not featured:
+        return Response(status_code=204)
+    return featured
+
+
+@app.get("/yonkou")
+@limiter.limit("60/minute")
+def yonkou_panel(request: Request, response: Response) -> HTMLResponse:
+    try:
+        _require_admin(request)
+    except HTTPException:
+        return HTMLResponse(_operator_panel_html(authenticated=False))
+    return HTMLResponse(_operator_panel_html(authenticated=True, featured=_load_featured()))
+
+
+@app.post("/yonkou/login")
+@limiter.limit("5/minute")
+def yonkou_login(
+    request: Request,
+    request_body: AdminLoginRequest,
+    response: Response,
+) -> JSONResponse:
+    if not settings.admin_password:
+        raise HTTPException(
+            status_code=503,
+            detail="Operator authentication is not configured.",
+        )
+    if not compare_digest(request_body.password, settings.admin_password):
+        raise HTTPException(status_code=401, detail="Invalid operator credentials")
+
+    token = _sign_admin_session()
+    response = JSONResponse(status_code=200, content={"status": "ok"})
+    response.set_cookie(
+        ADMIN_COOKIE_NAME,
+        token,
+        httponly=True,
+        secure=not settings.dev_mode,
+        samesite="lax",
+        max_age=ADMIN_SESSION_MAX_AGE,
+    )
+    return response
+
+
+@app.post("/featured")
+@limiter.limit("10/minute")
+def post_featured(
+    request: Request,
+    request_body: FeaturedReleaseRequest,
+    response: Response,
+) -> dict:
+    _require_admin(request)
+    payload = _featured_document(request_body)
+    _save_featured(payload)
+    return payload
 
 
 # ── Static files ──────────────────────────────────────────────────────────────

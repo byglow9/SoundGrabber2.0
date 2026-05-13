@@ -359,7 +359,7 @@ def _featured_payload(links=None):
 
 
 def _login_operator(api_client):
-    response = api_client.post("/yonkou/login", data={"password": "correct horse"})
+    response = api_client.post("/yonkou/login", json={"password": "correct horse"})
     assert response.status_code in (200, 303), (
         f"login operador deveria criar sessao, recebeu {response.status_code}: {response.text}"
     )
@@ -420,13 +420,13 @@ def test_yonkou_panel_requires_no_public_link(api_client):
 def test_yonkou_login_rate_limit(api_client):
     """D-01b/D-06: POST /yonkou/login limita brute force a 5/min."""
     for i in range(5):
-        response = api_client.post("/yonkou/login", data={"password": "wrong"})
+        response = api_client.post("/yonkou/login", json={"password": "wrong"})
         assert response.status_code in (401, 403), (
             f"login incorreto {i + 1}/5 deveria ser 401/403, "
             f"recebeu {response.status_code}: {response.text}"
         )
 
-    response = api_client.post("/yonkou/login", data={"password": "wrong"})
+    response = api_client.post("/yonkou/login", json={"password": "wrong"})
     assert response.status_code == 429, (
         f"6a tentativa de login deveria ser 429, recebeu {response.status_code}: {response.text}"
     )
@@ -434,7 +434,7 @@ def test_yonkou_login_rate_limit(api_client):
 
 def test_yonkou_login_sets_secure_session_cookie(api_client):
     """D-01b: senha valida cria cookie de sessao assinado HttpOnly SameSite."""
-    response = api_client.post("/yonkou/login", data={"password": "correct horse"})
+    response = api_client.post("/yonkou/login", json={"password": "correct horse"})
 
     assert response.status_code in (200, 303), (
         f"login valido deveria retornar 200 ou redirect 303, recebeu {response.status_code}: {response.text}"
@@ -443,7 +443,7 @@ def test_yonkou_login_sets_secure_session_cookie(api_client):
     session_cookie = next((cookie for cookie in cookie_headers if "sg_admin=" in cookie), "")
     assert session_cookie, f"cookie sg_admin ausente em Set-Cookie: {cookie_headers}"
     assert "HttpOnly" in session_cookie
-    assert "SameSite=Lax" in session_cookie or "SameSite=Strict" in session_cookie
+    assert "samesite=lax" in session_cookie.lower() or "samesite=strict" in session_cookie.lower()
     assert "correct horse" not in session_cookie
 
 
