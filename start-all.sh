@@ -20,19 +20,40 @@ set -e
 # yt-dlp 2026.x usa provedores JS internos; o build instala nodejs para esses desafios.
 export YTDLP_NO_PLUGINS=1
 
-# Phase 10.1 D-06: garantir permissoes do Railway Volume antes de qualquer worker iniciar.
-# Volume montado em runtime (nao em build) — chmod precisa ser no startup.
-# || true evita que set -e aborte se chmod falhar por permissao herdada do Railway.
-if [ -d /data/yt-dlp-cache ]; then
-    chmod 700 /data/yt-dlp-cache || true
-fi
+# Phase 10.1 D-06/D-07: bootstrap seguro dos cookies no Railway Volume.
+# Usa YTDLP_CACHE_DIR como fonte unica para evitar divergencia entre env var e mount real.
+CACHE_DIR="${YTDLP_CACHE_DIR:-}"
+COOKIES_FILE=""
 
-# Phase 10.1 D-07: bootstrap cookies.txt do Volume a partir de YTDLP_COOKIES_B64.
-# Enquanto YTDLP_COOKIES_B64 existir, ele e a fonte de refresh dos cookies.
-# Wave 4 remove YTDLP_COOKIES_B64 apos confirmar E2E — arquivo persiste no Volume.
-if [ -n "${YTDLP_COOKIES_B64:-}" ] && [ -d /data/yt-dlp-cache ]; then
-    printf '%s' "$YTDLP_COOKIES_B64" | base64 -d > /data/yt-dlp-cache/cookies.txt
-    chmod 600 /data/yt-dlp-cache/cookies.txt
+if [ -z "$CACHE_DIR" ]; then
+    echo "AUTH_BOOTSTRAP: YTDLP_CACHE_DIR=missing"
+else
+    COOKIES_FILE="$CACHE_DIR/cookies.txt"
+    echo "AUTH_BOOTSTRAP: YTDLP_CACHE_DIR=present path=$CACHE_DIR"
+
+    if [ ! -d "$CACHE_DIR" ]; then
+        echo "AUTH_BOOTSTRAP: cache_dir_missing path=$CACHE_DIR"
+    else
+        chmod 700 "$CACHE_DIR" || true
+
+        if [ -n "${YTDLP_COOKIES_B64:-}" ]; then
+            if printf '%s' "$YTDLP_COOKIES_B64" | base64 -d > "$COOKIES_FILE"; then
+                chmod 600 "$COOKIES_FILE"
+                cookie_bytes="$(wc -c < "$COOKIES_FILE" 2>/dev/null || echo 0)"
+                sentinel_lines="$(grep -c "__Secure-3PSID" "$COOKIES_FILE" 2>/dev/null || echo 0)"
+                echo "AUTH_BOOTSTRAP: cookies_written path=$COOKIES_FILE bytes=$cookie_bytes secure_3psid_lines=$sentinel_lines"
+            else
+                echo "AUTH_BOOTSTRAP: cookies_decode_failed path=$COOKIES_FILE"
+                rm -f "$COOKIES_FILE"
+            fi
+        elif [ -f "$COOKIES_FILE" ]; then
+            cookie_bytes="$(wc -c < "$COOKIES_FILE" 2>/dev/null || echo 0)"
+            sentinel_lines="$(grep -c "__Secure-3PSID" "$COOKIES_FILE" 2>/dev/null || echo 0)"
+            echo "AUTH_BOOTSTRAP: cookies_existing path=$COOKIES_FILE bytes=$cookie_bytes secure_3psid_lines=$sentinel_lines"
+        else
+            echo "AUTH_BOOTSTRAP: cookies_missing path=$COOKIES_FILE"
+        fi
+    fi
 fi
 
 celery -A api.tasks worker --loglevel=info --concurrency=3 &

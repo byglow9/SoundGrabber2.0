@@ -99,6 +99,15 @@ def check_duration(url: str, cache_dir: str) -> dict[str, Any]:
         cookies_file = Path(cache_dir) / "cookies.txt"
         if cookies_file.exists():
             ydl_opts["cookiefile"] = str(cookies_file)
+            logger.info(
+                "AUTH: check_duration usando cookiefile path=%s bytes=%s",
+                cookies_file,
+                cookies_file.stat().st_size,
+            )
+        else:
+            logger.warning("AUTH: check_duration sem cookiefile existente path=%s", cookies_file)
+    else:
+        logger.warning("AUTH: check_duration sem YTDLP_CACHE_DIR/cache_dir")
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=False)
 
@@ -150,6 +159,15 @@ def download_audio(url: str, cache_dir: str) -> Path:
         cookies_file = Path(cache_dir) / "cookies.txt"
         if cookies_file.exists():
             cookies_file_path = str(cookies_file)
+            logger.info(
+                "AUTH: download_audio usando cookiefile path=%s bytes=%s",
+                cookies_file,
+                cookies_file.stat().st_size,
+            )
+        else:
+            logger.warning("AUTH: download_audio sem cookiefile existente path=%s", cookies_file)
+    else:
+        logger.warning("AUTH: download_audio sem YTDLP_CACHE_DIR/cache_dir")
 
     ydl_opts: dict[str, Any] = {
         "format": "bestaudio/best",

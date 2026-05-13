@@ -520,6 +520,18 @@ def _check_oauth_cache(cache_dir: str) -> None:
         logger.critical("AUTH: Nao foi possivel ler %s: %s", cookies_file, e)
         return
 
+    try:
+        stat = cookies_file.stat()
+        logger.info(
+            "AUTH: cookies.txt encontrado path=%s bytes=%s mode=%s secure_3psid_lines=%s",
+            cookies_file,
+            stat.st_size,
+            oct(stat.st_mode & 0o777),
+            content.count("__Secure-3PSID"),
+        )
+    except OSError as e:
+        logger.warning("AUTH: Nao foi possivel stat %s: %s", cookies_file, e)
+
     if "__Secure-3PSID" not in content:
         logger.critical(
             "AUTH: cookies.txt em %s nao contem '__Secure-3PSID'. "
