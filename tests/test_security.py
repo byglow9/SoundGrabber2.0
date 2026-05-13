@@ -358,6 +358,17 @@ def _featured_payload(links=None):
     }
 
 
+def _login_operator(api_client):
+    response = api_client.post("/yonkou/login", data={"password": "correct horse"})
+    assert response.status_code in (200, 303), (
+        f"login operador deveria criar sessao, recebeu {response.status_code}: {response.text}"
+    )
+    cookie_headers = response.headers.get_list("set-cookie")
+    assert any("sg_admin=" in cookie for cookie in cookie_headers), (
+        f"cookie sg_admin ausente em Set-Cookie: {cookie_headers}"
+    )
+
+
 def test_featured_get_rate_limit(api_client):
     """D-01d/D-06: GET /featured retorna conteudo ou vazio e limita 60/min."""
     from api.main import _redis
@@ -406,11 +417,8 @@ def test_yonkou_panel_requires_no_public_link(api_client):
     assert "current-release" not in response.text
 
 
-def test_yonkou_login_rate_limit(api_client, monkeypatch):
+def test_yonkou_login_rate_limit(api_client):
     """D-01b/D-06: POST /yonkou/login limita brute force a 5/min."""
-    monkeypatch.setenv("ADMIN_PASSWORD", "correct horse")
-    monkeypatch.setenv("ADMIN_SESSION_SECRET", "test-secret-for-signed-cookie")
-
     for i in range(5):
         response = api_client.post("/yonkou/login", data={"password": "wrong"})
         assert response.status_code in (401, 403), (
@@ -424,11 +432,8 @@ def test_yonkou_login_rate_limit(api_client, monkeypatch):
     )
 
 
-def test_yonkou_login_sets_secure_session_cookie(api_client, monkeypatch):
+def test_yonkou_login_sets_secure_session_cookie(api_client):
     """D-01b: senha valida cria cookie de sessao assinado HttpOnly SameSite."""
-    monkeypatch.setenv("ADMIN_PASSWORD", "correct horse")
-    monkeypatch.setenv("ADMIN_SESSION_SECRET", "test-secret-for-signed-cookie")
-
     response = api_client.post("/yonkou/login", data={"password": "correct horse"})
 
     assert response.status_code in (200, 303), (
@@ -453,7 +458,7 @@ def test_post_featured_requires_operator_session(api_client):
 
 def test_post_featured_validates_links(api_client):
     """D-03/D-06: ate tres links e URLs http/https obrigatorias."""
-    cookies = {"sg_admin": "signed-test-session"}
+    _login_operator(api_client)
 
     too_many_links = [
         {"label": "Spotify", "url": "https://open.spotify.com/track/test"},
@@ -464,7 +469,6 @@ def test_post_featured_validates_links(api_client):
     response = api_client.post(
         "/featured",
         json=_featured_payload(links=too_many_links),
-        cookies=cookies,
     )
     assert response.status_code == 422, (
         f"POST /featured com mais de 3 links deveria ser 422, "
@@ -474,7 +478,6 @@ def test_post_featured_validates_links(api_client):
     response = api_client.post(
         "/featured",
         json=_featured_payload(links=[{"label": "Arquivo", "url": "javascript:alert(1)"}]),
-        cookies=cookies,
     )
     assert response.status_code == 422, (
         f"POST /featured com URL nao-http deveria ser 422, recebeu {response.status_code}: {response.text}"
@@ -483,16 +486,16 @@ def test_post_featured_validates_links(api_client):
 
 def test_post_featured_rate_limit(api_client):
     """D-06: POST /featured autenticado limita updates a 10/min."""
-    cookies = {"sg_admin": "signed-test-session"}
+    _login_operator(api_client)
 
     for i in range(10):
-        response = api_client.post("/featured", json=_featured_payload(), cookies=cookies)
+        response = api_client.post("/featured", json=_featured_payload())
         assert response.status_code in (200, 204), (
             f"update autenticado {i + 1}/10 deveria salvar, "
             f"recebeu {response.status_code}: {response.text}"
         )
 
-    response = api_client.post("/featured", json=_featured_payload(), cookies=cookies)
+    response = api_client.post("/featured", json=_featured_payload())
     assert response.status_code == 429, (
         f"11o POST /featured deveria ser 429, recebeu {response.status_code}: {response.text}"
     )
@@ -506,7 +509,7 @@ def test_featured_redis_fallback(api_client, tmp_path, monkeypatch):
     fallback_path = tmp_path / "featured-fallback.json"
     monkeypatch.setenv("FEATURED_FALLBACK_PATH", str(fallback_path))
     payload = _featured_payload()
-    cookies = {"sg_admin": "signed-test-session"}
+    _login_operator(api_client)
 
     with patch.object(
         _redis,
@@ -517,7 +520,7 @@ def test_featured_redis_fallback(api_client, tmp_path, monkeypatch):
         "get",
         side_effect=redis_lib.exceptions.TimeoutError("mock redis timeout"),
     ):
-        save_response = api_client.post("/featured", json=payload, cookies=cookies)
+        save_response = api_client.post("/featured", json=payload)
         assert save_response.status_code in (200, 204), (
             f"POST /featured deveria salvar via fallback JSON, "
             f"recebeu {save_response.status_code}: {save_response.text}"
