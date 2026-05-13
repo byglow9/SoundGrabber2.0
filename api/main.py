@@ -80,6 +80,34 @@ class JobRequest(BaseModel):
         return v
 
 
+class FeaturedArtist(BaseModel):
+    nome: str
+    url: str = ""
+
+    @field_validator("nome")
+    @classmethod
+    def nome_required(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Artist name is required")
+        if len(value) > 200:
+            raise ValueError("Artist name must be 200 characters or less")
+        return value
+
+    @field_validator("url")
+    @classmethod
+    def url_optional_http(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            return value
+        parsed = urlparse(value)
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            raise ValueError("Artist URL must use http or https")
+        if len(value) > 500:
+            raise ValueError("Artist URL must be 500 characters or less")
+        return value
+
+
 class FeaturedLink(BaseModel):
     label: str
     url: str
@@ -107,13 +135,13 @@ class FeaturedLink(BaseModel):
 
 
 class FeaturedReleaseRequest(BaseModel):
-    artista: str
+    artistas: list[FeaturedArtist]
     titulo: str
     genero: str
     descricao: str
     links: list[FeaturedLink] = []
 
-    @field_validator("artista", "titulo", "genero", "descricao")
+    @field_validator("titulo", "genero", "descricao")
     @classmethod
     def text_required(cls, value: str) -> str:
         value = value.strip()
@@ -123,11 +151,20 @@ class FeaturedReleaseRequest(BaseModel):
             raise ValueError("Featured text fields must be 500 characters or less")
         return value
 
+    @field_validator("artistas")
+    @classmethod
+    def artistas_required(cls, value: list) -> list:
+        if not value:
+            raise ValueError("At least one artist is required")
+        if len(value) > 10:
+            raise ValueError("Featured release supports at most 10 artists")
+        return value
+
     @field_validator("links")
     @classmethod
-    def max_three_links(cls, value: list[FeaturedLink]) -> list[FeaturedLink]:
-        if len(value) > 3:
-            raise ValueError("Featured release supports at most three links")
+    def max_four_links(cls, value: list[FeaturedLink]) -> list[FeaturedLink]:
+        if len(value) > 4:
+            raise ValueError("Featured release supports at most four links")
         return value
 
 
@@ -281,9 +318,16 @@ def _require_admin(request: Request) -> None:
         raise HTTPException(status_code=401, detail="Admin login required")
 
 
+def _normalize_artistas(current: dict) -> list:
+    if "artistas" in current and isinstance(current["artistas"], list):
+        return [a for a in current["artistas"] if isinstance(a, dict)]
+    old = str(current.get("artista", "")).strip()
+    return [{"nome": old, "url": ""}] if old else []
+
+
 def _featured_document(request_body: FeaturedReleaseRequest) -> dict:
     return {
-        "artista": request_body.artista,
+        "artistas": [a.model_dump() for a in request_body.artistas],
         "titulo": request_body.titulo,
         "genero": request_body.genero,
         "descricao": request_body.descricao,
@@ -292,23 +336,49 @@ def _featured_document(request_body: FeaturedReleaseRequest) -> dict:
     }
 
 
+_KNOWN_LINK_LABELS = ["Youtube", "Soundcloud", "Spotify", "Instagram"]
+
+
+def _link_label_html(link: dict, index: int) -> str:
+    raw = str(link.get("label", ""))
+    is_known = raw in _KNOWN_LINK_LABELS
+    select_val = raw if is_known else ("Outros" if raw else "")
+    custom_val = escape(raw) if not is_known else ""
+    options = '<option value=""></option>'
+    for cat in _KNOWN_LINK_LABELS + ["Outros"]:
+        sel = " selected" if cat == select_val else ""
+        options += f'<option value="{cat}"{sel}>{cat}</option>'
+    hide = "" if select_val == "Outros" else ' style="display:none"'
+    return (
+        f'<select id="featured-link-label-{index}" class="yonkou-input yonkou-select">{options}</select>'
+        f'<input id="featured-link-label-custom-{index}" value="{custom_val}"'
+        f' class="yonkou-input yonkou-label-custom"{hide} placeholder="nome">'
+    )
+
+
 def _operator_panel_html(authenticated: bool, featured: dict | None = None) -> str:
     if not authenticated:
         return """<!DOCTYPE html>
 <html lang="pt-BR">
-<head><meta charset="UTF-8"><title>Yonkou</title></head>
-<body bgcolor="#000000" text="#ff8800">
-<table width="420" align="center" cellpadding="8" cellspacing="0" border="1">
-<tr><td>
-<h1>Entrar no painel</h1>
-<form id="yonkou-login" action="/yonkou/login" method="post">
-<input id="password" name="password" type="password" autocomplete="current-password">
-<button type="submit">Entrar no painel</button>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<title>Yonkou - SoundGrabber</title>
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="yonkou-page yonkou-login-page">
+<div id="yonkou-wrapper" class="yonkou-login-wrapper">
+<table id="yonkou-panel" class="yonkou-login-panel" width="420" align="center" cellpadding="0" cellspacing="0">
+<tr><td id="yonkou-card">
+<form id="yonkou-login" action="/yonkou/login" method="post" class="yonkou-form yonkou-login-form">
+<input id="password" name="password" type="password" autocomplete="current-password" class="yonkou-input">
+<button type="submit" class="yonkou-primary">&#x25B6;</button>
 </form>
 <div id="yonkou-message"></div>
 <script src="/static/yonkou.js"></script>
 </td></tr>
 </table>
+</div>
 </body>
 </html>"""
 
@@ -317,34 +387,100 @@ def _operator_panel_html(authenticated: bool, featured: dict | None = None) -> s
     link_1 = links[0] if len(links) > 0 and isinstance(links[0], dict) else {}
     link_2 = links[1] if len(links) > 1 and isinstance(links[1], dict) else {}
     link_3 = links[2] if len(links) > 2 and isinstance(links[2], dict) else {}
+    link_4 = links[3] if len(links) > 3 and isinstance(links[3], dict) else {}
+    artistas_data = _normalize_artistas(current)
+    artistas_display = escape(", ".join(a.get("nome", "") for a in artistas_data) or "-")
+    current_title = escape(str(current.get("titulo", "")))
     return f"""<!DOCTYPE html>
 <html lang="pt-BR">
-<head><meta charset="UTF-8"><title>Yonkou</title></head>
-<body bgcolor="#000000" text="#ff8800">
-<table width="640" align="center" cellpadding="8" cellspacing="0" border="1">
-<tr><td>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<title>Yonkou - SoundGrabber</title>
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="yonkou-page">
+<div id="yonkou-wrapper">
+<table id="yonkou-panel" width="700" align="center" cellpadding="0" cellspacing="0">
+<tr><td id="yonkou-header">
+<div id="site-title">SoundGrabber</div>
+<div id="site-tagline">painel operador / yonkou</div>
+</td></tr>
+<tr><td id="yonkou-card">
+<div class="yonkou-kicker">SOM DA SEMANA</div>
 <h1>Painel Yonkou</h1>
-<div id="current-release">Atual: {escape(str(current.get("artista", "")))} - {escape(str(current.get("titulo", "")))}</div>
-<form id="featured-editor">
-<label>Artista <input id="featured-artista" name="artista" value="{escape(str(current.get("artista", "")))}"></label><br>
-<label>Titulo <input id="featured-title" name="titulo" value="{escape(str(current.get("titulo", "")))}"></label><br>
-<label>Genero <input id="featured-genero" name="genero" value="{escape(str(current.get("genero", "")))}"></label><br>
-<label>Descricao <textarea id="featured-descricao" name="descricao">{escape(str(current.get("descricao", "")))}</textarea></label><br>
-<fieldset>
-<legend>Links</legend>
-<label>Label 1 <input id="featured-link-label-1" value="{escape(str(link_1.get("label", "")))}"></label>
-<label>URL 1 <input id="featured-link-url-1" value="{escape(str(link_1.get("url", "")))}"></label><br>
-<label>Label 2 <input id="featured-link-label-2" value="{escape(str(link_2.get("label", "")))}"></label>
-<label>URL 2 <input id="featured-link-url-2" value="{escape(str(link_2.get("url", "")))}"></label><br>
-<label>Label 3 <input id="featured-link-label-3" value="{escape(str(link_3.get("label", "")))}"></label>
-<label>URL 3 <input id="featured-link-url-3" value="{escape(str(link_3.get("url", "")))}"></label>
+<div id="current-release">Atual: {artistas_display} - {current_title or "-"}</div>
+<form id="featured-editor" class="yonkou-form">
+<table id="yonkou-form-table" width="100%" cellpadding="0" cellspacing="0">
+<tr>
+<td class="yonkou-label-cell" style="vertical-align:top;padding-top:10px">Artistas</td>
+<td>
+<div id="artistas-list"></div>
+<button type="button" id="add-artista-btn" class="yonkou-secondary">+ artista</button>
+</td>
+</tr>
+<tr>
+<td class="yonkou-label-cell"><label for="featured-titulo">Titulo</label></td>
+<td><input id="featured-titulo" name="titulo" value="{escape(str(current.get("titulo", "")))}" class="yonkou-input"></td>
+</tr>
+<tr>
+<td class="yonkou-label-cell"><label for="featured-genero">Genero</label></td>
+<td><input id="featured-genero" name="genero" value="{escape(str(current.get("genero", "")))}" class="yonkou-input"></td>
+</tr>
+<tr>
+<td class="yonkou-label-cell"><label for="featured-descricao">Descricao</label></td>
+<td><textarea id="featured-descricao" name="descricao" rows="4" class="yonkou-input yonkou-textarea">{escape(str(current.get("descricao", "")))}</textarea></td>
+</tr>
+</table>
+<fieldset id="yonkou-links">
+<legend>Links externos</legend>
+<table id="yonkou-links-table" width="100%" cellpadding="0" cellspacing="0">
+<tr>
+<td class="yonkou-links-cell yonkou-links-label">
+<label for="featured-link-label-1">Label 1</label>
+{_link_label_html(link_1, 1)}
+</td>
+<td class="yonkou-links-cell yonkou-links-url">
+<label>URL 1 <input id="featured-link-url-1" value="{escape(str(link_1.get("url", "")))}" class="yonkou-input"></label>
+</td>
+</tr>
+<tr>
+<td class="yonkou-links-cell yonkou-links-label">
+<label for="featured-link-label-2">Label 2</label>
+{_link_label_html(link_2, 2)}
+</td>
+<td class="yonkou-links-cell yonkou-links-url">
+<label>URL 2 <input id="featured-link-url-2" value="{escape(str(link_2.get("url", "")))}" class="yonkou-input"></label>
+</td>
+</tr>
+<tr>
+<td class="yonkou-links-cell yonkou-links-label">
+<label for="featured-link-label-3">Label 3</label>
+{_link_label_html(link_3, 3)}
+</td>
+<td class="yonkou-links-cell yonkou-links-url">
+<label>URL 3 <input id="featured-link-url-3" value="{escape(str(link_3.get("url", "")))}" class="yonkou-input"></label>
+</td>
+</tr>
+<tr>
+<td class="yonkou-links-cell yonkou-links-label">
+<label for="featured-link-label-4">Label 4</label>
+{_link_label_html(link_4, 4)}
+</td>
+<td class="yonkou-links-cell yonkou-links-url">
+<label>URL 4 <input id="featured-link-url-4" value="{escape(str(link_4.get("url", "")))}" class="yonkou-input"></label>
+</td>
+</tr>
+</table>
 </fieldset>
-<button type="submit">Salvar Som</button>
+<button type="submit" class="yonkou-primary">Salvar Som</button>
 </form>
 <div id="yonkou-message"></div>
+<script>var YONKOU_ARTISTAS = {json.dumps(artistas_data, ensure_ascii=False)};</script>
 <script src="/static/yonkou.js"></script>
 </td></tr>
 </table>
+</div>
 </body>
 </html>"""
 
@@ -452,12 +588,13 @@ async def _security_headers(request: Request, call_next):
     response = await call_next(request)
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
         "script-src 'self'; "
         "style-src 'self' 'unsafe-inline'; "
         "img-src 'self' data:; "
+        "frame-src https://www.youtube.com; "
         "frame-ancestors 'none';"
     )
     # SEC-INFRA-04: HSTS — Railway entrega TLS, mas nao adiciona o header. (D-09)

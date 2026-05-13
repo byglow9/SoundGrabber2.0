@@ -39,7 +39,7 @@ body {
   font-family: 'Sligoil', 'Courier New', monospace;
   font-size: 13px;
   margin: 0;
-  padding: 235px 0 32px 0;
+  padding: 50px 0 32px 0;
   -webkit-font-smoothing: none;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeSpeed;
@@ -78,7 +78,7 @@ body {
 
 #site-title {
   font-family: 'Dela Gothic One', sans-serif;
-  font-size: 48px;
+  font-size: 56px;
   line-height: 1.1;
   color: #ff8800;
 }
@@ -91,6 +91,10 @@ body {
 #header {
   border: none;
   padding: 0 0 16px 0;
+}
+
+#form-area {
+  background: rgba(0, 0, 0, 0.43);
 }
 
 /* ============================================================
@@ -324,12 +328,26 @@ td {
    Modal de aviso legal
    ============================================================ */
 
+#info-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.75);
+  z-index: 200;
+}
+
 #info-modal {
   position: fixed;
-  width: 240px;
+  width: 360px;
   border: 2px solid #ff8800;
   background-color: #000000;
-  z-index: 100;
+  z-index: 201;
+  top: 50vh;
+  left: 50vw;
+  margin-top: -150px;
+  margin-left: -180px;
 }
 
 
@@ -389,79 +407,524 @@ td {
 }
 
 #featured-shell {
-  margin-left: auto;
-  margin-right: auto;
+  width: 100%;
   border: none;
 }
 
 #featured-main-cell {
-  width: 640px;
+  width: 720px;
   border: none;
-  padding: 0;
+  padding: 205px 0 0 240px;
+  margin-left: -60px;
 }
 
-#featured-sidebar {
-  width: 220px;
-  border: none;
-  border-left: 1px solid #ff8800;
-  padding: 0 0 0 10px;
-}
-
-#featured-card {
-  width: 220px;
-  background: #000000;
-  color: #ff8800;
-  border: 1px solid #ff8800;
-  padding: 8px;
-  font-family: 'Sligoil', 'Courier New', monospace;
-  font-size: 12px;
-  line-height: 1.35;
-}
-
-#featured-title {
-  color: #ff8800;
-  font-family: 'Sligoil', 'Courier New', monospace;
-  font-size: 13px;
-  margin-bottom: 4px;
+#app {
+  position: relative;
+  z-index: 1;
 }
 
 #featured-separator {
-  color: #804400;
-  margin-bottom: 8px;
+  border: none;
+  padding: 0;
+  width: 0;
+  overflow: visible;
+  position: relative;
+  vertical-align: top;
 }
 
-.featured-field-label {
-  color: #804400;
-  font-size: 11px;
-  margin-top: 6px;
+#featured-separator img {
+  position: absolute;
+  width: 220px;
+  height: auto;
+  left: 50%;
+  transform: translateX(calc(-50% - 10px)) rotate(180deg);
+  top: 80px;
+  z-index: 10;
+  pointer-events: none;
+  filter: brightness(0.6);
 }
 
-.featured-field-value {
+#featured-sidebar {
+  width: 700px;
+  border: none;
+  vertical-align: top;
+  padding: 50px 0 0 32px;
+}
+
+#featured-player {
+  margin-top: 12px;
+  margin-bottom: 12px;
+}
+
+#featured-player iframe {
+  display: block;
+  width: 100%;
+  height: 360px;
+  border: 1px solid #ff8800;
+}
+
+#featured-card {
+  width: 660px;
+  min-height: 744px;
+  background-color: #000000;
+  border: none;
   color: #ff8800;
-  margin-bottom: 3px;
+  padding: 40px 30px 160px 80px;
+  font-family: 'Sligoil', 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.4;
+  box-sizing: border-box;
+}
+
+#featured-kicker {
+  display: inline-block;
+  background-color: #ff8800;
+  color: #000000;
+  font-family: 'Sligoil', 'Courier New', monospace;
+  font-size: 12px;
+  letter-spacing: 1px;
+  padding: 2px 6px;
+  margin-bottom: 10px;
+}
+
+#featured-title-row {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: nowrap;
+  gap: 8px;
+  margin-bottom: 10px;
+  overflow: hidden;
+}
+
+#featured-titulo {
+  color: #ff8800;
+  font-family: 'Dela Gothic One', sans-serif;
+  font-size: 26px;
+  line-height: 1.1;
+}
+
+#featured-title-sep {
+  color: #804400;
+  font-family: 'Sligoil', 'Courier New', monospace;
+  font-size: 12px;
+}
+
+#featured-artist {
+  color: #804400;
+  font-family: 'Sligoil', 'Courier New', monospace;
+  font-size: 14px;
+  line-height: 1.3;
+}
+
+#featured-divider {
+  border-top: 1px solid #331a00;
+  margin-bottom: 10px;
+}
+
+#featured-genero {
+  display: inline-block;
+  border: 1px solid #804400;
+  color: #804400;
+  font-family: 'Sligoil', 'Courier New', monospace;
+  font-size: 10px;
+  padding: 1px 6px;
+  margin-bottom: 10px;
+}
+
+#featured-descricao {
+  color: #804400;
+  font-family: 'Sligoil', 'Courier New', monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  margin-bottom: 8px;
 }
 
 .featured-date {
-  color: #804400;
-  font-size: 11px;
+  color: #331a00;
+  font-family: 'Sligoil', 'Courier New', monospace;
+  font-size: 12px;
+  margin-bottom: 10px;
+}
+
+.featured-links-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
   margin-top: 8px;
-  margin-bottom: 8px;
 }
 
 .featured-link {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 6px;
   color: #ff8800;
   background: #000000;
   border: 1px solid #ff8800;
-  padding: 4px;
-  margin-top: 5px;
-  text-align: center;
+  padding: 4px 8px;
   text-decoration: none;
   font-family: 'Sligoil', 'Courier New', monospace;
   font-size: 12px;
 }
 
+.featured-link-icon {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
 .featured-link:hover {
   color: #000000;
   background: #ff8800;
+}
+
+/* ============================================================
+   Painel Yonkou — operador
+   Reusa a identidade visual do SoundGrabber sem estilos inline.
+   ============================================================ */
+
+body.yonkou-page {
+  display: table;
+  width: 100%;
+  height: 100vh;
+  padding: 0;
+}
+
+#yonkou-wrapper {
+  display: table-cell;
+  vertical-align: middle;
+  padding: 24px 0;
+}
+
+body.yonkou-login-page {
+  height: auto;
+  min-height: 100vh;
+}
+
+#yonkou-wrapper.yonkou-login-wrapper {
+  display: block;
+  padding: 300px 0 0 0;
+}
+
+#yonkou-panel {
+  border: none;
+}
+
+#yonkou-header {
+  border: none;
+  padding: 0 0 10px 0;
+}
+
+#yonkou-card {
+  border: 1px solid #ff8800;
+  padding: 12px;
+  background-color: #000000;
+}
+
+.yonkou-login-panel {
+  width: 420px;
+}
+
+.yonkou-login-panel #yonkou-card {
+  padding: 12px 12px 14px 12px;
+  border: none;
+}
+
+.yonkou-login-form {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.yonkou-login-panel .yonkou-input {
+  flex: 1;
+  margin-top: 0;
+  margin-bottom: 0;
+  border: none;
+  border-bottom: 1px solid #ff8800;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.yonkou-login-panel .yonkou-input:focus {
+  border-bottom-color: #ff6600;
+}
+
+.yonkou-login-panel .yonkou-primary {
+  margin-top: 0;
+  padding: 6px 14px;
+  font-size: 13px;
+  letter-spacing: 1px;
+  flex-shrink: 0;
+}
+
+.yonkou-kicker {
+  display: inline-block;
+  margin-bottom: 6px;
+  padding: 3px 7px;
+  background-color: #ff8800;
+  color: #000000;
+  font-family: 'Sligoil', 'Courier New', monospace;
+  font-size: 11px;
+  letter-spacing: 1px;
+}
+
+#yonkou-card h1 {
+  margin: 0 0 8px 0;
+  color: #ff8800;
+  font-family: 'Dela Gothic One', sans-serif;
+  font-size: 26px;
+  line-height: 1.1;
+}
+
+.yonkou-help,
+#current-release,
+#yonkou-message {
+  margin: 0 0 12px 0;
+  color: #ff8800;
+  font-family: 'Sligoil', 'Courier New', monospace;
+  font-size: 13px;
+}
+
+#current-release {
+  color: #804400;
+}
+
+#yonkou-message {
+  margin-top: 10px;
+  margin-bottom: 0;
+}
+
+.yonkou-form {
+  margin: 0;
+}
+
+.yonkou-field {
+  display: block;
+  color: #804400;
+  font-family: 'Sligoil', 'Courier New', monospace;
+  font-size: 12px;
+}
+
+.yonkou-input {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  margin-bottom: 6px;
+  padding: 6px;
+  box-sizing: border-box;
+  background-color: #000000;
+  color: #ff8800;
+  border: 1px solid #ff8800;
+  font-family: 'Sligoil', 'Courier New', monospace;
+  font-size: 13px;
+  outline: none;
+}
+
+.yonkou-input:focus {
+  border-color: #ff6600;
+}
+
+.yonkou-textarea {
+  height: 70px;
+  resize: vertical;
+}
+
+.yonkou-primary {
+  display: inline-block;
+  margin-top: 6px;
+  background-color: #ff8800;
+  color: #000000;
+  border: 1px solid #ff8800;
+  font-family: 'Dela Gothic One', sans-serif;
+  font-size: 15px;
+  line-height: 1.0;
+  padding: 8px 16px;
+  cursor: pointer;
+}
+
+.yonkou-primary:hover {
+  background-color: #ff6600;
+  border-color: #ff6600;
+}
+
+#yonkou-form-table {
+  margin-top: 6px;
+  border: none;
+}
+
+#yonkou-form-table td {
+  border: none;
+  padding: 0 0 2px 0;
+}
+
+.yonkou-label-cell {
+  width: 88px;
+  color: #804400;
+  font-family: 'Sligoil', 'Courier New', monospace;
+  font-size: 12px;
+  vertical-align: top;
+  padding-top: 10px !important;
+}
+
+#yonkou-links {
+  margin: 6px 0 0 0;
+  padding: 8px 10px 4px 10px;
+  border: 1px solid #ff8800;
+}
+
+#yonkou-links legend {
+  color: #ff8800;
+  font-family: 'Sligoil', 'Courier New', monospace;
+  font-size: 11px;
+  padding: 0 6px;
+}
+
+#yonkou-links-table {
+  border: none;
+}
+
+.yonkou-links-cell {
+  border: none;
+  padding: 0 8px 0 0;
+  vertical-align: top;
+}
+
+.yonkou-links-label {
+  width: 24%;
+}
+
+.yonkou-links-url {
+  width: 76%;
+}
+
+.yonkou-select {
+  display: block;
+  width: 100%;
+  padding: 4px 6px;
+  background-color: #000000;
+  color: #ff8800;
+  border: 1px solid #ff8800;
+  font-family: 'Sligoil', 'Courier New', monospace;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.yonkou-label-custom {
+  margin-top: 4px;
+  font-size: 12px;
+}
+
+.yonkou-secondary {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 4px 10px;
+  background-color: #000000;
+  color: #ff8800;
+  border: 1px solid #ff8800;
+  font-family: 'Sligoil', 'Courier New', monospace;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.yonkou-secondary:hover {
+  background-color: #ff8800;
+  color: #000000;
+}
+
+.artista-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.artista-row .artista-nome {
+  flex: 1;
+  display: inline-block;
+  width: auto;
+  margin: 0;
+}
+
+.artista-row .artista-url {
+  flex: 2;
+  display: inline-block;
+  width: auto;
+  margin: 0;
+}
+
+.artista-remove {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: #804400;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+
+.artista-remove:hover {
+  color: #ff8800;
+}
+
+.featured-artist-link {
+  color: #ff8800;
+  text-decoration: underline;
+}
+
+.featured-artist-link:hover {
+  color: #ff6600;
+}
+
+#yonkou-links label {
+  display: block;
+  color: #804400;
+  font-family: 'Sligoil', 'Courier New', monospace;
+  font-size: 12px;
+}
+
+@media (max-width: 820px) {
+  body.yonkou-page {
+    display: block;
+    height: auto;
+    padding: 24px 10px 32px 10px;
+  }
+
+  #yonkou-wrapper {
+    display: block;
+    padding: 0;
+  }
+
+  #yonkou-wrapper.yonkou-login-wrapper {
+    padding-top: 52px;
+  }
+
+  #yonkou-panel {
+    width: 100%;
+  }
+
+  #yonkou-card h1 {
+    font-size: 26px;
+  }
+
+  .yonkou-label-cell {
+    display: block;
+    width: auto;
+    padding-top: 0 !important;
+  }
+
+  #yonkou-form-table td {
+    display: block;
+    width: auto;
+  }
+
+  #yonkou-links-table tr,
+  #yonkou-links-table td {
+    display: block;
+    width: auto;
+  }
+
+  .yonkou-links-cell {
+    padding-right: 0;
+  }
 }

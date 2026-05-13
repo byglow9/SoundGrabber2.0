@@ -5,19 +5,97 @@ function yonkouMessage(text) {
   if (node) node.textContent = text;
 }
 
+function getLinkLabel(i) {
+  const select = document.getElementById(`featured-link-label-${i}`);
+  if (!select) return '';
+  if (select.value === 'Outros') {
+    const custom = document.getElementById(`featured-link-label-custom-${i}`);
+    return custom ? custom.value.trim() : '';
+  }
+  return select.value;
+}
+
 function featuredLinksFromForm() {
   const links = [];
-  for (let i = 1; i <= 3; i += 1) {
-    const label = document.getElementById(`featured-link-label-${i}`);
+  for (let i = 1; i <= 4; i += 1) {
     const url = document.getElementById(`featured-link-url-${i}`);
-    if (!label || !url) continue;
-    const labelValue = label.value.trim();
+    if (!url) continue;
+    const labelValue = getLinkLabel(i);
     const urlValue = url.value.trim();
     if (labelValue || urlValue) {
       links.push({ label: labelValue, url: urlValue });
     }
   }
   return links;
+}
+
+function wireSelectLabels() {
+  for (let i = 1; i <= 4; i += 1) {
+    const select = document.getElementById(`featured-link-label-${i}`);
+    const custom = document.getElementById(`featured-link-label-custom-${i}`);
+    if (!select || !custom) continue;
+    select.addEventListener('change', () => {
+      custom.style.display = select.value === 'Outros' ? '' : 'none';
+      if (select.value !== 'Outros') custom.value = '';
+    });
+  }
+}
+
+function createArtistaRow(nome, url) {
+  const row = document.createElement('div');
+  row.className = 'artista-row';
+
+  const nomeInput = document.createElement('input');
+  nomeInput.className = 'yonkou-input artista-nome';
+  nomeInput.placeholder = 'nome';
+  nomeInput.value = nome || '';
+
+  const urlInput = document.createElement('input');
+  urlInput.className = 'yonkou-input artista-url';
+  urlInput.placeholder = 'link (opcional)';
+  urlInput.value = url || '';
+
+  const removeBtn = document.createElement('button');
+  removeBtn.type = 'button';
+  removeBtn.className = 'artista-remove';
+  removeBtn.textContent = '×';
+  removeBtn.addEventListener('click', () => {
+    const list = document.getElementById('artistas-list');
+    if (list && list.querySelectorAll('.artista-row').length > 1) row.remove();
+  });
+
+  row.appendChild(nomeInput);
+  row.appendChild(urlInput);
+  row.appendChild(removeBtn);
+  return row;
+}
+
+function initArtistasList() {
+  const list = document.getElementById('artistas-list');
+  if (!list) return;
+  const artistas = window.YONKOU_ARTISTAS || [];
+  if (artistas.length === 0) {
+    list.appendChild(createArtistaRow('', ''));
+  } else {
+    artistas.forEach(a => list.appendChild(createArtistaRow(a.nome || '', a.url || '')));
+  }
+}
+
+function wireArtistasList() {
+  const addBtn = document.getElementById('add-artista-btn');
+  const list = document.getElementById('artistas-list');
+  if (!addBtn || !list) return;
+  addBtn.addEventListener('click', () => list.appendChild(createArtistaRow('', '')));
+}
+
+function artistasFromForm() {
+  const artistas = [];
+  document.querySelectorAll('.artista-row').forEach(row => {
+    const nome = row.querySelector('.artista-nome').value.trim();
+    const url = row.querySelector('.artista-url').value.trim();
+    if (nome || url) artistas.push({ nome, url });
+  });
+  return artistas;
 }
 
 function wireLoginForm() {
@@ -37,7 +115,7 @@ function wireLoginForm() {
       window.location.href = '/yonkou';
       return;
     }
-    yonkouMessage('Senha incorreta ou limite atingido.');
+    yonkouMessage('erro');
   });
 }
 
@@ -48,8 +126,8 @@ function wireFeaturedEditor() {
   form.addEventListener('submit', async event => {
     event.preventDefault();
     const payload = {
-      artista: document.getElementById('featured-artista').value.trim(),
-      titulo: document.getElementById('featured-title').value.trim(),
+      artistas: artistasFromForm(),
+      titulo: document.getElementById('featured-titulo').value.trim(),
       genero: document.getElementById('featured-genero').value.trim(),
       descricao: document.getElementById('featured-descricao').value.trim(),
       links: featuredLinksFromForm()
@@ -72,5 +150,8 @@ function wireFeaturedEditor() {
 
 document.addEventListener('DOMContentLoaded', () => {
   wireLoginForm();
+  initArtistasList();
+  wireArtistasList();
   wireFeaturedEditor();
+  wireSelectLabels();
 });
