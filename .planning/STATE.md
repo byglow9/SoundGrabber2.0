@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Phases — YouTube Pipeline Fix
 status: executing
-last_updated: "2026-05-13T18:26:52.106Z"
+last_updated: "2026-05-13T18:50:49.255Z"
 last_activity: 2026-05-13 -- Phase 10.1 execution started
 progress:
   total_phases: 5
   completed_phases: 4
   total_plans: 15
-  completed_plans: 11
-  percent: 73
+  completed_plans: 14
+  percent: 93
 ---
 
 # State — SoundGrabber
@@ -31,12 +31,12 @@ progress:
 
 ## Current Position
 
-Phase: 10.1 (oauth2-railway-volume-auth-migration) — EXECUTING
-Plan: 1 of 5
-Status: Executing Phase 10.1
-Last activity: 2026-05-13 -- Phase 10.1 execution started
+Phase: 10.1 (oauth2-railway-volume-auth-migration) — BLOCKED
+Plan: 5 of 5 (Wave 4 blocked)
+Status: AUTH-02 E2E falhou — cookies sozinhos não passam no IP datacenter Railway
+Last activity: 2026-05-13 -- Wave 4 E2E blocked: LOGIN_REQUIRED mesmo com cookies válidos
 
-Progress: [██████████] 100%
+Progress: [████████░░] 80% (Wave 3 completa, Wave 4 bloqueada)
 
 ---
 
@@ -94,17 +94,19 @@ Progress: [██████████] 100%
 | "Requested format is not available" | Web client precisa PO Token; android client falha com cookies web | Aberto |
 | nsig extraction failure | Diferença de versão yt-dlp (local 2024.12 vs Railway 2026.3) | Aberto |
 | ffprobe path no Railway | imageio-ffmpeg não no PATH do sistema Railway | Aberto — endereçado em Phase 8 (PIPE-01, DEPLOY-01) |
+| LOGIN_REQUIRED no Railway mesmo com cookies válidos (Phase 10.1) | Railway datacenter IP bloqueado pelo YouTube independente de cookies autenticados — cookies não são suficientes, PO Token/bgutil necessário | BLOQUEADOR ATUAL |
 
 ### Todos
 
-- [ ] Implementar Phase 8: correções em pipeline.py + nixpacks.toml
-- [ ] Deploy bgutil no Railway (Phase 9 — ação humana)
-- [ ] Configurar BGUTIL_BASE_URL nos serviços Railway (Phase 9 — ação humana)
-- [ ] Validar pipeline end-to-end com 3 URLs de beats (Phase 10)
+- [x] Implementar Phase 8: correções em pipeline.py + nixpacks.toml
+- [x] Deploy bgutil no Railway (Phase 9 — ação humana)
+- [x] Configurar BGUTIL_BASE_URL nos serviços Railway (Phase 9 — ação humana)
+- [ ] Validar pipeline end-to-end com 3 URLs de beats — BLOQUEADO por LOGIN_REQUIRED
+- [ ] Decidir estratégia: bgutil + cookies no Volume híbrido, ou VPS/proxy residencial
 
 ### Blockers
 
-Nenhum.
+**CRÍTICO (2026-05-13):** YouTube retorna LOGIN_REQUIRED no Railway datacenter IP mesmo com cookies autenticados válidos (bytes=2987, `__Secure-3PSID` presente). yt-dlp reconhece cookies mas YouTube rejeita na camada de rede. Evidência: `Found YouTube account cookies` + `Sign in to confirm you're not a bot`. bgutil (serviço `2fc3a8a5`) mantido ativo enquanto bloqueio não resolvido.
 
 ---
 
