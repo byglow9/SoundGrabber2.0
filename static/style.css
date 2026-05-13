@@ -387,3 +387,81 @@ td {
   font-size: 13px;
   color: #ff8800;
 }
+
+#featured-shell {
+  margin-left: auto;
+  margin-right: auto;
+  border: none;
+}
+
+#featured-main-cell {
+  width: 640px;
+  border: none;
+  padding: 0;
+}
+
+#featured-sidebar {
+  width: 220px;
+  border: none;
+  border-left: 1px solid #ff8800;
+  padding: 0 0 0 10px;
+}
+
+#featured-card {
+  width: 220px;
+  background: #000000;
+  color: #ff8800;
+  border: 1px solid #ff8800;
+  padding: 8px;
+  font-family: 'Sligoil', 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+#featured-title {
+  color: #ff8800;
+  font-family: 'Sligoil', 'Courier New', monospace;
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+#featured-separator {
+  color: #804400;
+  margin-bottom: 8px;
+}
+
+.featured-field-label {
+  color: #804400;
+  font-size: 11px;
+  margin-top: 6px;
+}
+
+.featured-field-value {
+  color: #ff8800;
+  margin-bottom: 3px;
+}
+
+.featured-date {
+  color: #804400;
+  font-size: 11px;
+  margin-top: 8px;
+  margin-bottom: 8px;
+}
+
+.featured-link {
+  display: block;
+  color: #ff8800;
+  background: #000000;
+  border: 1px solid #ff8800;
+  padding: 4px;
+  margin-top: 5px;
+  text-align: center;
+  text-decoration: none;
+  font-family: 'Sligoil', 'Courier New', monospace;
+  font-size: 12px;
+}
+
+.featured-link:hover {
+  color: #000000;
+  background: #ff8800;
+}
