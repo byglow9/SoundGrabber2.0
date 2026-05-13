@@ -16,6 +16,10 @@
 # Referência: D-01 de .planning/phases/10-failure-hardening-and-e2e-validation/10-CONTEXT.md
 set -e
 
+# Phase 10.1: impede que plugins GetPOT antigos permaneçam ativos por cache de venv.
+# yt-dlp 2026.x usa provedores JS internos; o build instala nodejs para esses desafios.
+export YTDLP_NO_PLUGINS=1
+
 # Phase 10.1 D-06: garantir permissoes do Railway Volume antes de qualquer worker iniciar.
 # Volume montado em runtime (nao em build) — chmod precisa ser no startup.
 # || true evita que set -e aborte se chmod falhar por permissao herdada do Railway.

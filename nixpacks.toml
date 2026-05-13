@@ -2,6 +2,7 @@
 # nixpacks uses the Debian apt package manager on Railway.
 # ffmpeg package installs both /usr/bin/ffmpeg and /usr/bin/ffprobe on PATH.
 # This allows pipeline.py to resolve ffprobe via shutil.which("ffprobe") — PIPE-01.
+# nodejs is required by yt-dlp 2026.x to solve YouTube signature/n challenges.
 # No Python version pin — requirements.txt manages Python dependencies.
 [phases.setup]
-aptPkgs = ["ffmpeg"]
+aptPkgs = ["ffmpeg", "nodejs"]
