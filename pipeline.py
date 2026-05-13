@@ -109,6 +109,9 @@ def check_duration(url: str, cache_dir: str) -> dict[str, Any]:
     bgutil_base_url = os.environ.get("BGUTIL_BASE_URL", "")
     # web client requer PO Token (bgutil fornece); android é fallback degradado sem bgutil
     player_client = "web" if bgutil_base_url else "android"
+    youtube_args: dict[str, list[str]] = {"player_client": [player_client]}
+    if bgutil_base_url:
+        youtube_args["getpot_bgutil_baseurl"] = [bgutil_base_url]
     ydl_opts: dict[str, Any] = {
         "quiet": True,
         "no_warnings": True,
@@ -117,11 +120,9 @@ def check_duration(url: str, cache_dir: str) -> dict[str, Any]:
         "noplaylist": True,
         "no_cache_dir": True,           # D-04: prevent stale nsig between Railway deploys
         "ffmpeg_location": _YTDLP_FFMPEG_LOCATION,  # executable path — see _YTDLP_FFMPEG_LOCATION
-        "extractor_args": {"youtube": [f"player_client={player_client}"]},
+        # yt-dlp Python API expects nested extractor args, unlike the CLI string format.
+        "extractor_args": {"youtube": youtube_args},
     }
-    # Se bgutil presente: adicionar getpot_bgutil_baseurl para PO Token / JS challenge
-    if bgutil_base_url:
-        ydl_opts["extractor_args"]["youtube"].append(f"getpot_bgutil_baseurl={bgutil_base_url}")
     logger.warning(
         "AUTH: check_duration bgutil_base_url=%s player_client=%s",
         "set" if bgutil_base_url else "empty",
@@ -201,9 +202,10 @@ def download_audio(url: str, cache_dir: str) -> Path:
     bgutil_base_url = os.environ.get("BGUTIL_BASE_URL", "")
     # web client requer PO Token (bgutil fornece); android é fallback degradado sem bgutil
     dl_player = "web" if bgutil_base_url else "android"
-    extractor_args: dict[str, list[str]] = {"youtube": [f"player_client={dl_player}"]}
+    youtube_args: dict[str, list[str]] = {"player_client": [dl_player]}
     if bgutil_base_url:
-        extractor_args["youtube"].append(f"getpot_bgutil_baseurl={bgutil_base_url}")
+        youtube_args["getpot_bgutil_baseurl"] = [bgutil_base_url]
+    extractor_args: dict[str, dict[str, list[str]]] = {"youtube": youtube_args}
     logger.warning(
         "AUTH: download_audio bgutil_base_url=%s player_client=%s",
         "set" if bgutil_base_url else "empty",

@@ -54,14 +54,17 @@ def test_duration_check_accepts_short_video(mock_yt_info_short):
 # CORE-03: Download with auth (Plan 02, Wave 1)
 # ---------------------------------------------------------------------------
 
-def test_download_opts_include_auth():
-    """download_audio() must build ydl_opts with cookiefile and extractor_args po_token.
+def test_download_opts_include_auth(monkeypatch, tmp_path):
+    """download_audio() must build ydl_opts with cookiefile and nested extractor_args.
 
-    Verifies D-01 (cookies via env var) and D-02 (PO Token via env var) are wired into yt-dlp.
-    Also verifies the extractor_args FORMAT is a list of strings (not nested dict — see Pitfall 4).
+    Phase 10.1 uses cookies from cache_dir/cookies.txt plus bgutil via BGUTIL_BASE_URL.
+    yt-dlp's Python API expects extractor_args as nested dicts, not CLI-style strings.
     """
     pipeline = pytest.importorskip("pipeline", reason="pipeline.py not yet implemented (Plan 02)")
     captured_opts: dict = {}
+    monkeypatch.setenv("BGUTIL_BASE_URL", "https://bgutil-test.example.com")
+    cookies = tmp_path / "cookies.txt"
+    cookies.write_text("# Netscape HTTP Cookie File\n__Secure-3PSID\tvalue\n")
 
     class FakeYDL:
         def __init__(self, opts):
@@ -80,18 +83,18 @@ def test_download_opts_include_auth():
         try:
             pipeline.download_audio(
                 "https://www.youtube.com/watch?v=abc123",
-                "cookies.txt",
-                "TESTTOKEN",
+                str(tmp_path),
             )
         except (FileNotFoundError, RuntimeError):
             pass  # Expected: FakeYDL.download() creates a stub WAV but the path check may fail
 
-    assert captured_opts.get("cookiefile") == "cookies.txt", "cookiefile not wired to ydl_opts"
+    assert captured_opts.get("cookiefile") == str(cookies), "cookiefile not wired to ydl_opts"
     extractor_args = captured_opts.get("extractor_args", {})
-    yt_args = extractor_args.get("youtube", [])
-    assert isinstance(yt_args, list), f"extractor_args.youtube must be list, got {type(yt_args)}"
-    assert any("po_token=web.gvs+TESTTOKEN" in s for s in yt_args), \
-        f"po_token not in extractor_args.youtube: {yt_args}"
+    yt_args = extractor_args.get("youtube", {})
+    assert isinstance(yt_args, dict), f"extractor_args.youtube must be dict, got {type(yt_args)}"
+    assert yt_args.get("player_client") == ["web"], f"player_client not set correctly: {yt_args}"
+    assert yt_args.get("getpot_bgutil_baseurl") == ["https://bgutil-test.example.com"], \
+        f"getpot_bgutil_baseurl not in extractor_args.youtube: {yt_args}"
 
 
 # ---------------------------------------------------------------------------

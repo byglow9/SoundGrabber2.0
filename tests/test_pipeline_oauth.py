@@ -90,12 +90,12 @@ def test_check_duration_hybrid_with_bgutil_and_cookies(tmp_path, monkeypatch):
     assert captured_opts.get("cookiefile") == str(cookies), (
         f"plan-06: cookiefile deveria ser {cookies!s} (Volume), obtido {captured_opts.get('cookiefile')!r}."
     )
-    extractor_args_str = str(captured_opts.get("extractor_args", ""))
-    assert "getpot_bgutil_baseurl=https://bgutil-test.example.com" in extractor_args_str, (
-        f"plan-06: getpot_bgutil_baseurl deveria estar em extractor_args. "
+    youtube_args = captured_opts.get("extractor_args", {}).get("youtube", {})
+    assert youtube_args.get("getpot_bgutil_baseurl") == ["https://bgutil-test.example.com"], (
+        f"plan-06: getpot_bgutil_baseurl deveria estar em extractor_args.youtube. "
         f"extractor_args obtido: {captured_opts.get('extractor_args')!r}"
     )
-    assert "player_client=web" in extractor_args_str, (
+    assert youtube_args.get("player_client") == ["web"], (
         "plan-06: player_client=web deve ser usado quando bgutil presente."
     )
 
@@ -115,7 +115,8 @@ def test_check_duration_no_bgutil_when_env_empty(monkeypatch, tmp_path):
     assert "getpot_bgutil_baseurl" not in str(captured_opts.get("extractor_args", "")), (
         "plan-06: sem BGUTIL_BASE_URL, getpot_bgutil_baseurl nao deve estar presente."
     )
-    assert "player_client=android" in str(captured_opts.get("extractor_args", "")), (
+    youtube_args = captured_opts.get("extractor_args", {}).get("youtube", {})
+    assert youtube_args.get("player_client") == ["android"], (
         "plan-06: player_client=android (fallback degradado) deve ser usado quando bgutil ausente."
     )
 
@@ -224,12 +225,12 @@ def test_download_audio_hybrid_with_bgutil_and_cookies(tmp_path, monkeypatch):
     assert captured_opts.get("cookiefile") == str(cookies), (
         f"plan-06: cookiefile deveria ser {cookies!s} (Volume), obtido {captured_opts.get('cookiefile')!r}."
     )
-    extractor_args_str = str(captured_opts.get("extractor_args", ""))
-    assert "getpot_bgutil_baseurl=https://bgutil-test.example.com" in extractor_args_str, (
-        f"plan-06: getpot_bgutil_baseurl deveria estar em extractor_args de download_audio. "
+    youtube_args = captured_opts.get("extractor_args", {}).get("youtube", {})
+    assert youtube_args.get("getpot_bgutil_baseurl") == ["https://bgutil-test.example.com"], (
+        f"plan-06: getpot_bgutil_baseurl deveria estar em extractor_args.youtube de download_audio. "
         f"extractor_args obtido: {captured_opts.get('extractor_args')!r}"
     )
-    assert "player_client=web" in extractor_args_str, (
+    assert youtube_args.get("player_client") == ["web"], (
         "plan-06: player_client=web deve ser usado em download_audio quando bgutil presente."
     )
 
