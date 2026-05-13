@@ -5,6 +5,7 @@ cookies.txt
 
 # Pipeline temp output (D-08)
 /tmp/sg_*
+.data/
 
 # Python
 __pycache__/

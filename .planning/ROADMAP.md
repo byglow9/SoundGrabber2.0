@@ -276,15 +276,24 @@ Plans:
 
 **Mapped: 45/45 (19 v1 + 16 v1.1 + 10 v1.2)**
 
-### Phase 11: Som da Semana — Curated sidebar panel featuring underground music releases, updated by the site operator via an authenticated API endpoint; displays artist, title, genre, link, and operator note; integrates with the download field when the featured link is from YouTube
+### Phase 11: Som da Semana — Curated sidebar panel featuring underground music releases, updated by the site operator via hidden `/yonkou` authenticated panel; displays artist, title, genre, links, and operator note with no public admin affordance
 
-**Goal:** [To be planned]
-**Requirements**: TBD
+**Goal:** Visitors see a Y2K/phpBB-style Som da Semana sidebar only when curated content exists, while the operator can directly visit `/yonkou`, authenticate with `ADMIN_PASSWORD`, and replace the single featured release through signed-cookie-protected, rate-limited endpoints.
+**Requirements**: D-01, D-02, D-03, D-04, D-05, D-06
 **Depends on:** Phase 10
-**Plans:** 0 plans
+**Success Criteria** (what must be TRUE):
+  1. The public homepage contains no visible button, link, menu item, or copy exposing `/yonkou`.
+  2. Directly visiting `/yonkou` renders the operator login panel; a valid `ADMIN_PASSWORD` sets a signed HttpOnly SameSite session cookie.
+  3. `POST /featured` rejects missing/invalid operator sessions, validates artist/title/genre/description and up to 3 HTTP(S) links, and stores the single current release in Redis with JSON fallback.
+  4. `GET /featured` is rate-limited and returns either the current featured release or an empty response without breaking the downloader flow.
+  5. When content exists, the visitor page injects a right-side table sidebar using the locked Y2K palette and safe DOM rendering; when empty or failed, the main downloader table remains centered.
+**Plans:** 4/4 plans complete
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 11 to break down)
+- [x] 11-01-PLAN.md — Wave 1: RED tests for operator auth, `/yonkou`, `/featured`, Redis fallback, no public route affordance, and sidebar/static contract
+- [x] 11-02-PLAN.md — Wave 2: backend settings, signed cookie auth, `/yonkou`, `/featured`, Pydantic validation, Redis JSON storage, and fallback
+- [x] 11-03-PLAN.md — Wave 2: public sidebar HTML/JS/CSS implementation following the approved UI-SPEC
+- [x] 11-04-PLAN.md — Wave 3: security checklist update and human direct-route verification checkpoint
 
 ---
 

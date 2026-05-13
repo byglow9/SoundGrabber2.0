@@ -12,6 +12,8 @@ import pytest
 # (no auth, started on port 6380). Must run before any api.* import.
 os.environ.setdefault("REDIS_URL", "redis://localhost:6380/0")
 os.environ.setdefault("DEV_MODE", "true")  # SEC-INFRA-01: bypassa Redis auth check em testes (D-06)
+os.environ.setdefault("ADMIN_PASSWORD", "correct horse")
+os.environ.setdefault("ADMIN_SESSION_SECRET", "test-secret-for-signed-cookie")
 
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"

@@ -2,7 +2,7 @@
 
 **Fonte de verdade dos controles de seguranca ativos.** Atualizar sempre que um novo controle for adicionado ou removido. Esta checklist eh referenciada por `CLAUDE.md > Security Gate` e deve estar verde antes de cada deploy de producao.
 
-**Ultima atualizacao:** Phase 7 (Infrastructure Security)
+**Ultima atualizacao:** Phase 11 (Som da Semana)
 **Proxima revisao:** v1.2 (CSP sem `'unsafe-inline'`)
 
 ## Como usar
@@ -178,7 +178,62 @@
 
 ---
 
-## 7. Threats NAO mitigados nesta fase (deferidos)
+## 7. Som da Semana Operator Controls (Phase 11)
+
+### SEC-FEATURED-01 — Public GET /featured rate limit e fallback seguro
+
+- [ ] `api/main.py::get_featured` existe em `@app.get("/featured")`
+- [ ] Rota decorada com `@limiter.limit("60/minute")`
+- [ ] Assinatura inclui `request: Request, response: Response`
+- [ ] Leitura usa Redis `featured:current` e fallback JSON em indisponibilidade do Redis
+- **Verificacao:** `pytest tests/test_security.py::test_featured_get_rate_limit -x`
+- **Verificacao fallback:** `pytest tests/test_security.py::test_featured_redis_fallback -x`
+- **Threat:** DoS / Availability — leitura publica nao pode quebrar o downloader quando Redis falha
+
+### SEC-FEATURED-02 — /yonkou direto, autenticado e rate-limited
+
+- [ ] `api/main.py::yonkou_panel` existe em `@app.get("/yonkou")`
+- [ ] Rota decorada com `@limiter.limit("60/minute")`
+- [ ] Visitante sem cookie ve somente o painel de login com `Entrar no painel`
+- [ ] Pagina publica `/` nao contem link, botao, menu item ou copy expondo `/yonkou`
+- **Verificacao:** `pytest tests/test_security.py::test_yonkou_panel_rate_limit tests/test_security.py::test_yonkou_panel_requires_no_public_link -x`
+- **Verificacao frontend:** `pytest tests/test_frontend.py::test_public_page_does_not_link_yonkou -x`
+- **Threat:** Information Disclosure — reduz descoberta casual da rota operadora sem substituir autenticacao
+
+### SEC-FEATURED-03 — POST /yonkou/login com ADMIN_PASSWORD e cookie assinado
+
+- [ ] `api/main.py::yonkou_login` existe em `@app.post("/yonkou/login")`
+- [ ] Rota decorada com `@limiter.limit("5/minute")`
+- [ ] Senha vem de `settings.admin_password` / env `ADMIN_PASSWORD`
+- [ ] Sessao usa cookie `sg_admin` assinado com `ADMIN_SESSION_SECRET`
+- [ ] Cookie tem `HttpOnly` e `SameSite`
+- **Verificacao:** `pytest tests/test_security.py::test_yonkou_login_rate_limit tests/test_security.py::test_yonkou_login_sets_secure_session_cookie -x`
+- **Threat:** Elevation of Privilege / Spoofing — impede update operador sem senha e sessao assinada
+
+### SEC-FEATURED-04 — POST /featured operador-only com validacao D-03
+
+- [ ] `api/main.py::post_featured` existe em `@app.post("/featured")`
+- [ ] Rota decorada com `@limiter.limit("10/minute")`
+- [ ] Requer cookie `sg_admin` valido antes de salvar
+- [ ] Body usa Pydantic (`FeaturedReleaseRequest`, `FeaturedLink`)
+- [ ] Campos D-03 sao obrigatorios e links aceitam no maximo 3 URLs `http`/`https`
+- [ ] Armazena o documento atual em Redis `featured:current` e JSON fallback
+- **Verificacao:** `pytest tests/test_security.py::test_post_featured_requires_operator_session tests/test_security.py::test_post_featured_validates_links tests/test_security.py::test_post_featured_rate_limit -x`
+- **Threat:** Tampering — conteudo publico curado passa por autenticacao e validacao antes de persistir
+
+### SEC-FEATURED-05 — Renderizacao publica XSS-safe
+
+- [ ] `static/app.js` busca `fetch('/featured')` no carregamento
+- [ ] Conteudo operador-renderizado usa `textContent`, nao `innerHTML`
+- [ ] Links externos usam `target="_blank"` e `rel="noopener"`
+- [ ] Sidebar usa card preto/laranja Y2K sem imagem, artwork, embed ou icone de plataforma
+- **Verificacao:** `pytest tests/test_frontend.py::test_featured_sidebar_static_contract tests/test_frontend.py::test_featured_links_are_noopener_blank tests/test_frontend.py::test_featured_sidebar_css_contract -x`
+- **Verificacao completa Phase 11:** `pytest tests/test_security.py -x -q` e `pytest tests/test_frontend.py -x -q`
+- **Threat:** XSS / Tabnabbing — conteudo de operador aparece no browser publico sem HTML injetado e sem acesso a `window.opener`
+
+---
+
+## 8. Threats NAO mitigados nesta fase (deferidos)
 
 Estes itens estao escopados para v1.2 ou versoes futuras:
 
@@ -188,7 +243,7 @@ Estes itens estao escopados para v1.2 ou versoes futuras:
 
 ---
 
-## 8. Verificacao end-to-end (rodar antes de cada deploy)
+## 9. Verificacao end-to-end (rodar antes de cada deploy)
 
 Bloco de comandos shell para validar a checklist completa antes de deploy. Cada bloco em fence bash.
 
@@ -212,6 +267,10 @@ test -f railway.toml && echo "railway.toml OK" || echo "railway.toml MISSING"
 grep -q 'startCommand.*0.0.0.0.*$PORT' railway.toml && echo "Railway startCommand OK"
 pytest tests/test_security.py::test_hsts_header -q
 
+# 4.6 Verificar controles Som da Semana (Phase 11)
+pytest tests/test_security.py -x -q
+pytest tests/test_frontend.py -x -q
+
 # 5. Smoke test do health endpoint (com server up)
 curl -s http://localhost:8000/health
 
@@ -226,10 +285,11 @@ done
 
 ---
 
-## 9. Historico de mudancas
+## 10. Historico de mudancas
 
 | Data | Phase | Controles adicionados |
 |------|-------|----------------------|
 | Phase 3 | Hardening | Body size, security headers, docs disabled, queue depth, rate limit POST /jobs |
 | Phase 6 | Application Security | WAV chmod 0o600, start.sh chmod 750, rate limit GET /jobs e /files, /health endpoint, pip-audit policy, este checklist |
 | Phase 7 | Infrastructure Security | Redis auth enforcement (DEV_MODE bypass), HSTS via FastAPI middleware, Railway PaaS deploy (railway.toml), HTTPS automatico Railway |
+| Phase 11 | Som da Semana | `/featured` e `/yonkou` rate-limited, `ADMIN_PASSWORD`, cookie assinado HttpOnly SameSite, validacao Pydantic D-03, Redis `featured:current` com JSON fallback, renderizacao `textContent` e `noopener` |

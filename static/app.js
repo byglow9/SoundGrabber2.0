@@ -319,6 +319,239 @@ function formatSizeMB(mb) {
   return `~${mb.toFixed(1)} MB`;
 }
 
+function formatFeaturedDate(value) {
+  if (!value) return '';
+  const parts = String(value).split('-');
+  if (parts.length !== 3) return String(value);
+  return `${parts[2]}/${parts[1]}/${parts[0]}`;
+}
+
+function clearFeaturedSidebar() {
+  const shell = $('featured-shell');
+  const app = $('app');
+  const wrapper = $('wrapper');
+  if (!shell || !app || !wrapper) return;
+  wrapper.insertBefore(app, shell);
+  shell.remove();
+}
+
+function ensureFeaturedSidebar() {
+  const existing = $('featured-sidebar');
+  if (existing) return existing;
+
+  const wrapper = $('wrapper');
+  const app = $('app');
+  if (!wrapper || !app) return null;
+
+  const shell = document.createElement('table');
+  shell.id = 'featured-shell';
+  shell.setAttribute('align', 'center');
+  shell.setAttribute('cellpadding', '0');
+  shell.setAttribute('cellspacing', '0');
+
+  const row = document.createElement('tr');
+  const appCell = document.createElement('td');
+  appCell.id = 'featured-main-cell';
+  appCell.setAttribute('valign', 'top');
+  const sidebar = document.createElement('td');
+  sidebar.id = 'featured-sidebar';
+  sidebar.setAttribute('valign', 'top');
+
+  const separator = document.createElement('td');
+  separator.id = 'featured-separator';
+  separator.setAttribute('valign', 'top');
+  const sepImg = document.createElement('img');
+  sepImg.src = '/static/bordas/borda7.png';
+  sepImg.alt = '';
+  separator.appendChild(sepImg);
+
+  shell.appendChild(row);
+  row.appendChild(appCell);
+  row.appendChild(separator);
+  row.appendChild(sidebar);
+  wrapper.insertBefore(shell, app);
+  appCell.appendChild(app);
+
+  return sidebar;
+}
+
+function appendFeaturedField(card, label, value) {
+  if (!value) return;
+
+  const labelNode = document.createElement('div');
+  labelNode.className = 'featured-field-label';
+  labelNode.textContent = label;
+
+  const valueNode = document.createElement('div');
+  valueNode.className = 'featured-field-value';
+  valueNode.textContent = value;
+
+  card.appendChild(labelNode);
+  card.appendChild(valueNode);
+}
+
+function extractYoutubeId(url) {
+  const m = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([A-Za-z0-9_-]{11})/);
+  return m ? m[1] : null;
+}
+
+function renderFeatured(data) {
+  if (!data || Object.keys(data).length === 0) {
+    clearFeaturedSidebar();
+    return;
+  }
+
+  const sidebar = ensureFeaturedSidebar();
+  if (!sidebar) return;
+  sidebar.textContent = '';
+
+  const card = document.createElement('div');
+  card.id = 'featured-card';
+
+  // kicker
+  const kicker = document.createElement('div');
+  kicker.id = 'featured-kicker';
+  kicker.textContent = 'SOM DA SEMANA';
+  card.appendChild(kicker);
+
+  // titulo + artistas na mesma linha: "TITULO de artistas"
+  const titleRow = document.createElement('div');
+  titleRow.id = 'featured-title-row';
+
+  if (data.titulo) {
+    const tituloNode = document.createElement('span');
+    tituloNode.id = 'featured-titulo';
+    tituloNode.textContent = data.titulo;
+    titleRow.appendChild(tituloNode);
+  }
+
+  const artistas = Array.isArray(data.artistas)
+    ? data.artistas
+    : (data.artista ? [{ nome: data.artista, url: '' }] : []);
+  if (artistas.length > 0) {
+    const sep = document.createElement('span');
+    sep.id = 'featured-title-sep';
+    sep.textContent = 'de';
+    titleRow.appendChild(sep);
+
+    const artistNode = document.createElement('span');
+    artistNode.id = 'featured-artist';
+    artistas.forEach((a, i) => {
+      if (i > 0) {
+        const comma = (i === artistas.length - 1) ? ' & ' : ', ';
+        artistNode.appendChild(document.createTextNode(comma));
+      }
+      if (a.url) {
+        const anchor = document.createElement('a');
+        anchor.href = a.url;
+        anchor.target = '_blank';
+        anchor.rel = 'noopener';
+        anchor.textContent = a.nome;
+        anchor.className = 'featured-artist-link';
+        artistNode.appendChild(anchor);
+      } else {
+        artistNode.appendChild(document.createTextNode(a.nome));
+      }
+    });
+    titleRow.appendChild(artistNode);
+  }
+
+  card.appendChild(titleRow);
+
+  // player YouTube — entre artistas e gênero
+  const ytLink = (data.links || []).find(l => l.label === 'Youtube');
+  if (ytLink) {
+    const videoId = extractYoutubeId(ytLink.url);
+    if (videoId) {
+      const playerWrap = document.createElement('div');
+      playerWrap.id = 'featured-player';
+      const iframe = document.createElement('iframe');
+      iframe.src = `https://www.youtube.com/embed/${videoId}`;
+      iframe.setAttribute('frameborder', '0');
+      iframe.setAttribute('allow', 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture');
+      iframe.setAttribute('allowfullscreen', '');
+      playerWrap.appendChild(iframe);
+      card.appendChild(playerWrap);
+    }
+  }
+
+  // divider
+  const divider = document.createElement('div');
+  divider.id = 'featured-divider';
+  card.appendChild(divider);
+
+  // genero tag
+  if (data.genero) {
+    const generoNode = document.createElement('div');
+    generoNode.id = 'featured-genero';
+    generoNode.textContent = data.genero;
+    card.appendChild(generoNode);
+  }
+
+  // descricao
+  if (data.descricao) {
+    const descNode = document.createElement('div');
+    descNode.id = 'featured-descricao';
+    descNode.textContent = data.descricao;
+    card.appendChild(descNode);
+  }
+
+  // data
+  const dateNode = document.createElement('div');
+  dateNode.className = 'featured-date';
+  dateNode.textContent = formatFeaturedDate(data.data_adicao);
+  card.appendChild(dateNode);
+
+  const LINK_ICONS = {
+    Youtube: `<svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true"><path d="M23.5 6.2a3 3 0 0 0-2.1-2.1C19.5 3.6 12 3.6 12 3.6s-7.5 0-9.4.5A3 3 0 0 0 .5 6.2C0 8.1 0 12 0 12s0 3.9.5 5.8a3 3 0 0 0 2.1 2.1c1.9.5 9.4.5 9.4.5s7.5 0 9.4-.5a3 3 0 0 0 2.1-2.1C24 15.9 24 12 24 12s0-3.9-.5-5.8zM9.7 15.5v-7l6.3 3.5-6.3 3.5z"/></svg>`,
+    Soundcloud: `<svg viewBox="0 0 24 16" width="18" height="12" fill="currentColor" aria-hidden="true"><path d="M1.5 10.3C.7 10.3 0 11 0 11.8s.7 1.5 1.5 1.5H20c2.2 0 4-1.8 4-4a4 4 0 0 0-3.3-3.9A6 6 0 0 0 15 1a6 6 0 0 0-2.6.6A7 7 0 0 0 1.5 10.3z"/></svg>`,
+    Spotify: `<svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true"><path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.7 0 12 0zm5.5 17.3c-.2.4-.7.5-1 .2-2.8-1.7-6.4-2.1-10.6-1.1-.4.1-.8-.2-.9-.5-.1-.4.2-.8.6-.9 4.5-1 8.5-.6 11.6 1.3.3.2.5.6.3 1zm1.5-3.3c-.3.4-.8.6-1.3.3-3.2-2-8.2-2.6-11.9-1.4-.5.1-1-.1-1.1-.6-.1-.5.1-1 .6-1.1 4.2-1.3 9.6-.6 13.3 1.5.4.3.6.9.4 1.3zm.1-3.4C15.2 8.4 8.8 8.2 5.2 9.3c-.6.2-1.2-.2-1.4-.7-.2-.6.2-1.2.7-1.4 4.3-1.3 11.3-1 15.7 1.6.6.3.7 1 .4 1.5-.3.5-1 .6-1.5.3z"/></svg>`,
+    Instagram: `<svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true"><path d="M12 2.2c3.2 0 3.6 0 4.9.1 3.2.1 4.7 1.7 4.8 4.8.1 1.3.1 1.7.1 4.9s0 3.6-.1 4.9c-.1 3.1-1.6 4.7-4.8 4.8-1.3.1-1.7.1-4.9.1s-3.6 0-4.9-.1C3.9 21.6 2.4 20 2.3 16.9 2.2 15.6 2.2 15.2 2.2 12s0-3.6.1-4.9C2.4 3.9 4 2.4 7.1 2.3 8.4 2.2 8.8 2.2 12 2.2zM12 0C8.7 0 8.3 0 7.1.1 2.7.3.3 2.7.1 7.1 0 8.3 0 8.7 0 12s0 3.7.1 4.9c.2 4.4 2.6 6.8 7 7C8.3 24 8.7 24 12 24s3.7 0 4.9-.1c4.4-.2 6.8-2.6 7-7 .1-1.2.1-1.6.1-4.9s0-3.7-.1-4.9c-.2-4.4-2.6-6.8-7-7C15.7 0 15.3 0 12 0zm0 5.8a6.2 6.2 0 1 0 0 12.4A6.2 6.2 0 0 0 12 5.8zM12 16a4 4 0 1 1 0-8 4 4 0 0 1 0 8zm6.4-11.8a1.44 1.44 0 1 0 0 2.88 1.44 1.44 0 0 0 0-2.88z"/></svg>`,
+    Outros: `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 3 21 3 21 9"/><path d="M10 14L21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>`,
+  };
+
+  const links = Array.isArray(data.links) ? data.links.slice(0, 4) : [];
+  if (links.some(item => item && item.label && item.url)) {
+    const linksRow = document.createElement('div');
+    linksRow.className = 'featured-links-row';
+    links.forEach(item => {
+      if (!item || !item.label || !item.url) return;
+      const link = document.createElement('a');
+      link.className = 'featured-link';
+      link.href = item.url;
+      link.target = '_blank';
+      link.rel = 'noopener';
+
+      const iconKey = Object.keys(LINK_ICONS).find(k => k.toLowerCase() === item.label.toLowerCase()) || 'Outros';
+      const iconWrap = document.createElement('span');
+      iconWrap.className = 'featured-link-icon';
+      iconWrap.innerHTML = LINK_ICONS[iconKey];
+      link.appendChild(iconWrap);
+      link.appendChild(document.createTextNode(item.label));
+
+      linksRow.appendChild(link);
+    });
+    card.appendChild(linksRow);
+  }
+
+  sidebar.appendChild(card);
+}
+
+async function loadFeatured() {
+  try {
+    const response = await fetch('/featured');
+    if (response.status === 204) {
+      clearFeaturedSidebar();
+      return;
+    }
+    if (!response.ok) return;
+    const data = await response.json();
+    renderFeatured(data);
+  } catch (err) {
+    clearFeaturedSidebar();
+  }
+}
+
 // Stage labels per UI-SPEC.md Copywriting Contract (Progress Stage Labels)
 function stageLabel(status, stage) {
   if (status === 'queued') return 'Na fila...';
@@ -337,6 +570,8 @@ function stageLabel(status, stage) {
 // =============================================================================
 
 function init() {
+  loadFeatured();
+
   // Wire submit button
   $('submit-btn').addEventListener('click', () => {
     const url = $('url-input').value.trim();
@@ -351,28 +586,18 @@ function init() {
   });
 
   // Wire info button — toggle speech bubble
-  $('info-btn').addEventListener('click', () => {
-    const modal = $('info-modal');
-    if (!modal.hidden) {
-      modal.hidden = true;
-      return;
-    }
-    const btn = $('info-btn').getBoundingClientRect();
-    const app = $('app').getBoundingClientRect();
-
-    const left = app.right + 16;
-    const btnCenterY = btn.top + btn.height / 2;
-    const top = btnCenterY - 20;
-
-    modal.style.left = left + 'px';
-    modal.style.top = top + 'px';
-    modal.hidden = false;
-  });
-
-  // Wire close button — close speech bubble
-  $('info-close-btn').addEventListener('click', () => {
+  function openInfoModal() {
+    $('info-modal').hidden = false;
+    $('info-overlay').hidden = false;
+  }
+  function closeInfoModal() {
     $('info-modal').hidden = true;
-  });
+    $('info-overlay').hidden = true;
+  }
+
+  $('info-btn').addEventListener('click', openInfoModal);
+  $('info-close-btn').addEventListener('click', closeInfoModal);
+  $('info-overlay').addEventListener('click', closeInfoModal);
 
   // Wire retry button (ERROR_JOB state — D-06: reuse URL already in field, resubmit directly)
   $('retry-btn').addEventListener('click', () => {

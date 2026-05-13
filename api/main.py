@@ -1,11 +1,15 @@
 """FastAPI app — POST /jobs, GET /jobs/{id}, GET /files/{id}."""
 from __future__ import annotations
 
+import json
 import logging
 import os as _os
 import re
 import threading
 import time
+from html import escape
+from datetime import date
+from hmac import compare_digest
 from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib.parse import urlparse
@@ -14,8 +18,9 @@ import redis as redis_lib
 from celery.result import AsyncResult
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
@@ -28,6 +33,9 @@ logger = logging.getLogger(__name__)
 
 YOUTUBE_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be"}
 JOB_ID_PATTERN = re.compile(r"^[a-zA-Z0-9-]{1,64}$")
+FEATURED_KEY = "featured:current"
+ADMIN_COOKIE_NAME = "sg_admin"
+ADMIN_SESSION_MAX_AGE = 60 * 60 * 24 * 7
 
 # Module-level Redis client — connection pool reused across requests.
 _redis = redis_lib.from_url(settings.redis_url, decode_responses=True)
@@ -70,6 +78,105 @@ class JobRequest(BaseModel):
                 f"URL must be a YouTube link (got: {parsed.netloc or '(empty)'})"
             )
         return v
+
+
+class FeaturedArtist(BaseModel):
+    nome: str
+    url: str = ""
+
+    @field_validator("nome")
+    @classmethod
+    def nome_required(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Artist name is required")
+        if len(value) > 200:
+            raise ValueError("Artist name must be 200 characters or less")
+        return value
+
+    @field_validator("url")
+    @classmethod
+    def url_optional_http(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            return value
+        parsed = urlparse(value)
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            raise ValueError("Artist URL must use http or https")
+        if len(value) > 500:
+            raise ValueError("Artist URL must be 500 characters or less")
+        return value
+
+
+class FeaturedLink(BaseModel):
+    label: str
+    url: str
+
+    @field_validator("label")
+    @classmethod
+    def label_required(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Link label is required")
+        if len(value) > 40:
+            raise ValueError("Link label must be 40 characters or less")
+        return value
+
+    @field_validator("url")
+    @classmethod
+    def url_must_be_http(cls, value: str) -> str:
+        value = value.strip()
+        parsed = urlparse(value)
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            raise ValueError("Link URL must use http or https")
+        if len(value) > 500:
+            raise ValueError("Link URL must be 500 characters or less")
+        return value
+
+
+class FeaturedReleaseRequest(BaseModel):
+    artistas: list[FeaturedArtist]
+    titulo: str
+    genero: str
+    descricao: str
+    links: list[FeaturedLink] = []
+
+    @field_validator("titulo", "genero", "descricao")
+    @classmethod
+    def text_required(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Featured fields cannot be empty")
+        if len(value) > 500:
+            raise ValueError("Featured text fields must be 500 characters or less")
+        return value
+
+    @field_validator("artistas")
+    @classmethod
+    def artistas_required(cls, value: list) -> list:
+        if not value:
+            raise ValueError("At least one artist is required")
+        if len(value) > 10:
+            raise ValueError("Featured release supports at most 10 artists")
+        return value
+
+    @field_validator("links")
+    @classmethod
+    def max_four_links(cls, value: list[FeaturedLink]) -> list[FeaturedLink]:
+        if len(value) > 4:
+            raise ValueError("Featured release supports at most four links")
+        return value
+
+
+class AdminLoginRequest(BaseModel):
+    password: str
+
+    @field_validator("password")
+    @classmethod
+    def password_required(cls, value: str) -> str:
+        if not value:
+            raise ValueError("Password is required")
+        return value
 
 
 def sweep_expired_wavs(directory: Path, ttl_seconds: int) -> int:
@@ -133,6 +240,249 @@ def _check_redis_auth(redis_url: str, dev_mode: bool) -> None:
             "Set a Redis URL with credentials: redis://:password@host:port/db. "
             "For local development only, set DEV_MODE=true."
         )
+
+
+def _featured_fallback_path() -> Path:
+    return Path(_os.environ.get("FEATURED_FALLBACK_PATH", settings.featured_fallback_path))
+
+
+def _read_featured_fallback() -> dict | None:
+    fallback_path = _featured_fallback_path()
+    if not fallback_path.exists():
+        return None
+    try:
+        data = json.loads(fallback_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        logger.exception("featured fallback read failed")
+        return None
+    return data if isinstance(data, dict) and data else None
+
+
+def _write_featured_fallback(payload: dict) -> None:
+    fallback_path = _featured_fallback_path()
+    fallback_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = fallback_path.with_suffix(f"{fallback_path.suffix}.tmp")
+    tmp_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    tmp_path.replace(fallback_path)
+
+
+def _load_featured() -> dict | None:
+    try:
+        raw = _redis.get(FEATURED_KEY)
+    except (redis_lib.exceptions.ConnectionError, redis_lib.exceptions.TimeoutError):
+        return _read_featured_fallback()
+
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        logger.exception("featured redis payload is invalid JSON")
+        return None
+    return data if isinstance(data, dict) and data else None
+
+
+def _save_featured(payload: dict) -> None:
+    raw = json.dumps(payload, ensure_ascii=False)
+    try:
+        _redis.set(FEATURED_KEY, raw)
+    except (redis_lib.exceptions.ConnectionError, redis_lib.exceptions.TimeoutError):
+        _write_featured_fallback(payload)
+        return
+    _write_featured_fallback(payload)
+
+
+def _admin_serializer() -> URLSafeTimedSerializer:
+    secret = settings.admin_session_secret
+    if not secret:
+        raise HTTPException(
+            status_code=503,
+            detail="Operator authentication is not configured.",
+        )
+    return URLSafeTimedSerializer(secret_key=secret, salt="soundgrabber-admin")
+
+
+def _sign_admin_session() -> str:
+    return _admin_serializer().dumps({"admin": True})
+
+
+def _require_admin(request: Request) -> None:
+    cookie = request.cookies.get(ADMIN_COOKIE_NAME)
+    if not cookie:
+        raise HTTPException(status_code=401, detail="Admin login required")
+    try:
+        payload = _admin_serializer().loads(cookie, max_age=ADMIN_SESSION_MAX_AGE)
+    except (BadSignature, SignatureExpired):
+        raise HTTPException(status_code=401, detail="Admin login required") from None
+    if not isinstance(payload, dict) or payload.get("admin") is not True:
+        raise HTTPException(status_code=401, detail="Admin login required")
+
+
+def _normalize_artistas(current: dict) -> list:
+    if "artistas" in current and isinstance(current["artistas"], list):
+        return [a for a in current["artistas"] if isinstance(a, dict)]
+    old = str(current.get("artista", "")).strip()
+    return [{"nome": old, "url": ""}] if old else []
+
+
+def _featured_document(request_body: FeaturedReleaseRequest) -> dict:
+    return {
+        "artistas": [a.model_dump() for a in request_body.artistas],
+        "titulo": request_body.titulo,
+        "genero": request_body.genero,
+        "descricao": request_body.descricao,
+        "data_adicao": date.today().isoformat(),
+        "links": [link.model_dump() for link in request_body.links],
+    }
+
+
+_KNOWN_LINK_LABELS = ["Youtube", "Soundcloud", "Spotify", "Instagram"]
+
+
+def _link_label_html(link: dict, index: int) -> str:
+    raw = str(link.get("label", ""))
+    is_known = raw in _KNOWN_LINK_LABELS
+    select_val = raw if is_known else ("Outros" if raw else "")
+    custom_val = escape(raw) if not is_known else ""
+    options = '<option value=""></option>'
+    for cat in _KNOWN_LINK_LABELS + ["Outros"]:
+        sel = " selected" if cat == select_val else ""
+        options += f'<option value="{cat}"{sel}>{cat}</option>'
+    hide = "" if select_val == "Outros" else ' style="display:none"'
+    return (
+        f'<select id="featured-link-label-{index}" class="yonkou-input yonkou-select">{options}</select>'
+        f'<input id="featured-link-label-custom-{index}" value="{custom_val}"'
+        f' class="yonkou-input yonkou-label-custom"{hide} placeholder="nome">'
+    )
+
+
+def _operator_panel_html(authenticated: bool, featured: dict | None = None) -> str:
+    if not authenticated:
+        return """<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<title>Yonkou - SoundGrabber</title>
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="yonkou-page yonkou-login-page">
+<div id="yonkou-wrapper" class="yonkou-login-wrapper">
+<table id="yonkou-panel" class="yonkou-login-panel" width="420" align="center" cellpadding="0" cellspacing="0">
+<tr><td id="yonkou-card">
+<form id="yonkou-login" action="/yonkou/login" method="post" class="yonkou-form yonkou-login-form">
+<input id="password" name="password" type="password" autocomplete="current-password" class="yonkou-input">
+<button type="submit" class="yonkou-primary">&#x25B6;</button>
+</form>
+<div id="yonkou-message"></div>
+<script src="/static/yonkou.js"></script>
+</td></tr>
+</table>
+</div>
+</body>
+</html>"""
+
+    current = featured or {}
+    links = current.get("links") if isinstance(current.get("links"), list) else []
+    link_1 = links[0] if len(links) > 0 and isinstance(links[0], dict) else {}
+    link_2 = links[1] if len(links) > 1 and isinstance(links[1], dict) else {}
+    link_3 = links[2] if len(links) > 2 and isinstance(links[2], dict) else {}
+    link_4 = links[3] if len(links) > 3 and isinstance(links[3], dict) else {}
+    artistas_data = _normalize_artistas(current)
+    artistas_display = escape(", ".join(a.get("nome", "") for a in artistas_data) or "-")
+    current_title = escape(str(current.get("titulo", "")))
+    return f"""<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<title>Yonkou - SoundGrabber</title>
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="yonkou-page">
+<div id="yonkou-wrapper">
+<table id="yonkou-panel" width="700" align="center" cellpadding="0" cellspacing="0">
+<tr><td id="yonkou-header">
+<div id="site-title">SoundGrabber</div>
+<div id="site-tagline">painel operador / yonkou</div>
+</td></tr>
+<tr><td id="yonkou-card">
+<div class="yonkou-kicker">SOM DA SEMANA</div>
+<h1>Painel Yonkou</h1>
+<div id="current-release">Atual: {artistas_display} - {current_title or "-"}</div>
+<form id="featured-editor" class="yonkou-form">
+<table id="yonkou-form-table" width="100%" cellpadding="0" cellspacing="0">
+<tr>
+<td class="yonkou-label-cell" style="vertical-align:top;padding-top:10px">Artistas</td>
+<td>
+<div id="artistas-list"></div>
+<button type="button" id="add-artista-btn" class="yonkou-secondary">+ artista</button>
+</td>
+</tr>
+<tr>
+<td class="yonkou-label-cell"><label for="featured-titulo">Titulo</label></td>
+<td><input id="featured-titulo" name="titulo" value="{escape(str(current.get("titulo", "")))}" class="yonkou-input"></td>
+</tr>
+<tr>
+<td class="yonkou-label-cell"><label for="featured-genero">Genero</label></td>
+<td><input id="featured-genero" name="genero" value="{escape(str(current.get("genero", "")))}" class="yonkou-input"></td>
+</tr>
+<tr>
+<td class="yonkou-label-cell"><label for="featured-descricao">Descricao</label></td>
+<td><textarea id="featured-descricao" name="descricao" rows="4" class="yonkou-input yonkou-textarea">{escape(str(current.get("descricao", "")))}</textarea></td>
+</tr>
+</table>
+<fieldset id="yonkou-links">
+<legend>Links externos</legend>
+<table id="yonkou-links-table" width="100%" cellpadding="0" cellspacing="0">
+<tr>
+<td class="yonkou-links-cell yonkou-links-label">
+<label for="featured-link-label-1">Label 1</label>
+{_link_label_html(link_1, 1)}
+</td>
+<td class="yonkou-links-cell yonkou-links-url">
+<label>URL 1 <input id="featured-link-url-1" value="{escape(str(link_1.get("url", "")))}" class="yonkou-input"></label>
+</td>
+</tr>
+<tr>
+<td class="yonkou-links-cell yonkou-links-label">
+<label for="featured-link-label-2">Label 2</label>
+{_link_label_html(link_2, 2)}
+</td>
+<td class="yonkou-links-cell yonkou-links-url">
+<label>URL 2 <input id="featured-link-url-2" value="{escape(str(link_2.get("url", "")))}" class="yonkou-input"></label>
+</td>
+</tr>
+<tr>
+<td class="yonkou-links-cell yonkou-links-label">
+<label for="featured-link-label-3">Label 3</label>
+{_link_label_html(link_3, 3)}
+</td>
+<td class="yonkou-links-cell yonkou-links-url">
+<label>URL 3 <input id="featured-link-url-3" value="{escape(str(link_3.get("url", "")))}" class="yonkou-input"></label>
+</td>
+</tr>
+<tr>
+<td class="yonkou-links-cell yonkou-links-label">
+<label for="featured-link-label-4">Label 4</label>
+{_link_label_html(link_4, 4)}
+</td>
+<td class="yonkou-links-cell yonkou-links-url">
+<label>URL 4 <input id="featured-link-url-4" value="{escape(str(link_4.get("url", "")))}" class="yonkou-input"></label>
+</td>
+</tr>
+</table>
+</fieldset>
+<button type="submit" class="yonkou-primary">Salvar Som</button>
+</form>
+<div id="yonkou-message"></div>
+<script>var YONKOU_ARTISTAS = {json.dumps(artistas_data, ensure_ascii=False)};</script>
+<script src="/static/yonkou.js"></script>
+</td></tr>
+</table>
+</div>
+</body>
+</html>"""
 
 
 def _check_cookies(cookies_path: str) -> None:
@@ -238,12 +588,13 @@ async def _security_headers(request: Request, call_next):
     response = await call_next(request)
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
         "script-src 'self'; "
         "style-src 'self' 'unsafe-inline'; "
         "img-src 'self' data:; "
+        "frame-src https://www.youtube.com; "
         "frame-ancestors 'none';"
     )
     # SEC-INFRA-04: HSTS — Railway entrega TLS, mas nao adiciona o header. (D-09)
@@ -423,6 +774,66 @@ def health_check(request: Request, response: Response) -> JSONResponse:
         return JSONResponse(status_code=200, content={"status": "ok"})
     except (redis_lib.exceptions.ConnectionError, redis_lib.exceptions.TimeoutError):
         return JSONResponse(status_code=503, content={"status": "unavailable"})
+
+
+@app.get("/featured")
+@limiter.limit("60/minute")
+def get_featured(request: Request, response: Response):
+    featured = _load_featured()
+    if not featured:
+        return Response(status_code=204)
+    return featured
+
+
+@app.get("/yonkou")
+@limiter.limit("60/minute")
+def yonkou_panel(request: Request, response: Response) -> HTMLResponse:
+    try:
+        _require_admin(request)
+    except HTTPException:
+        return HTMLResponse(_operator_panel_html(authenticated=False))
+    return HTMLResponse(_operator_panel_html(authenticated=True, featured=_load_featured()))
+
+
+@app.post("/yonkou/login")
+@limiter.limit("5/minute")
+def yonkou_login(
+    request: Request,
+    request_body: AdminLoginRequest,
+    response: Response,
+) -> JSONResponse:
+    if not settings.admin_password:
+        raise HTTPException(
+            status_code=503,
+            detail="Operator authentication is not configured.",
+        )
+    if not compare_digest(request_body.password, settings.admin_password):
+        raise HTTPException(status_code=401, detail="Invalid operator credentials")
+
+    token = _sign_admin_session()
+    response = JSONResponse(status_code=200, content={"status": "ok"})
+    response.set_cookie(
+        ADMIN_COOKIE_NAME,
+        token,
+        httponly=True,
+        secure=not settings.dev_mode,
+        samesite="lax",
+        max_age=ADMIN_SESSION_MAX_AGE,
+    )
+    return response
+
+
+@app.post("/featured")
+@limiter.limit("10/minute")
+def post_featured(
+    request: Request,
+    request_body: FeaturedReleaseRequest,
+    response: Response,
+) -> dict:
+    _require_admin(request)
+    payload = _featured_document(request_body)
+    _save_featured(payload)
+    return payload
 
 
 # ── Static files ──────────────────────────────────────────────────────────────
