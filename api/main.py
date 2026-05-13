@@ -256,7 +256,7 @@ def _save_featured(payload: dict) -> None:
 
 
 def _admin_serializer() -> URLSafeTimedSerializer:
-    secret = settings.admin_session_secret or settings.admin_password
+    secret = settings.admin_session_secret
     if not secret:
         raise HTTPException(
             status_code=503,
