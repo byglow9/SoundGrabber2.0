@@ -99,7 +99,7 @@ def check_duration(url: str, cache_dir: str) -> dict[str, Any]:
         cookies_file = Path(cache_dir) / "cookies.txt"
         if cookies_file.exists():
             ydl_opts["cookiefile"] = str(cookies_file)
-            logger.info(
+            logger.warning(
                 "AUTH: check_duration usando cookiefile path=%s bytes=%s",
                 cookies_file,
                 cookies_file.stat().st_size,
@@ -108,8 +108,16 @@ def check_duration(url: str, cache_dir: str) -> dict[str, Any]:
             logger.warning("AUTH: check_duration sem cookiefile existente path=%s", cookies_file)
     else:
         logger.warning("AUTH: check_duration sem YTDLP_CACHE_DIR/cache_dir")
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=False)
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+    except yt_dlp.utils.YoutubeDLError as e:
+        logger.warning(
+            "AUTH: check_duration yt-dlp falhou cookiefile_set=%s error=%s",
+            "cookiefile" in ydl_opts,
+            e,
+        )
+        raise RuntimeError(f"yt-dlp metadata failed: {e}") from e
 
     if info is None:
         raise ValueError("yt-dlp returned no metadata for the URL")
@@ -159,7 +167,7 @@ def download_audio(url: str, cache_dir: str) -> Path:
         cookies_file = Path(cache_dir) / "cookies.txt"
         if cookies_file.exists():
             cookies_file_path = str(cookies_file)
-            logger.info(
+            logger.warning(
                 "AUTH: download_audio usando cookiefile path=%s bytes=%s",
                 cookies_file,
                 cookies_file.stat().st_size,

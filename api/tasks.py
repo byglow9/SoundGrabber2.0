@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Any
 
 from celery import Celery
@@ -52,6 +53,25 @@ def process_job(self, url: str) -> dict[str, Any]:
     Phase 2 sweeper deletes it after settings.wav_ttl seconds (D-01).
     """
     try:
+        if settings.cache_dir:
+            cookies_file = Path(settings.cache_dir) / "cookies.txt"
+            if cookies_file.exists():
+                content = cookies_file.read_text(encoding="utf-8", errors="ignore")
+                logger.warning(
+                    "AUTH: process_job cache_dir=%s cookie_exists=true bytes=%s secure_3psid_lines=%s",
+                    settings.cache_dir,
+                    cookies_file.stat().st_size,
+                    content.count("__Secure-3PSID"),
+                )
+            else:
+                logger.warning(
+                    "AUTH: process_job cache_dir=%s cookie_exists=false path=%s",
+                    settings.cache_dir,
+                    cookies_file,
+                )
+        else:
+            logger.warning("AUTH: process_job cache_dir=missing")
+
         # Stage 0: duration check — raises ValueError if > 900s (CORE-05)
         self.update_state(state="DOWNLOADING", meta={"stage": "checking_duration"})
         info = check_duration(url, settings.cache_dir)
@@ -102,7 +122,7 @@ def process_job(self, url: str) -> dict[str, Any]:
         ) from e
 
     except RuntimeError as e:
-        # download_audio wraps yt_dlp.utils.DownloadError as RuntimeError
+        # check_duration/download_audio wrap yt_dlp.utils.DownloadError as RuntimeError
         logger.info("Job %s download_error: %s", self.request.id, e)
         raise JobFailure(
             error="Download failed. The video may be unavailable or blocked.",
