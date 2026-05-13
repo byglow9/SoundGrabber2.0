@@ -7,6 +7,7 @@ import os as _os
 import re
 import threading
 import time
+from html import escape
 from datetime import date
 from hmac import compare_digest
 from contextlib import asynccontextmanager
@@ -300,28 +301,22 @@ def _operator_panel_html(authenticated: bool, featured: dict | None = None) -> s
 <table width="420" align="center" cellpadding="8" cellspacing="0" border="1">
 <tr><td>
 <h1>Entrar no painel</h1>
-<form id="yonkou-login">
+<form id="yonkou-login" action="/yonkou/login" method="post">
 <input id="password" name="password" type="password" autocomplete="current-password">
 <button type="submit">Entrar no painel</button>
 </form>
-<script>
-document.getElementById('yonkou-login').onsubmit = async function (event) {
-  event.preventDefault();
-  const password = document.getElementById('password').value;
-  const response = await fetch('/yonkou/login', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({password: password})
-  });
-  if (response.ok) window.location.reload();
-};
-</script>
+<div id="yonkou-message"></div>
+<script src="/static/yonkou.js"></script>
 </td></tr>
 </table>
 </body>
 </html>"""
 
     current = featured or {}
+    links = current.get("links") if isinstance(current.get("links"), list) else []
+    link_1 = links[0] if len(links) > 0 and isinstance(links[0], dict) else {}
+    link_2 = links[1] if len(links) > 1 and isinstance(links[1], dict) else {}
+    link_3 = links[2] if len(links) > 2 and isinstance(links[2], dict) else {}
     return f"""<!DOCTYPE html>
 <html lang="pt-BR">
 <head><meta charset="UTF-8"><title>Yonkou</title></head>
@@ -329,14 +324,25 @@ document.getElementById('yonkou-login').onsubmit = async function (event) {
 <table width="640" align="center" cellpadding="8" cellspacing="0" border="1">
 <tr><td>
 <h1>Painel Yonkou</h1>
-<div id="current-release">Atual: {current.get("artista", "")} - {current.get("titulo", "")}</div>
+<div id="current-release">Atual: {escape(str(current.get("artista", "")))} - {escape(str(current.get("titulo", "")))}</div>
 <form id="featured-editor">
-<label>Artista <input id="featured-artista" name="artista"></label><br>
-<label>Titulo <input id="featured-title" name="titulo"></label><br>
-<label>Genero <input id="featured-genero" name="genero"></label><br>
-<label>Descricao <textarea id="featured-descricao" name="descricao"></textarea></label><br>
+<label>Artista <input id="featured-artista" name="artista" value="{escape(str(current.get("artista", "")))}"></label><br>
+<label>Titulo <input id="featured-title" name="titulo" value="{escape(str(current.get("titulo", "")))}"></label><br>
+<label>Genero <input id="featured-genero" name="genero" value="{escape(str(current.get("genero", "")))}"></label><br>
+<label>Descricao <textarea id="featured-descricao" name="descricao">{escape(str(current.get("descricao", "")))}</textarea></label><br>
+<fieldset>
+<legend>Links</legend>
+<label>Label 1 <input id="featured-link-label-1" value="{escape(str(link_1.get("label", "")))}"></label>
+<label>URL 1 <input id="featured-link-url-1" value="{escape(str(link_1.get("url", "")))}"></label><br>
+<label>Label 2 <input id="featured-link-label-2" value="{escape(str(link_2.get("label", "")))}"></label>
+<label>URL 2 <input id="featured-link-url-2" value="{escape(str(link_2.get("url", "")))}"></label><br>
+<label>Label 3 <input id="featured-link-label-3" value="{escape(str(link_3.get("label", "")))}"></label>
+<label>URL 3 <input id="featured-link-url-3" value="{escape(str(link_3.get("url", "")))}"></label>
+</fieldset>
 <button type="submit">Salvar Som</button>
 </form>
+<div id="yonkou-message"></div>
+<script src="/static/yonkou.js"></script>
 </td></tr>
 </table>
 </body>
