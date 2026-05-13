@@ -16,11 +16,14 @@
 # Referência: D-01 de .planning/phases/10-failure-hardening-and-e2e-validation/10-CONTEXT.md
 set -e
 
-# Phase 10.1: impede que plugins GetPOT antigos permaneçam ativos por cache de venv.
-# yt-dlp 2026.x usa provedores JS internos; o build instala nodejs para esses desafios.
-export YTDLP_NO_PLUGINS=1
 echo "AUTH_BOOTSTRAP: node_version=$(node --version 2>/dev/null || echo missing)"
 echo "AUTH_BOOTSTRAP: ytdlp_version=$(python -m yt_dlp --version 2>/dev/null || echo missing)"
+echo "AUTH_BOOTSTRAP: ytdlp_plugins=$(python - <<'PY' 2>/dev/null || echo check_failed
+import pkgutil
+mods = [m.name for m in pkgutil.iter_modules() if m.name == 'yt_dlp_plugins']
+print('present' if mods else 'missing')
+PY
+)"
 
 # Phase 10.1 D-06/D-07: bootstrap seguro dos cookies no Railway Volume.
 # Usa YTDLP_CACHE_DIR como fonte unica para evitar divergencia entre env var e mount real.
