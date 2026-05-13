@@ -287,12 +287,12 @@ Plans:
   3. `POST /featured` rejects missing/invalid operator sessions, validates artist/title/genre/description and up to 3 HTTP(S) links, and stores the single current release in Redis with JSON fallback.
   4. `GET /featured` is rate-limited and returns either the current featured release or an empty response without breaking the downloader flow.
   5. When content exists, the visitor page injects a right-side table sidebar using the locked Y2K palette and safe DOM rendering; when empty or failed, the main downloader table remains centered.
-**Plans:** 4 plans
+**Plans:** 3/4 plans executed
 
 Plans:
-- [ ] 11-01-PLAN.md — Wave 1: RED tests for operator auth, `/yonkou`, `/featured`, Redis fallback, no public route affordance, and sidebar/static contract
-- [ ] 11-02-PLAN.md — Wave 2: backend settings, signed cookie auth, `/yonkou`, `/featured`, Pydantic validation, Redis JSON storage, and fallback
-- [ ] 11-03-PLAN.md — Wave 2: public sidebar HTML/JS/CSS implementation following the approved UI-SPEC
+- [x] 11-01-PLAN.md — Wave 1: RED tests for operator auth, `/yonkou`, `/featured`, Redis fallback, no public route affordance, and sidebar/static contract
+- [x] 11-02-PLAN.md — Wave 2: backend settings, signed cookie auth, `/yonkou`, `/featured`, Pydantic validation, Redis JSON storage, and fallback
+- [x] 11-03-PLAN.md — Wave 2: public sidebar HTML/JS/CSS implementation following the approved UI-SPEC
 - [ ] 11-04-PLAN.md — Wave 3: security checklist update and human direct-route verification checkpoint
 
 ---
