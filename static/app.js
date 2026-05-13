@@ -319,6 +319,131 @@ function formatSizeMB(mb) {
   return `~${mb.toFixed(1)} MB`;
 }
 
+function formatFeaturedDate(value) {
+  if (!value) return '';
+  const parts = String(value).split('-');
+  if (parts.length !== 3) return String(value);
+  return `${parts[2]}/${parts[1]}/${parts[0]}`;
+}
+
+function clearFeaturedSidebar() {
+  const shell = $('featured-shell');
+  const app = $('app');
+  const wrapper = $('wrapper');
+  if (!shell || !app || !wrapper) return;
+  wrapper.insertBefore(app, shell);
+  shell.remove();
+}
+
+function ensureFeaturedSidebar() {
+  const existing = $('featured-sidebar');
+  if (existing) return existing;
+
+  const wrapper = $('wrapper');
+  const app = $('app');
+  if (!wrapper || !app) return null;
+
+  const shell = document.createElement('table');
+  shell.id = 'featured-shell';
+  shell.setAttribute('align', 'center');
+  shell.setAttribute('cellpadding', '0');
+  shell.setAttribute('cellspacing', '0');
+
+  const row = document.createElement('tr');
+  const appCell = document.createElement('td');
+  appCell.id = 'featured-main-cell';
+  appCell.setAttribute('valign', 'top');
+  const sidebar = document.createElement('td');
+  sidebar.id = 'featured-sidebar';
+  sidebar.setAttribute('valign', 'top');
+
+  shell.appendChild(row);
+  row.appendChild(appCell);
+  row.appendChild(sidebar);
+  wrapper.insertBefore(shell, app);
+  appCell.appendChild(app);
+
+  return sidebar;
+}
+
+function appendFeaturedField(card, label, value) {
+  if (!value) return;
+
+  const labelNode = document.createElement('div');
+  labelNode.className = 'featured-field-label';
+  labelNode.textContent = label;
+
+  const valueNode = document.createElement('div');
+  valueNode.className = 'featured-field-value';
+  valueNode.textContent = value;
+
+  card.appendChild(labelNode);
+  card.appendChild(valueNode);
+}
+
+function renderFeatured(data) {
+  if (!data || Object.keys(data).length === 0) {
+    clearFeaturedSidebar();
+    return;
+  }
+
+  const sidebar = ensureFeaturedSidebar();
+  if (!sidebar) return;
+  sidebar.textContent = '';
+
+  const card = document.createElement('div');
+  card.id = 'featured-card';
+
+  const title = document.createElement('div');
+  title.id = 'featured-title';
+  title.textContent = ':: SOM DA SEMANA ::';
+  card.appendChild(title);
+
+  const separator = document.createElement('div');
+  separator.id = 'featured-separator';
+  separator.textContent = '----';
+  card.appendChild(separator);
+
+  appendFeaturedField(card, 'Artista', data.artista);
+  appendFeaturedField(card, 'Titulo', data.titulo);
+  appendFeaturedField(card, 'Genero', data.genero);
+  appendFeaturedField(card, 'Descricao', data.descricao);
+
+  const dateNode = document.createElement('div');
+  dateNode.className = 'featured-date';
+  dateNode.textContent = formatFeaturedDate(data.data_adicao);
+  card.appendChild(dateNode);
+
+  const links = Array.isArray(data.links) ? data.links.slice(0, 3) : [];
+  links.forEach(item => {
+    if (!item || !item.label || !item.url) return;
+    const link = document.createElement('a');
+    link.className = 'featured-link';
+    link.href = item.url;
+    link.target = '_blank';
+    link.rel = 'noopener';
+    link.textContent = item.label;
+    card.appendChild(link);
+  });
+
+  sidebar.appendChild(card);
+}
+
+async function loadFeatured() {
+  try {
+    const response = await fetch('/featured');
+    if (response.status === 204) {
+      clearFeaturedSidebar();
+      return;
+    }
+    if (!response.ok) return;
+    const data = await response.json();
+    renderFeatured(data);
+  } catch (err) {
+    clearFeaturedSidebar();
+  }
+}
+
 // Stage labels per UI-SPEC.md Copywriting Contract (Progress Stage Labels)
 function stageLabel(status, stage) {
   if (status === 'queued') return 'Na fila...';
@@ -337,6 +462,8 @@ function stageLabel(status, stage) {
 // =============================================================================
 
 function init() {
+  loadFeatured();
+
   // Wire submit button
   $('submit-btn').addEventListener('click', () => {
     const url = $('url-input').value.trim();
