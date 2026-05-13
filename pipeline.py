@@ -59,12 +59,21 @@ _FFPROBE_PATH = _system_ffprobe or str(Path(_FFMPEG_PATH).parent / "ffprobe")
 # If the system has ffmpeg on PATH, prefer it (gives proper ffprobe too).
 _system_ffmpeg = shutil.which("ffmpeg")
 _YTDLP_FFMPEG_LOCATION = _system_ffmpeg if _system_ffmpeg else _FFMPEG_PATH
+_NODE_PATH = shutil.which("node")
 
 
 def _enable_ytdlp_debug(ydl_opts: dict[str, Any]) -> None:
     """Enable yt-dlp verbose diagnostics without changing production defaults."""
     if os.environ.get("YTDLP_DEBUG", "").lower() in {"1", "true", "yes"}:
         ydl_opts["verbose"] = True
+
+
+def _configure_youtube_js_runtime(ydl_opts: dict[str, Any]) -> None:
+    """Enable Node for yt-dlp YouTube JS challenges when available."""
+    if _NODE_PATH:
+        ydl_opts["js_runtimes"] = {"node": {"path": _NODE_PATH}}
+    else:
+        logger.warning("AUTH: node runtime nao encontrado no PATH; yt-dlp pode falhar em desafios JS")
 
 
 # Constants
@@ -100,6 +109,7 @@ def check_duration(url: str, cache_dir: str) -> dict[str, Any]:
         # Sem extractor_args — ios/mweb default não precisam de player_client manual
         # ios/mweb não requerem PO Token [VERIFIED: INNERTUBE_CLIENTS]
     }
+    _configure_youtube_js_runtime(ydl_opts)
     # Cookies do Railway Volume — se existirem, yt-dlp usa autenticado (web_creator+mweb)
     if cache_dir:
         cookies_file = Path(cache_dir) / "cookies.txt"
@@ -202,6 +212,7 @@ def download_audio(url: str, cache_dir: str) -> Path:
         "http_chunk_size": 10485760,  # 10MB — avoids YouTube throttling on long downloads
         "ffmpeg_location": _YTDLP_FFMPEG_LOCATION,  # executable path — see _YTDLP_FFMPEG_LOCATION
     }
+    _configure_youtube_js_runtime(ydl_opts)
     if cookies_file_path:
         ydl_opts["cookiefile"] = cookies_file_path
     _enable_ytdlp_debug(ydl_opts)
