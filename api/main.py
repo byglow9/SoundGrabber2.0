@@ -485,51 +485,47 @@ def _operator_panel_html(authenticated: bool, featured: dict | None = None) -> s
 </html>"""
 
 
-def _check_cookies(cookies_path: str) -> None:
-    """PIPE-05: Validate cookies.txt contains __Secure-3PSID sentinel.
+def _check_oauth_cache(cache_dir: str) -> None:
+    """AUTH: Valida cookies.txt no Railway Volume — substitui _check_cookies() (PIPE-05).
 
-    Non-blocking — logs CRITICAL and returns. Does NOT raise. Does NOT prevent startup.
-    Rationale (D-06, D-07, D-08): the log is an operator warning visible in Railway logs
-    before any job is processed. Blocking startup would cause unnecessary downtime if
-    cookies need to be rotated during a live deploy.
+    Non-blocking — logs CRITICAL e retorna. Nao levanta excecao. Nao bloqueia startup.
+    Mesmo padrao de PIPE-05: aviso visivel nos Railway logs antes do primeiro job.
+    (Phase 10.1 D-08 — adaptacao de D-03 para cookies no Volume)
 
     Args:
-        cookies_path: Absolute path to Netscape-format cookies.txt (from settings).
-                      Empty string means no cookies configured.
+        cache_dir: Path do Railway Volume (YTDLP_CACHE_DIR). Cookies em cache_dir/cookies.txt.
+                   String vazia = Volume nao configurado.
     """
-    if not cookies_path:
+    if not cache_dir:
         logger.critical(
-            "PIPE-05: cookies_path is not configured (YTDLP_COOKIES_FILE or "
-            "YTDLP_COOKIES_B64 not set). YouTube downloads will likely fail with "
-            "bot detection. Set cookies in Railway environment variables."
+            "AUTH: YTDLP_CACHE_DIR nao configurado. Downloads podem falhar com bot detection. "
+            "Monte um Railway Volume em /data/yt-dlp-cache e configure YTDLP_CACHE_DIR. "
+            "Para popular o Volume: railway run -- cp /local/cookies.txt /data/yt-dlp-cache/cookies.txt"
         )
         return
 
-    cookies_file = Path(cookies_path)
+    cookies_file = Path(cache_dir) / "cookies.txt"
     if not cookies_file.exists():
         logger.critical(
-            "PIPE-05: cookies file not found at %s. YouTube downloads will likely "
-            "fail with bot detection. Verify YTDLP_COOKIES_FILE or YTDLP_COOKIES_B64.",
-            cookies_path,
+            "AUTH: cookies.txt nao encontrado em %s. "
+            "Copie cookies validos do YouTube para o Railway Volume. "
+            "Exports podem ser feitos via extensao 'Get cookies.txt LOCALLY' no browser.",
+            cookies_file,
         )
         return
 
     try:
         content = cookies_file.read_text(encoding="utf-8", errors="ignore")
     except OSError as e:
-        logger.critical(
-            "PIPE-05: could not read cookies file %s: %s. "
-            "YouTube downloads may fail.",
-            cookies_path, e,
-        )
+        logger.critical("AUTH: Nao foi possivel ler %s: %s", cookies_file, e)
         return
 
     if "__Secure-3PSID" not in content:
         logger.critical(
-            "PIPE-05: cookies file %s does not contain '__Secure-3PSID'. "
-            "The cookie may be expired or from a non-authenticated export. "
-            "Re-export cookies after logging into YouTube.",
-            cookies_path,
+            "AUTH: cookies.txt em %s nao contem '__Secure-3PSID'. "
+            "Cookie pode estar expirado ou invalido. "
+            "Re-exporte do browser apos login no YouTube.",
+            cookies_file,
         )
 
 
@@ -538,8 +534,8 @@ async def lifespan(app: FastAPI):
     # SEC-INFRA-01: Redis auth enforcement (D-06, D-07).
     # _check_redis_auth levanta RuntimeError se sem senha e nao em DEV_MODE — startup falha cedo.
     _check_redis_auth(settings.redis_url, settings.dev_mode)
-    # PIPE-05: cookies validation — non-blocking, log only (D-06, D-07, D-08).
-    _check_cookies(settings.cookies_path)
+    # AUTH: cookies validation no Railway Volume — non-blocking, log only (Phase 10.1 D-08).
+    _check_oauth_cache(settings.cache_dir)
     sweeper = threading.Thread(
         target=_run_sweeper_loop,
         daemon=True,
