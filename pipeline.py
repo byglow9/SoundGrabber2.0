@@ -9,9 +9,16 @@ Contract per D-02 (.planning/phases/10.1-oauth2-railway-volume-auth-migration/10
   convert_to_wav(audio_path) -> Path
   analyze_audio(wav_path) -> dict
 
-Authentication (D-03 adapted — Phase 10.1):
-  YTDLP_CACHE_DIR — path do Railway Volume com cookies.txt
+Authentication (Phase 10.1 gap closure — plan 06 — hybrid architecture):
+  Arquitetura híbrida: cookies do Volume (identidade autenticada) + bgutil (PO Token / JS challenge).
+  Ambos passados a yt-dlp simultaneamente em check_duration e download_audio.
+  YTDLP_CACHE_DIR — path do Railway Volume com cookies.txt (identidade autenticada)
+  BGUTIL_BASE_URL — URL do serviço bgutil para JS challenge PO Token
   cookies.txt lido de Path(cache_dir)/"cookies.txt" se existir
+  bgutil URL lida de os.environ.get("BGUTIL_BASE_URL", "") — sem mudança de assinatura (D-02)
+  player_client=web quando bgutil presente (web requer PO Token; bgutil fornece)
+  player_client=android quando bgutil ausente (fallback degradado — datacenter IP pode ser bloqueado)
+  Probe PIPE-06 (httpx.get) e classe BgutilUnavailable NÃO reintroduzidos (Wave 2 decisão mantida).
 
 Output (D-05): JSON to stdout via __main__ (implemented in Plan 04).
 """
@@ -98,6 +105,10 @@ def check_duration(url: str, cache_dir: str) -> dict[str, Any]:
         ValueError: If the video duration exceeds MAX_DURATION_SEC (15 minutes),
                     or if duration metadata is missing.
     """
+    # Phase 10.1 gap closure (plan 06): hybrid auth — bgutil URL lida do env (sem signature change D-02)
+    bgutil_base_url = os.environ.get("BGUTIL_BASE_URL", "")
+    # web client requer PO Token (bgutil fornece); android é fallback degradado sem bgutil
+    player_client = "web" if bgutil_base_url else "android"
     ydl_opts: dict[str, Any] = {
         "quiet": True,
         "no_warnings": True,
@@ -106,11 +117,19 @@ def check_duration(url: str, cache_dir: str) -> dict[str, Any]:
         "noplaylist": True,
         "no_cache_dir": True,           # D-04: prevent stale nsig between Railway deploys
         "ffmpeg_location": _YTDLP_FFMPEG_LOCATION,  # executable path — see _YTDLP_FFMPEG_LOCATION
-        # Sem extractor_args — ios/mweb default não precisam de player_client manual
-        # ios/mweb não requerem PO Token [VERIFIED: INNERTUBE_CLIENTS]
+        "extractor_args": {"youtube": [f"player_client={player_client}"]},
     }
+    # Se bgutil presente: adicionar getpot_bgutil_baseurl para PO Token / JS challenge
+    if bgutil_base_url:
+        ydl_opts["extractor_args"]["youtube"].append(f"getpot_bgutil_baseurl={bgutil_base_url}")
+    logger.warning(
+        "AUTH: check_duration bgutil_base_url=%s player_client=%s",
+        "set" if bgutil_base_url else "empty",
+        player_client,
+    )
     _configure_youtube_js_runtime(ydl_opts)
     # Cookies do Railway Volume — se existirem, yt-dlp usa autenticado (web_creator+mweb)
+    # Híbrido: cookiefile E getpot_bgutil_baseurl coexistem nos ydl_opts
     if cache_dir:
         cookies_file = Path(cache_dir) / "cookies.txt"
         if cookies_file.exists():
@@ -178,6 +197,19 @@ def download_audio(url: str, cache_dir: str) -> Path:
     outtmpl_base = str(WAV_TMP_DIR / f"{TMP_PREFIX}{wav_id}")
     wav_path = Path(f"{outtmpl_base}.wav")
 
+    # Phase 10.1 gap closure (plan 06): hybrid auth — bgutil URL lida do env (sem signature change D-02)
+    bgutil_base_url = os.environ.get("BGUTIL_BASE_URL", "")
+    # web client requer PO Token (bgutil fornece); android é fallback degradado sem bgutil
+    dl_player = "web" if bgutil_base_url else "android"
+    extractor_args: dict[str, list[str]] = {"youtube": [f"player_client={dl_player}"]}
+    if bgutil_base_url:
+        extractor_args["youtube"].append(f"getpot_bgutil_baseurl={bgutil_base_url}")
+    logger.warning(
+        "AUTH: download_audio bgutil_base_url=%s player_client=%s",
+        "set" if bgutil_base_url else "empty",
+        dl_player,
+    )
+
     # Cookies do Railway Volume — se existirem, yt-dlp usa autenticado (web_creator+mweb)
     cookies_file_path: str | None = None
     if cache_dir:
@@ -201,7 +233,7 @@ def download_audio(url: str, cache_dir: str) -> Path:
         "no_warnings": True,
         "socket_timeout": 30,
         "noplaylist": True,
-        # Sem extractor_args — ios/mweb clients são default e não precisam de player_client manual
+        "extractor_args": extractor_args,  # player_client + bgutil PO Token (híbrido)
         "postprocessors": [{
             "key": "FFmpegExtractAudio",
             "preferredcodec": "wav",
@@ -213,6 +245,7 @@ def download_audio(url: str, cache_dir: str) -> Path:
         "ffmpeg_location": _YTDLP_FFMPEG_LOCATION,  # executable path — see _YTDLP_FFMPEG_LOCATION
     }
     _configure_youtube_js_runtime(ydl_opts)
+    # Híbrido: cookiefile E getpot_bgutil_baseurl coexistem nos ydl_opts
     if cookies_file_path:
         ydl_opts["cookiefile"] = cookies_file_path
     _enable_ytdlp_debug(ydl_opts)

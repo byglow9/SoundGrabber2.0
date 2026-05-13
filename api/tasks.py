@@ -71,6 +71,11 @@ def process_job(self, url: str) -> dict[str, Any]:
                 )
         else:
             logger.warning("AUTH: process_job cache_dir=missing")
+        # Phase 10.1 gap closure (plan 06): log presença do bgutil sem expor URL completa
+        logger.warning(
+            "AUTH: process_job bgutil_base_url=%s",
+            "set" if settings.bgutil_base_url else "empty",
+        )
 
         # Stage 0: duration check — raises ValueError if > 900s (CORE-05)
         self.update_state(state="DOWNLOADING", meta={"stage": "checking_duration"})

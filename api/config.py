@@ -36,6 +36,9 @@ class Settings:
     dev_mode: bool = field(default_factory=lambda: os.environ.get("DEV_MODE", "false").lower() == "true")
     # Phase 10.1 D-02/D-06: Railway Volume path com cookies.txt para autenticação yt-dlp
     cache_dir: str = field(default_factory=lambda: os.environ.get("YTDLP_CACHE_DIR", ""))
+    # Phase 10.1 gap closure (plan 06): PO Token provider URL para hybrid auth
+    # (cookies do Volume + bgutil JS challenge — ambos passados a yt-dlp simultaneamente)
+    bgutil_base_url: str = field(default_factory=lambda: os.environ.get("BGUTIL_BASE_URL", ""))
     admin_password: str = field(default_factory=lambda: os.environ.get("ADMIN_PASSWORD", ""))
     admin_session_secret: str = field(default_factory=lambda: os.environ.get("ADMIN_SESSION_SECRET", ""))
     featured_fallback_path: str = field(default_factory=lambda: os.environ.get("FEATURED_FALLBACK_PATH", ".data/featured-current.json"))

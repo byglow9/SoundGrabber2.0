@@ -129,60 +129,64 @@ def test_deploy01_nixpacks_toml_exists_with_ffmpeg():
     )
 
 
-def test_bgutil_removed_from_check_duration():
-    """AUTH: check_duration nao deve conter nenhuma referencia a bgutil apos a migracao (D-03/D-04)."""
+def test_bgutil_present_in_check_duration():
+    """plan-06: check_duration deve conter getpot_bgutil_baseurl (reintroduzido no gap closure).
+
+    A Wave 2 removeu bgutil; o gap closure plan 06 reintroduz via extractor_args para
+    arquitetura hibrida (cookies do Volume + bgutil PO Token).
+    """
     src = inspect.getsource(pipeline.check_duration)
-    assert "getpot_bgutil_baseurl" not in src, (
-        "bgutil nao foi removido de check_duration apos migracao. "
-        "Remover extractor_args de bgutil conforme D-03/D-04 (Wave 2, Plan 03)."
-    )
-    assert "bgutil" not in src.lower(), (
-        "check_duration ainda contem referencia a bgutil (case-insensitive). "
-        "Verificar comentarios e strings que referenciam bgutil."
+    assert "getpot_bgutil_baseurl" in src, (
+        "plan-06: getpot_bgutil_baseurl deve estar em check_duration. "
+        "Gap closure plan 06 reintroduz bgutil via extractor_args para arquitetura hibrida."
     )
 
 
-def test_bgutil_removed_from_download_audio():
-    """AUTH: download_audio nao deve conter nenhuma referencia a bgutil apos a migracao (D-04)."""
+def test_bgutil_present_in_download_audio():
+    """plan-06: download_audio deve conter getpot_bgutil_baseurl (reintroduzido no gap closure).
+
+    Probe PIPE-06 (httpx.get) e BgutilUnavailable permanecem removidos — apenas
+    o extractor_args com getpot_bgutil_baseurl e reintroduzido.
+    """
     src = inspect.getsource(pipeline.download_audio)
-    assert "getpot_bgutil_baseurl" not in src, (
-        "bgutil nao foi removido de download_audio. "
-        "Remover getpot_bgutil_baseurl conforme D-04 (Wave 2, Plan 03)."
+    assert "getpot_bgutil_baseurl" in src, (
+        "plan-06: getpot_bgutil_baseurl deve estar em download_audio. "
+        "Gap closure plan 06 reintroduz bgutil via extractor_args."
     )
     assert "BgutilUnavailable" not in src, (
-        "BgutilUnavailable ainda referenciado em download_audio. "
-        "Remover a classe e todas as referencias conforme D-04."
+        "plan-06: BgutilUnavailable nao deve estar em download_audio. "
+        "Probe Wave 2 mantido removido — apenas extractor_args e re-introduzido."
     )
     assert "httpx.get" not in src, (
-        "probe httpx.get ainda presente em download_audio. "
-        "Remover o probe de disponibilidade do bgutil conforme D-04."
+        "plan-06: probe httpx.get nao deve estar em download_audio. "
+        "Wave 2 removeu; gap closure plan 06 mantem removido."
     )
 
 
 # ---------------------------------------------------------------------------
-# PIPE-06 (migrado) — verificar ausencia do probe bgutil em download_audio
-# Os 4 testes PIPE-06 originais foram removidos na Phase 10.1 Wave 0
-# pois testavam comportamento que sera eliminado na migracao (Wave 2, Plan 03).
-# Este teste substitui todos os 4 e verifica que o probe foi removido.
+# PIPE-06 (plan-06) — verificar que o probe bgutil permanece removido em download_audio
+# O probe httpx.get e BgutilUnavailable foram removidos na Wave 2 e permanecem
+# removidos no gap closure plan 06. bgutil e re-introduzido apenas via extractor_args.
 # ---------------------------------------------------------------------------
 import pytest
 from unittest.mock import patch, MagicMock
 
 
 def test_pipe06_no_bgutil_probe_in_download_audio():
-    """PIPE-06 (migrado): verificar que o probe bgutil foi removido de download_audio (D-04).
+    """plan-06: probe bgutil (httpx.get) permanece removido em download_audio.
 
-    Apos a migracao OAuth2/Volume, download_audio nao deve:
+    Gap closure plan 06 reintroduz bgutil via extractor_args (getpot_bgutil_baseurl),
+    mas NAO reintroduz o probe httpx.get nem a classe BgutilUnavailable.
+    download_audio nao deve:
     - Fazer httpx.get para verificar disponibilidade do bgutil
     - Levantar BgutilUnavailable
-    - Aceitar parametro bgutil_base_url
     """
     src = inspect.getsource(pipeline.download_audio)
     assert "httpx.get" not in src, (
-        "probe bgutil ainda presente em download_audio — remover conforme D-04. "
-        "Wave 2 (Plan 03) deve remover o probe httpx.get e a classe BgutilUnavailable."
+        "probe httpx.get nao deve estar em download_audio — Wave 2 removeu, plan 06 mantem removido. "
+        "bgutil e configurado via extractor_args, sem probe de disponibilidade."
     )
     assert "BgutilUnavailable" not in src, (
-        "BgutilUnavailable ainda referenciado em download_audio. "
-        "Remover conforme D-04."
+        "BgutilUnavailable nao deve estar em download_audio. "
+        "Wave 2 removeu a classe; gap closure plan 06 mantem removida."
     )
