@@ -243,7 +243,10 @@ Plans:
   2. `docker info | grep -i memory` returns no "No memory limit support" warning — memory cgroups are active in the kernel boot parameters and a 2GB swap file is confirmed via `swapon --show`
   3. `cat /proc/sys/kernel/watchdog` outputs `1` and a deliberate freeze test (or confirmed dtparam/systemd watchdog config) demonstrates the Pi auto-reboots and becomes reachable via SSH within 90 seconds — hardware watchdog is live without physical intervention
   4. Running `bash pi-setup.sh` on a freshly flashed Pi OS 64-bit image reproduced the full environment (Docker, swap, cgroups, watchdog, log2ram) without manual steps beyond providing credentials — script is documented and committed to the repo
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 12-01-PLAN.md — Wave 1: criar scripts/pi-setup.sh com 7 seções (arch, Docker, swap, cgroups, watchdog, log2ram, verificação final)
+- [ ] 12-02-PLAN.md — Wave 2: checkpoint humano — Moisés executa o script no Pi e documenta outputs em scripts/12-SETUP-LOG.md
 
 ### Phase 13: Docker Compose ARM
 **Goal**: A three-service Docker Compose stack (api, worker, redis) runs on the Pi with an ARM-native image, system ffmpeg, librosa functional without numba JIT, and a shared tmpfs volume so WAV files written by the worker are served by the api
@@ -292,7 +295,7 @@ Plans:
 | 10. Failure Hardening and E2E Validation | 2/3 | In Progress | - |
 | 10.1. OAuth2 + Railway Volume Auth Migration | 3/5 | In Progress | - |
 | 11. Som da Semana | 4/4 | Done | 2026-05-14 |
-| 12. Pi Foundation | 0/TBD | Not started | - |
+| 12. Pi Foundation | 0/2 | Planned | - |
 | 13. Docker Compose ARM | 0/TBD | Not started | - |
 | 14. Pipeline E2E on Pi | 0/TBD | Not started | - |
 | 15. Cloudflare Tunnel | 0/TBD | Not started | - |
