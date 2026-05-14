@@ -4,7 +4,7 @@
 **Milestone:** v1 — Public launch
 **Granularity:** Standard
 **Coverage:** 19/19 requirements mapped
-**Last updated:** 2026-05-08
+**Last updated:** 2026-05-14
 
 ---
 
@@ -203,6 +203,77 @@ Plans:
 - [ ] 10.1-04-PLAN.md — Wave 3 (Railway infra + checkpoint humano): criar Railway Volume em /data/yt-dlp-cache no serviço 248e8eaf, setar YTDLP_CACHE_DIR, checkpoint humano para operador popular cookies.txt via railway run, redeploy + verificar startup logs limpos
 - [ ] 10.1-05-PLAN.md — Wave 4 (E2E + teardown): 3 beats reais via POST /jobs (AUTH-02), redeploy forçado validando AUTH-03, deletar serviço bgutil (2fc3a8a5), remover env vars BGUTIL_BASE_URL e YTDLP_COOKIES_B64
 
+### Phase 11: Som da Semana
+**Goal**: Visitors see a Y2K/phpBB-style Som da Semana sidebar only when curated content exists, while the operator can directly visit `/yonkou`, authenticate with `ADMIN_PASSWORD`, and replace the single featured release through signed-cookie-protected, rate-limited endpoints
+**Depends on**: Phase 10
+**Requirements**: D-01, D-02, D-03, D-04, D-05, D-06
+**Success Criteria** (what must be TRUE):
+  1. The public homepage contains no visible button, link, menu item, or copy exposing `/yonkou`.
+  2. Directly visiting `/yonkou` renders the operator login panel; a valid `ADMIN_PASSWORD` sets a signed HttpOnly SameSite session cookie.
+  3. `POST /featured` rejects missing/invalid operator sessions, validates artist/title/genre/description and up to 3 HTTP(S) links, and stores the single current release in Redis with JSON fallback.
+  4. `GET /featured` is rate-limited and returns either the current featured release or an empty response without breaking the downloader flow.
+  5. When content exists, the visitor page injects a right-side table sidebar using the locked Y2K palette and safe DOM rendering; when empty or failed, the main downloader table remains centered.
+**Plans:** 4/4 plans complete
+
+Plans:
+- [x] 11-01-PLAN.md — Wave 1: RED tests for operator auth, `/yonkou`, `/featured`, Redis fallback, no public route affordance, and sidebar/static contract
+- [x] 11-02-PLAN.md — Wave 2: backend settings, signed cookie auth, `/yonkou`, `/featured`, Pydantic validation, Redis JSON storage, and fallback
+- [x] 11-03-PLAN.md — Wave 2: public sidebar HTML/JS/CSS implementation following the approved UI-SPEC
+- [x] 11-04-PLAN.md — Wave 3: security checklist update and human direct-route verification checkpoint
+
+---
+
+## v1.3 Phases — Raspberry Pi Hosting
+
+- [ ] **Phase 12: Pi Foundation** - Confirm 64-bit OS, install Docker, enable swap and memory cgroups, configure hardware watchdog, and produce a reproducible setup script
+- [ ] **Phase 13: Docker Compose ARM** - Build an ARM-compatible Docker image and a three-service Compose stack with shared tmpfs and correct memory limits
+- [ ] **Phase 14: Pipeline E2E on Pi** - Migrate cookies, wire the deploy script, and validate three complete beat downloads on the Pi via Tailscale
+- [ ] **Phase 15: Cloudflare Tunnel** - Expose the Pi publicly via a Cloudflare Tunnel HTTPS URL and validate three end-to-end downloads through it
+
+---
+
+## Phase Details (v1.3)
+
+### Phase 12: Pi Foundation
+**Goal**: The Raspberry Pi 3B is confirmed to run a 64-bit OS and is hardened for unattended headless operation — correct architecture, Docker installed, swap active, memory cgroups enforced, hardware watchdog protecting against permanent hangs, and a reproducible setup script documenting every step
+**Depends on**: Phase 11
+**Requirements**: PI-01, PI-02, PI-03, PI-04
+**Success Criteria** (what must be TRUE):
+  1. `uname -m` run via SSH over Tailscale returns `aarch64` — operator confirms the Pi is running a 64-bit OS before any other work proceeds
+  2. `docker info | grep -i memory` returns no "No memory limit support" warning — memory cgroups are active in the kernel boot parameters and a 2GB swap file is confirmed via `swapon --show`
+  3. `cat /proc/sys/kernel/watchdog` outputs `1` and a deliberate freeze test (or confirmed dtparam/systemd watchdog config) demonstrates the Pi auto-reboots and becomes reachable via SSH within 90 seconds — hardware watchdog is live without physical intervention
+  4. Running `bash pi-setup.sh` on a freshly flashed Pi OS 64-bit image reproduced the full environment (Docker, swap, cgroups, watchdog, log2ram) without manual steps beyond providing credentials — script is documented and committed to the repo
+**Plans**: TBD
+
+### Phase 13: Docker Compose ARM
+**Goal**: A three-service Docker Compose stack (api, worker, redis) runs on the Pi with an ARM-native image, system ffmpeg, librosa functional without numba JIT, and a shared tmpfs volume so WAV files written by the worker are served by the api
+**Depends on**: Phase 12
+**Requirements**: DEPLOY-04, DEPLOY-05, DEPLOY-06
+**Success Criteria** (what must be TRUE):
+  1. `docker build -t soundgrabber:latest .` completes without error on the Pi and `docker run --rm soundgrabber:latest python -c "import librosa, yt_dlp, fastapi, celery; print('OK')"` exits 0 — the ARM image is functional with no numba-related import errors
+  2. `docker compose ps` shows all three services (api, worker, redis) in a running/healthy state with `restart: unless-stopped` policy — confirmed by deliberately stopping one service and observing automatic restart
+  3. A WAV file written by the worker container to `/tmp` is immediately readable by the api container at the same path via the shared `sg_tmp` tmpfs volume — confirmed by `docker exec api ls /tmp/sg_*.wav` after a test write in the worker container
+**Plans**: TBD
+
+### Phase 14: Pipeline E2E on Pi
+**Goal**: The operator can trigger a full deployment to the Pi with one SSH command, cookies are in place so yt-dlp authenticates without errors, and three real beat URLs complete the download-convert-analyze pipeline on Pi hardware without bot-detection failures
+**Depends on**: Phase 13
+**Requirements**: AUTH-04, AUTH-05, PIPE-08
+**Success Criteria** (what must be TRUE):
+  1. The Pi startup log (accessible via `docker compose logs api`) shows no CRITICAL cookie warning — `cookies.txt` is present in the `sg_cookies` volume at `/data/yt-dlp-cache/cookies.txt` and the startup health check passes
+  2. Running `ssh pi@100.x.x.x 'bash ~/soundgrabber/deploy.sh'` from the operator's machine completes without error, pulling the latest code and restarting the api and worker containers in the correct order — one command, no manual steps
+  3. Three different YouTube beat URLs submitted to `POST /jobs` on the Pi each reach `status=done` with a downloadable WAV, a plausible BPM value, and a key in standard notation — no `LOGIN_REQUIRED` errors, no bot-detection blocks, no bgutil dependency
+**Plans**: TBD
+
+### Phase 15: Cloudflare Tunnel
+**Goal**: The SoundGrabber application is publicly accessible via a stable HTTPS URL backed by a Cloudflare Tunnel running on the Pi, with no open router ports and no residential IP exposure
+**Depends on**: Phase 14
+**Requirements**: TUNNEL-01, TUNNEL-02
+**Success Criteria** (what must be TRUE):
+  1. `systemctl status cloudflared` (or `docker compose ps cloudflared`) shows the tunnel service active and running on the Pi; `curl https://<public-domain>/health` returns HTTP 200 from the operator's machine on any network — the tunnel is live and routing correctly
+  2. Three complete end-to-end beat downloads executed through the public HTTPS URL (paste URL → poll status → download WAV) all succeed with valid WAV files, BPM, and key — the public tunnel does not introduce failures that do not occur on the private Tailscale URL
+**Plans**: TBD
+
 ---
 
 ## Progress Table
@@ -218,8 +289,13 @@ Plans:
 | 7. Infrastructure Security | 0/4 | Planned | - |
 | 8. Pipeline Code Fixes | 3/3 | Done | 2026-05-11 |
 | 9. Railway bgutil Deployment | 0/1 | Planned | - |
-| 10. Failure Hardening and E2E Validation | 2/3 | In Progress|  |
-| 10.1. OAuth2 + Railway Volume Auth Migration | 3/5 | In Progress|  |
+| 10. Failure Hardening and E2E Validation | 2/3 | In Progress | - |
+| 10.1. OAuth2 + Railway Volume Auth Migration | 3/5 | In Progress | - |
+| 11. Som da Semana | 4/4 | Done | 2026-05-14 |
+| 12. Pi Foundation | 0/TBD | Not started | - |
+| 13. Docker Compose ARM | 0/TBD | Not started | - |
+| 14. Pipeline E2E on Pi | 0/TBD | Not started | - |
+| 15. Cloudflare Tunnel | 0/TBD | Not started | - |
 
 ---
 
@@ -273,30 +349,24 @@ Plans:
 | DEPLOY-01 | Phase 8 |
 | DEPLOY-02 | Phase 9 |
 | DEPLOY-03 | Phase 9 |
+| PI-01 | Phase 12 |
+| PI-02 | Phase 12 |
+| PI-03 | Phase 12 |
+| PI-04 | Phase 12 |
+| DEPLOY-04 | Phase 13 |
+| DEPLOY-05 | Phase 13 |
+| DEPLOY-06 | Phase 13 |
+| AUTH-04 | Phase 14 |
+| AUTH-05 | Phase 14 |
+| PIPE-08 | Phase 14 |
+| TUNNEL-01 | Phase 15 |
+| TUNNEL-02 | Phase 15 |
 
-**Mapped: 45/45 (19 v1 + 16 v1.1 + 10 v1.2)**
-
-### Phase 11: Som da Semana — Curated sidebar panel featuring underground music releases, updated by the site operator via hidden `/yonkou` authenticated panel; displays artist, title, genre, links, and operator note with no public admin affordance
-
-**Goal:** Visitors see a Y2K/phpBB-style Som da Semana sidebar only when curated content exists, while the operator can directly visit `/yonkou`, authenticate with `ADMIN_PASSWORD`, and replace the single featured release through signed-cookie-protected, rate-limited endpoints.
-**Requirements**: D-01, D-02, D-03, D-04, D-05, D-06
-**Depends on:** Phase 10
-**Success Criteria** (what must be TRUE):
-  1. The public homepage contains no visible button, link, menu item, or copy exposing `/yonkou`.
-  2. Directly visiting `/yonkou` renders the operator login panel; a valid `ADMIN_PASSWORD` sets a signed HttpOnly SameSite session cookie.
-  3. `POST /featured` rejects missing/invalid operator sessions, validates artist/title/genre/description and up to 3 HTTP(S) links, and stores the single current release in Redis with JSON fallback.
-  4. `GET /featured` is rate-limited and returns either the current featured release or an empty response without breaking the downloader flow.
-  5. When content exists, the visitor page injects a right-side table sidebar using the locked Y2K palette and safe DOM rendering; when empty or failed, the main downloader table remains centered.
-**Plans:** 4/4 plans complete
-
-Plans:
-- [x] 11-01-PLAN.md — Wave 1: RED tests for operator auth, `/yonkou`, `/featured`, Redis fallback, no public route affordance, and sidebar/static contract
-- [x] 11-02-PLAN.md — Wave 2: backend settings, signed cookie auth, `/yonkou`, `/featured`, Pydantic validation, Redis JSON storage, and fallback
-- [x] 11-03-PLAN.md — Wave 2: public sidebar HTML/JS/CSS implementation following the approved UI-SPEC
-- [x] 11-04-PLAN.md — Wave 3: security checklist update and human direct-route verification checkpoint
+**Mapped: 57/57 (19 v1 + 16 v1.1 + 10 v1.2 + 12 v1.3)**
 
 ---
 
 *Roadmap created: 2026-04-29*
 *v1.1 phases appended: 2026-05-09*
 *v1.2 phases appended: 2026-05-10*
+*v1.3 phases appended: 2026-05-14*
