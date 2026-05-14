@@ -223,60 +223,60 @@ Plans:
 
 ---
 
-## v1.3 Phases — Raspberry Pi Hosting
+## v1.3 Phases — HP Notebook Hosting
 
-- [ ] **Phase 12: Pi Foundation** - Confirm 64-bit OS, install Docker, enable swap and memory cgroups, configure hardware watchdog, and produce a reproducible setup script
-- [ ] **Phase 13: Docker Compose ARM** - Build an ARM-compatible Docker image and a three-service Compose stack with shared tmpfs and correct memory limits
-- [ ] **Phase 14: Pipeline E2E on Pi** - Migrate cookies, wire the deploy script, and validate three complete beat downloads on the Pi via Tailscale
-- [ ] **Phase 15: Cloudflare Tunnel** - Expose the Pi publicly via a Cloudflare Tunnel HTTPS URL and validate three end-to-end downloads through it
+- [ ] **Phase 12: Notebook Foundation** - Install Ubuntu Server 24.04 LTS, configure Docker, swap, systemd watchdog, and lid-close prevention on the HP notebook, and produce a reproducible setup script
+- [ ] **Phase 13: Docker Compose** - Build a Docker image and a three-service Compose stack with shared tmpfs and correct memory limits
+- [ ] **Phase 14: Pipeline E2E on Notebook** - Migrate cookies, wire the deploy script, and validate three complete beat downloads on the notebook via Tailscale
+- [ ] **Phase 15: Cloudflare Tunnel** - Expose the notebook publicly via a Cloudflare Tunnel HTTPS URL and validate three end-to-end downloads through it
 
 ---
 
 ## Phase Details (v1.3)
 
-### Phase 12: Pi Foundation
-**Goal**: The Raspberry Pi 3B is confirmed to run a 64-bit OS and is hardened for unattended headless operation — correct architecture, Docker installed, swap active, memory cgroups enforced, hardware watchdog protecting against permanent hangs, and a reproducible setup script documenting every step
+### Phase 12: Notebook Foundation
+**Goal**: Ubuntu Server 24.04 LTS is installed on the HP notebook and hardened for unattended headless operation — Docker installed via apt, 4GB swap active, cgroups v2 enforced, systemd watchdog protecting against permanent hangs, lid-close suspend disabled, and a reproducible setup script documenting every step
 **Depends on**: Phase 11
-**Requirements**: PI-01, PI-02, PI-03, PI-04
+**Requirements**: SVR-01, SVR-02, SVR-03, SVR-04
 **Success Criteria** (what must be TRUE):
-  1. `uname -m` run via SSH over Tailscale returns `aarch64` — operator confirms the Pi is running a 64-bit OS before any other work proceeds
-  2. `docker info | grep -i memory` returns no "No memory limit support" warning — memory cgroups are active in the kernel boot parameters and a 2GB swap file is confirmed via `swapon --show`
-  3. `cat /proc/sys/kernel/watchdog` outputs `1` and a deliberate freeze test (or confirmed dtparam/systemd watchdog config) demonstrates the Pi auto-reboots and becomes reachable via SSH within 90 seconds — hardware watchdog is live without physical intervention
-  4. Running `bash pi-setup.sh` on a freshly flashed Pi OS 64-bit image reproduced the full environment (Docker, swap, cgroups, watchdog, log2ram) without manual steps beyond providing credentials — script is documented and committed to the repo
+  1. `uname -m` run via SSH over Tailscale returns `x86_64` and `lsb_release -rs` returns `24.04` — operator confirms Ubuntu Server 24.04 LTS is running before any other work proceeds
+  2. `docker info | grep "Cgroup Version"` returns `2` and `swapon --show` shows `/swapfile` with Size ≥ 4G — cgroups v2 active and swap confirmed
+  3. `systemctl show logind | grep HandleLidSwitch` returns `ignore` — notebook does not suspend when lid is closed — and `RuntimeWatchdogSec=15` is confirmed in `/etc/systemd/system.conf.d/10-watchdog.conf`
+  4. Running `bash notebook-setup.sh` on a fresh Ubuntu Server 24.04 LTS install reproduces the full environment (Docker, swap, watchdog, lid-close prevention) without manual steps beyond providing credentials — script is documented and committed to the repo
 **Plans**: 2 plans
 Plans:
 **Wave 1**
-- [ ] 12-01-PLAN.md — Wave 1: criar scripts/pi-setup.sh com 7 seções (arch, Docker, swap, cgroups, watchdog, log2ram, verificação final)
+- [ ] 12-01-PLAN.md — Wave 1: criar scripts/notebook-setup.sh com 7 seções (preflight, lid-close prevention, Docker, swap, cgroups v2 check, systemd watchdog, verificação final)
 
 **Wave 2** *(blocked on Wave 1 completion)*
-- [ ] 12-02-PLAN.md — Wave 2: checkpoint humano — Moisés executa o script no Pi e documenta outputs em scripts/12-SETUP-LOG.md
+- [ ] 12-02-PLAN.md — Wave 2: checkpoint humano — Moisés executa o script no notebook e documenta outputs em scripts/12-SETUP-LOG.md
 
-### Phase 13: Docker Compose ARM
-**Goal**: A three-service Docker Compose stack (api, worker, redis) runs on the Pi with an ARM-native image, system ffmpeg, librosa functional without numba JIT, and a shared tmpfs volume so WAV files written by the worker are served by the api
+### Phase 13: Docker Compose
+**Goal**: A three-service Docker Compose stack (api, worker, redis) runs on the notebook with a standard x86_64 image, system ffmpeg, Essentia functional, and a shared tmpfs volume so WAV files written by the worker are served by the api
 **Depends on**: Phase 12
 **Requirements**: DEPLOY-04, DEPLOY-05, DEPLOY-06
 **Success Criteria** (what must be TRUE):
-  1. `docker build -t soundgrabber:latest .` completes without error on the Pi and `docker run --rm soundgrabber:latest python -c "import librosa, yt_dlp, fastapi, celery; print('OK')"` exits 0 — the ARM image is functional with no numba-related import errors
+  1. `docker build -t soundgrabber:latest .` completes without error on the notebook and `docker run --rm soundgrabber:latest python -c "import essentia.standard, yt_dlp, fastapi, celery; print('OK')"` exits 0 — the image is functional
   2. `docker compose ps` shows all three services (api, worker, redis) in a running/healthy state with `restart: unless-stopped` policy — confirmed by deliberately stopping one service and observing automatic restart
   3. A WAV file written by the worker container to `/tmp` is immediately readable by the api container at the same path via the shared `sg_tmp` tmpfs volume — confirmed by `docker exec api ls /tmp/sg_*.wav` after a test write in the worker container
 **Plans**: TBD
 
-### Phase 14: Pipeline E2E on Pi
-**Goal**: The operator can trigger a full deployment to the Pi with one SSH command, cookies are in place so yt-dlp authenticates without errors, and three real beat URLs complete the download-convert-analyze pipeline on Pi hardware without bot-detection failures
+### Phase 14: Pipeline E2E on Notebook
+**Goal**: The operator can trigger a full deployment to the notebook with one SSH command, cookies are in place so yt-dlp authenticates without errors, and three real beat URLs complete the download-convert-analyze pipeline on notebook hardware without bot-detection failures
 **Depends on**: Phase 13
 **Requirements**: AUTH-04, AUTH-05, PIPE-08
 **Success Criteria** (what must be TRUE):
-  1. The Pi startup log (accessible via `docker compose logs api`) shows no CRITICAL cookie warning — `cookies.txt` is present in the `sg_cookies` volume at `/data/yt-dlp-cache/cookies.txt` and the startup health check passes
-  2. Running `ssh pi@100.x.x.x 'bash ~/soundgrabber/deploy.sh'` from the operator's machine completes without error, pulling the latest code and restarting the api and worker containers in the correct order — one command, no manual steps
-  3. Three different YouTube beat URLs submitted to `POST /jobs` on the Pi each reach `status=done` with a downloadable WAV, a plausible BPM value, and a key in standard notation — no `LOGIN_REQUIRED` errors, no bot-detection blocks, no bgutil dependency
+  1. The notebook startup log (accessible via `docker compose logs api`) shows no CRITICAL cookie warning — `cookies.txt` is present in the `sg_cookies` volume at `/data/yt-dlp-cache/cookies.txt` and the startup health check passes
+  2. Running `ssh user@100.x.x.x 'bash ~/soundgrabber/deploy.sh'` from the operator's machine completes without error, pulling the latest code and restarting the api and worker containers in the correct order — one command, no manual steps
+  3. Three different YouTube beat URLs submitted to `POST /jobs` on the notebook each reach `status=done` with a downloadable WAV, a plausible BPM value, and a key in standard notation — no `LOGIN_REQUIRED` errors, no bot-detection blocks, no bgutil dependency
 **Plans**: TBD
 
 ### Phase 15: Cloudflare Tunnel
-**Goal**: The SoundGrabber application is publicly accessible via a stable HTTPS URL backed by a Cloudflare Tunnel running on the Pi, with no open router ports and no residential IP exposure
+**Goal**: The SoundGrabber application is publicly accessible via a stable HTTPS URL backed by a Cloudflare Tunnel running on the notebook, with no open router ports and no residential IP exposure
 **Depends on**: Phase 14
 **Requirements**: TUNNEL-01, TUNNEL-02
 **Success Criteria** (what must be TRUE):
-  1. `systemctl status cloudflared` (or `docker compose ps cloudflared`) shows the tunnel service active and running on the Pi; `curl https://<public-domain>/health` returns HTTP 200 from the operator's machine on any network — the tunnel is live and routing correctly
+  1. `systemctl status cloudflared` (or `docker compose ps cloudflared`) shows the tunnel service active and running on the notebook; `curl https://<public-domain>/health` returns HTTP 200 from the operator's machine on any network — the tunnel is live and routing correctly
   2. Three complete end-to-end beat downloads executed through the public HTTPS URL (paste URL → poll status → download WAV) all succeed with valid WAV files, BPM, and key — the public tunnel does not introduce failures that do not occur on the private Tailscale URL
 **Plans**: TBD
 
@@ -298,9 +298,9 @@ Plans:
 | 10. Failure Hardening and E2E Validation | 2/3 | In Progress | - |
 | 10.1. OAuth2 + Railway Volume Auth Migration | 3/5 | In Progress | - |
 | 11. Som da Semana | 4/4 | Done | 2026-05-14 |
-| 12. Pi Foundation | 0/2 | Planned | - |
-| 13. Docker Compose ARM | 0/TBD | Not started | - |
-| 14. Pipeline E2E on Pi | 0/TBD | Not started | - |
+| 12. Notebook Foundation | 0/2 | Planned | - |
+| 13. Docker Compose | 0/TBD | Not started | - |
+| 14. Pipeline E2E on Notebook | 0/TBD | Not started | - |
 | 15. Cloudflare Tunnel | 0/TBD | Not started | - |
 
 ---
@@ -355,10 +355,10 @@ Plans:
 | DEPLOY-01 | Phase 8 |
 | DEPLOY-02 | Phase 9 |
 | DEPLOY-03 | Phase 9 |
-| PI-01 | Phase 12 |
-| PI-02 | Phase 12 |
-| PI-03 | Phase 12 |
-| PI-04 | Phase 12 |
+| SVR-01 | Phase 12 |
+| SVR-02 | Phase 12 |
+| SVR-03 | Phase 12 |
+| SVR-04 | Phase 12 |
 | DEPLOY-04 | Phase 13 |
 | DEPLOY-05 | Phase 13 |
 | DEPLOY-06 | Phase 13 |

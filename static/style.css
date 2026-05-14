@@ -437,8 +437,8 @@ td {
   width: 220px;
   height: auto;
   left: 50%;
-  transform: translateX(calc(-50% - 10px)) rotate(180deg);
-  top: 80px;
+  transform: translateX(calc(-50% + 6px)) rotate(180deg);
+  top: 70px;
   z-index: 10;
   pointer-events: none;
   filter: brightness(0.6);
@@ -484,7 +484,7 @@ td {
   font-size: 12px;
   letter-spacing: 1px;
   padding: 2px 6px;
-  margin-bottom: 10px;
+  margin: 0 0 10px 20px;
 }
 
 #featured-title-row {
@@ -492,7 +492,7 @@ td {
   align-items: baseline;
   flex-wrap: nowrap;
   gap: 8px;
-  margin-bottom: 10px;
+  margin: 0 0 10px 20px;
   overflow: hidden;
 }
 
