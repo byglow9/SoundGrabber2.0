@@ -9,8 +9,9 @@
 
 Preparar o notebook HP do Moisés para rodar o SoundGrabber de forma autônoma e headless com Ubuntu
 Server 24.04 LTS: confirmar arquitetura x86_64, instalar Docker via apt repo oficial, configurar
-swap e cgroups v2, habilitar systemd watchdog, prevenir sleep/hibernate com tampa fechada, e entregar
-um script `scripts/notebook-setup.sh` executável e reproduzível.
+swap e cgroups v2, aplicar firewall básico seguro, habilitar systemd watchdog, prevenir
+sleep/hibernate com tampa fechada, e entregar um script `scripts/notebook-setup.sh` executável e
+reproduzível.
 
 Esta fase não toca em código da aplicação nem em Docker Compose — é exclusivamente infraestrutura do host.
 
@@ -40,6 +41,10 @@ Esta fase não toca em código da aplicação nem em Docker Compose — é exclu
     AllowSuspendThenHibernate=no, AllowHybridSleep=no
   - `systemctl daemon-reload` após criar os arquivos
   - Ambos drop-ins criados de forma idempotente (verificar existência antes de criar)
+- **D-03a:** Operar com tampa fechada é gate rígido da Phase 12: após reboot, Moisés deve fechar a
+  tampa por 2-5 minutos e reconectar via Tailscale/SSH. Se o notebook sumir da rede, a fase não
+  passa, exceto se houver limitação comprovada de hardware/BIOS/ACPI. Nesse caso, operar com a tampa
+  aberta ou semiaberta é aceito, mas a limitação deve ficar documentada em `scripts/12-SETUP-LOG.md`.
 
 ### Watchdog
 
@@ -48,15 +53,32 @@ Esta fase não toca em código da aplicação nem em Docker Compose — é exclu
   O hardware watchdog bcm2835-wdt era específico do Raspberry Pi — não existe em notebook HP.
   Para notebooks: o kernel Linux expõe `/dev/watchdog` via módulo `iTCO_wdt` (Intel) ou
   `sp5100_tco` (AMD). O systemd faz feed automático via `/dev/watchdog` se disponível.
+- **D-04a:** Watchdog ativo não é bloqueador da Phase 12. O script deve configurar o drop-in, e o
+  Plan 02 deve validar `systemctl show -p RuntimeWatchdogUSec` e `ls -l /dev/watchdog* || true`.
+  Se o valor for `0` ou não houver `/dev/watchdog`, registrar como limitação de hardware e seguir.
+  Só bloqueia se a configuração causar falha de boot, instabilidade ou erro de systemd.
 
 ### Docker
 
 - **D-05:** Instalar Docker via apt repo oficial da Docker (não via snap, não via convenience script
   `get.docker.com` — o convenience script tem risco de supply chain sem pinagem de versão).
   Passos: add GPG key + repo, apt install `docker-ce docker-ce-cli containerd.io
-  docker-buildx-plugin docker-compose-plugin`.
-- **D-06:** Adicionar o usuário operador ao grupo `docker` usando `${SUDO_USER}` (não hardcode).
-  Aviso explícito no script que o grupo docker equivale a root.
+  docker-buildx-plugin docker-compose-plugin`. Remover previamente pacotes conflitantes conforme
+  recomendação oficial da Docker (`docker.io`, `docker-compose`, `containerd`, `runc`, etc.).
+- **D-06:** Segurança acima de conveniência: não adicionar o usuário operador ao grupo `docker`.
+  Grupo `docker` equivale a root. Operação e planos futuros devem usar `sudo docker` /
+  `sudo docker compose` ou serviços systemd root-owned. Liberar grupo `docker` só pode ocorrer por
+  decisão explícita futura.
+
+### Firewall e exposição
+
+- **D-06a:** Phase 12 aplica firewall básico de host com UFW: default deny incoming, allow outgoing,
+  permitir SSH e permitir tráfego em `tailscale0` quando a interface existir. O script só deve ativar
+  UFW depois de garantir uma rota de administração segura para evitar lockout.
+- **D-06b:** Produção deve seguir defesa em camadas: sem port-forward residencial; administração via
+  Tailscale; exposição pública via Cloudflare Tunnel na Phase 15. Se Docker Compose publicar portas
+  em fases futuras, hardening deve considerar a cadeia `DOCKER-USER`; UFW sozinho não deve ser
+  tratado como prova de isolamento de containers.
 
 ### Swap
 
@@ -78,15 +100,36 @@ Esta fase não toca em código da aplicação nem em Docker Compose — é exclu
   Gate do projeto: `set -e`, comentários WHY, sem `eval` de input externo.
 - **D-11:** Script é idempotente — pode ser re-executado sem quebrar o sistema.
 - **D-12:** Script inclui verificação final com status de todos os componentes: arch, Docker, swap,
-  cgroups v2, watchdog, lid-close config. Output amigável para o Moisés confirmar.
+  cgroups v2, watchdog, lid-close config e UFW. Output amigável para o Moisés confirmar.
+
+### Decisões encaminhadas para Phase 13/14
+
+- **D-13:** Docker Compose continua sendo a melhor opção para produção local, mas com hardening:
+  Docker rootful operado via `sudo`, sem usuário no grupo `docker`, sem containers privileged, sem
+  `network_mode: host`, sem portas públicas diretas, limites de memória/CPU e Redis apenas na rede
+  interna do Compose.
+- **D-14:** Concurrency em produção deve ser validada por rampa. Baseline inicial sugerido para
+  Phase 13: Celery `--concurrency=1`, teste controlado com 2 jobs simultâneos, e só promover para
+  `concurrency=2` se o notebook não apresentar OOM, swap pesada ou perda de responsividade.
+- **D-15:** Essentia é requisito obrigatório do produto. Phase 13 deve bloquear se
+  `import essentia.standard` ou `analyze_audio()` no container falhar. Não aceitar fallback silencioso
+  sem Essentia.
+- **D-16:** Node.js >= 20 é dependência obrigatória do container da aplicação para yt-dlp/bgutil. Não
+  instalar Node no host na Phase 12.
+- **D-17:** Phase 13 deve migrar diretório de WAV para caminho explícito compartilhado:
+  `SG_TMP_DIR=/data/tmp`, com fallback local para `/tmp`. API, worker e sweeper devem usar o mesmo
+  diretório.
+- **D-18:** YouTube/cookies é gate duro de produção na Phase 14. Phase 12/13 preparam host/container,
+  mas só 3 downloads reais bem-sucedidos no notebook provam produção.
 
 ### O que NÃO faz o script
 
 - Não instala Tailscale (já deve estar instalado e configurado pelo Moisés antes)
 - Não instala Cloudflare Tunnel (Phase 15)
 - Não instala Docker Compose stacks da aplicação (Phase 13)
+- Não instala Node.js — Node pertence ao container da aplicação na Phase 13
 - Não instala log2ram — notebook usa HDD, não SD card; risco de desgaste diferente e não relevante
-- Não configura UFW além do essencial — deixado para a fase de hardening de infraestrutura
+- Não configura regras Docker `DOCKER-USER` — só após existir Compose/portas em fases futuras
 
 </decisions>
 
@@ -128,6 +171,10 @@ Esta fase não toca em código da aplicação nem em Docker Compose — é exclu
 - Script executado pelo Moisés no notebook com `sudo bash notebook-setup.sh`
 - O Tailscale já deve estar instalado e conectado antes de executar o script
 - Reboot necessário após configurar watchdog e drop-ins de sleep — script informa explicitamente
+- `scripts/12-SETUP-LOG.md` deve registrar modelo/CPU/RAM/disco (`lscpu`, `free -h`, `lsblk`) para
+  dimensionar a concorrência da Phase 13
+- Plan 02 deve incluir teste real de tampa fechada; se hardware impedir, registrar a exceção e operar
+  com tampa aberta/semiaberta
 
 </specifics>
 
