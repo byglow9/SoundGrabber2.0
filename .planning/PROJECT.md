@@ -64,16 +64,29 @@ A estética retro dos anos 2000 (Tibia, phpBB, Orkut) é parte da identidade —
 | Estética Y2K/2000s internet | Identidade cultural da cena underground, diferenciação forte de ferramentas genéricas | — Pending |
 | Detecção de BPM e tonalidade inline | Informação crítica para produtores sem precisar abrir outro app | — Pending |
 
-## Current Milestone: v1.2 YouTube Pipeline Fix
+## Current Milestone: v1.3 Raspberry Pi Hosting
+
+**Goal:** Rodar o SoundGrabber no Raspberry Pi 3B com IP residencial via Tailscale, validar que o download do YouTube funciona sem bot detection, e opcionalmente expor via Cloudflare Tunnel se tudo estiver funcionando.
+
+**Target features:**
+- Discovery do Pi: SO, Docker, recursos disponíveis (via SSH/Tailscale)
+- Docker Compose ARM-compatible (linux/arm/v7) com FastAPI + Celery + Redis + yt-dlp + librosa
+- Script de setup do Pi: instalar Docker, configurar volumes, variáveis de ambiente, cookies.txt
+- Validação do pipeline no Pi: 3 URLs de beats → WAV sem LOGIN_REQUIRED
+- Restart automático (Docker restart: unless-stopped ou systemd)
+- Fluxo de deploy via SSH sobre Tailscale (git pull + compose up)
+- [Opcional] Cloudflare Tunnel para exposição pública
+
+## Previous Milestone: v1.2 YouTube Pipeline Fix
 
 **Goal:** Fazer o pipeline completo (download → convert → analyze) funcionar de forma confiável no Railway sem erros de bot detection, formato ou ffprobe.
 
-**Target features:**
-- Fix bot detection — estratégia correta de client type + auth para datacenter IPs
-- Fix "Requested format is not available" — resolver combinação client/PO Token/cookies que funcione no Railway
-- Fix nsig extraction — garantir comportamento consistente com yt-dlp atual
-- Fix ffprobe path — imageio-ffmpeg ou system ffmpeg acessível no Railway
-- Pipeline end-to-end confiável: download → WAV → BPM/key sem falhas intermitentes
+**Completed features:**
+- ffprobe path resolution via shutil.which (sem imageio-ffmpeg)
+- nixpacks.toml com system ffmpeg no Railway
+- Cookies validation no startup (_check_cookies / _check_oauth_cache)
+- Migração para Railway Volume (cookies.txt em /data/yt-dlp-cache)
+- Som da Semana — painel curado com autenticação por cookie assinado
 
 ## Previous Milestone: v1.1 Security Hardening
 
@@ -106,4 +119,4 @@ Este documento evolui a cada transição de fase e marco de milestone.
 4. Atualizar Context com o estado atual
 
 ---
-*Last updated: 2026-05-10 — Milestone v1.2 YouTube Pipeline Fix iniciado; foco em resolver bot detection + formato + ffprobe no Railway*
+*Last updated: 2026-05-14 — Milestone v1.3 Raspberry Pi Hosting iniciado; foco em rodar o pipeline com IP residencial via Tailscale*

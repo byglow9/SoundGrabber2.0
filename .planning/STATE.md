@@ -1,16 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.2
-milestone_name: Phases — YouTube Pipeline Fix
-status: executing
-last_updated: "2026-05-13T20:09:31.757Z"
-last_activity: 2026-05-13 -- Phase 10.1 execution started
+milestone: v1.3
+milestone_name: Raspberry Pi Hosting
+status: planning
+last_updated: "2026-05-14T00:00:00.000Z"
+last_activity: 2026-05-14 -- Milestone v1.3 started
 progress:
-  total_phases: 5
-  completed_phases: 4
-  total_plans: 16
-  completed_plans: 16
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # State — SoundGrabber
@@ -23,20 +23,18 @@ progress:
 
 **Core value:** O produtor cola um link do YouTube e recebe o beat em WAV com BPM e nota identificados em menos de um minuto, sem nenhuma conta ou instalação.
 
-**Current milestone:** v1.2 — YouTube Pipeline Fix
+**Current milestone:** v1.3 — Raspberry Pi Hosting
 
-**Current focus:** Phase 10.1 — oauth2-railway-volume-auth-migration
+**Current focus:** Defining requirements
 
 ---
 
 ## Current Position
 
-Phase: 10.1 (oauth2-railway-volume-auth-migration) — EXECUTING
-Plan: 1 of 1
-Status: Executing Phase 10.1
-Last activity: 2026-05-13 -- Phase 10.1 execution started
-
-Progress: [████████░░] 80% (Wave 3 completa, Wave 4 bloqueada)
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-05-14 — Milestone v1.3 started
 
 ---
 
@@ -44,11 +42,11 @@ Progress: [████████░░] 80% (Wave 3 completa, Wave 4 bloquead
 
 | Metric | Value |
 |--------|-------|
-| Phases total (v1.2) | 5 |
-| Phases complete (v1.2) | 5 |
-| Requirements covered (v1.2) | 10/10 |
-| Plans written (v1.2) | 15 |
-| Plans complete (v1.2) | 11 |
+| Phases total (v1.3) | TBD |
+| Phases complete (v1.3) | 0 |
+| Requirements covered (v1.3) | 0/TBD |
+| Plans written (v1.3) | 0 |
+| Plans complete (v1.3) | 0 |
 
 ---
 
