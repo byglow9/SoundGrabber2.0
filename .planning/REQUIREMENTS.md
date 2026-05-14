@@ -91,6 +91,37 @@
 
 ---
 
+## v1.3 Requirements — Raspberry Pi Hosting
+
+### PI — Fundação Raspberry Pi
+
+- [ ] **PI-01**: Operador confirma via SSH/Tailscale que Pi roda OS 64-bit (aarch64) — `uname -m` retorna `aarch64`
+- [ ] **PI-02**: Pi tem Docker instalado, 2GB swap habilitado e memory cgroups ativos (`cgroup_enable=memory cgroup_memory=1` em `/boot/firmware/cmdline.txt`)
+- [ ] **PI-03**: Pi tem hardware watchdog habilitado e testado — auto-reinicia automaticamente em caso de hang sem acesso físico
+- [ ] **PI-04**: Existe script de setup documentado e reproduzível para reconfigurar o Pi do zero (instalar Docker, swap, cgroups, watchdog)
+
+### DEPLOY — Docker Compose ARM
+
+- [ ] **DEPLOY-04**: Dockerfile constrói imagem ARM com system ffmpeg instalado via apt e variável `NUMBA_DISABLE_JIT=1` — sem imageio-ffmpeg
+- [ ] **DEPLOY-05**: `docker-compose.yml` define serviços api, worker (`--concurrency=1 --max-tasks-per-child=10`) e redis com `restart: unless-stopped`
+- [ ] **DEPLOY-06**: api e worker compartilham volume tmpfs montado em `/tmp` — WAV gerado pelo worker é acessível pelo api para `GET /files/{id}`
+
+### AUTH — Cookies e Deploy Remoto
+
+- [ ] **AUTH-04**: Operador copia `cookies.txt` do Railway Volume para o Pi via SSH/Tailscale e startup log confirma cookies presentes sem erro CRITICAL
+- [ ] **AUTH-05**: Existe `deploy.sh` que executa `git pull + docker compose up --build -d` no Pi com um comando via SSH/Tailscale
+
+### PIPE — Validação E2E no Pi
+
+- [ ] **PIPE-08**: 3 URLs de beats enviadas ao `POST /jobs` no Pi resultam em `status=done` com WAV válido, BPM e tonalidade — sem bgutil, sem `LOGIN_REQUIRED`
+
+### TUNNEL — Exposição Pública via Cloudflare
+
+- [ ] **TUNNEL-01**: `cloudflared` instalado e rodando como serviço systemd no Pi; tunnel configurado com route DNS apontando para `localhost:8000`
+- [ ] **TUNNEL-02**: Site SoundGrabber acessível via URL HTTPS pública (domínio customizado ou `.trycloudflare.com`) — 3 downloads E2E validados via esta URL
+
+---
+
 ## v2 Requirements (deferred)
 
 - Waveform visualization — tecnicamente complexo, valor marginal vs. análise musical
@@ -168,7 +199,19 @@
 | DEPLOY-01 | Phase 8 | Pending |
 | DEPLOY-02 | Phase 9 | Pending |
 | DEPLOY-03 | Phase 9 | Pending |
+| PI-01 | Phase 12 | Pending |
+| PI-02 | Phase 12 | Pending |
+| PI-03 | Phase 12 | Pending |
+| PI-04 | Phase 12 | Pending |
+| DEPLOY-04 | Phase 13 | Pending |
+| DEPLOY-05 | Phase 13 | Pending |
+| DEPLOY-06 | Phase 13 | Pending |
+| AUTH-04 | Phase 14 | Pending |
+| AUTH-05 | Phase 14 | Pending |
+| PIPE-08 | Phase 14 | Pending |
+| TUNNEL-01 | Phase 15 | Pending |
+| TUNNEL-02 | Phase 15 | Pending |
 
 ---
 
-*Last updated: 2026-05-10 — v1.2 traceability complete: PIPE-01..07 e DEPLOY-01..03 mapeados para Phases 8, 9, 10*
+*Last updated: 2026-05-14 — v1.3 requirements defined: PI-01..04, DEPLOY-04..06, AUTH-04..05, PIPE-08, TUNNEL-01..02 (12 requirements, Phases 12–15)*
