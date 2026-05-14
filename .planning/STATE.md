@@ -72,6 +72,7 @@ Last activity: 2026-05-14 -- Phase 12 planning complete
 
 - Phase 11 added: Som da Semana — painel lateral curado com lançamentos da cena underground, atualizado pelo operador via endpoint autenticado
 - Phase 10.1 inserted after Phase 10 (URGENT): OAuth2 + Railway Volume auth migration — elimina expiração de cookies e dependência do bgutil
+- Phase 12 hardware confirmed (2026-05-14): i5-3210M @ 2.50GHz (Ivy Bridge, 2c/4t), 4GB DDR3, 700GB HDD, Intel HD 4000; chipset Panther Point → iTCO_wdt disponível para watchdog; baseline Celery concurrency=1
 
 ### Known Risks
 

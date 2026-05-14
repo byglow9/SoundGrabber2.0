@@ -1,8 +1,8 @@
 # Phase 12: Notebook Foundation - Context
 
 **Gathered:** 2026-05-14
-**Atualizado:** 2026-05-14 — migrado de Raspberry Pi 3B para notebook HP
-**Status:** Ready for planning
+**Atualizado:** 2026-05-14 — hardware confirmado pelo Moisés
+**Status:** Executing (Plan 01 done, Plan 02 aguardando operador)
 
 <domain>
 ## Phase Boundary
@@ -15,7 +15,13 @@ reproduzível.
 
 Esta fase não toca em código da aplicação nem em Docker Compose — é exclusivamente infraestrutura do host.
 
-**Hardware:** Notebook HP (modelo a confirmar), ~4GB RAM, 2 núcleos x86_64, HDD
+**Hardware (confirmado 2026-05-14):**
+- CPU: Intel Core i5-3210M @ 2.50GHz — Ivy Bridge, 2 núcleos físicos / 4 threads (HT), 3MB L3 cache
+- Chipset: Intel Panther Point → módulo `iTCO_wdt` disponível para watchdog de hardware
+- RAM: 4GB DDR3
+- Armazenamento: 700GB HDD
+- GPU: Intel HD Graphics 4000 (32MB VRAM — irrelevante para servidor headless)
+
 **OS alvo:** Ubuntu Server 24.04 LTS (fresh install)
 
 </domain>
@@ -26,9 +32,9 @@ Esta fase não toca em código da aplicação nem em Docker Compose — é exclu
 ### Hardware e SO
 
 - **D-01:** Usar Ubuntu Server 24.04 LTS — sem GUI, suporte até 2029, Docker nativo, cgroups v2 ativo
-  por padrão, lightweight (~400MB RAM idle). Adequado para 4GB RAM + 2 cores + HDD.
-- **D-02:** Arquitetura é x86_64. Não há verificação de 32-bit necessária — Ubuntu Server 24.04 só
-  oferece amd64. `uname -m` deve retornar `x86_64` sempre.
+  por padrão, lightweight (~400MB RAM idle). Adequado para hardware confirmado: i5-3210M (Ivy Bridge,
+  2c/4t), 4GB DDR3, HDD 700GB. RAM livre em idle (~3.6GB) é suficiente para api + worker + Redis.
+- **D-02:** Arquitetura é x86_64 (confirmada — i5-3210M é amd64). `uname -m` retornará `x86_64`.
 
 ### Prevenção de Sleep/Hibernate (crítico para notebook servidor)
 
@@ -51,8 +57,8 @@ Esta fase não toca em código da aplicação nem em Docker Compose — é exclu
 - **D-04:** Usar systemd watchdog via drop-in `/etc/systemd/system.conf.d/10-watchdog.conf` com
   `RuntimeWatchdogSec=15` e `ShutdownWatchdogSec=2min`. Ubuntu 24.04 suporta isso nativamente.
   O hardware watchdog bcm2835-wdt era específico do Raspberry Pi — não existe em notebook HP.
-  Para notebooks: o kernel Linux expõe `/dev/watchdog` via módulo `iTCO_wdt` (Intel) ou
-  `sp5100_tco` (AMD). O systemd faz feed automático via `/dev/watchdog` se disponível.
+  Para o i5-3210M (Panther Point): o kernel Linux expõe `/dev/watchdog` via módulo `iTCO_wdt`
+  (Intel Panther Point é suportado). O systemd faz feed automático via `/dev/watchdog` se disponível.
 - **D-04a:** Watchdog ativo não é bloqueador da Phase 12. O script deve configurar o drop-in, e o
   Plan 02 deve validar `systemctl show -p RuntimeWatchdogUSec` e `ls -l /dev/watchdog* || true`.
   Se o valor for `0` ou não houver `/dev/watchdog`, registrar como limitação de hardware e seguir.
@@ -108,9 +114,10 @@ Esta fase não toca em código da aplicação nem em Docker Compose — é exclu
   Docker rootful operado via `sudo`, sem usuário no grupo `docker`, sem containers privileged, sem
   `network_mode: host`, sem portas públicas diretas, limites de memória/CPU e Redis apenas na rede
   interna do Compose.
-- **D-14:** Concurrency em produção deve ser validada por rampa. Baseline inicial sugerido para
-  Phase 13: Celery `--concurrency=1`, teste controlado com 2 jobs simultâneos, e só promover para
-  `concurrency=2` se o notebook não apresentar OOM, swap pesada ou perda de responsividade.
+- **D-14:** Concurrency em produção validada por rampa. Hardware confirmado (i5-3210M, 4GB DDR3,
+  HDD): baseline Phase 13 = Celery `--concurrency=1`. Testar 2 jobs simultâneos; promover para
+  `concurrency=2` só se sem OOM, swap pesada ou perda de responsividade. HDD (não SSD) limita
+  throughput de swap e I/O — testar com cautela. 4 threads HT disponíveis mas RAM é o gargalo real.
 - **D-15:** Essentia é requisito obrigatório do produto. Phase 13 deve bloquear se
   `import essentia.standard` ou `analyze_audio()` no container falhar. Não aceitar fallback silencioso
   sem Essentia.
