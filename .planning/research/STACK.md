@@ -390,3 +390,515 @@ layers not touched by the v1.2 milestone. See SUMMARY.md for overall architectur
 |---------|-----|--------------------------|
 | `ffmpeg` + `ffprobe` | yt-dlp postprocessor + WAV validation | `nixpacks.toml`: `nixPkgs = ["ffmpeg"]` |
 | `libsndfile1` | soundfile/librosa WAV I/O on Linux | Typically included with nixpacks Python build |
+
+---
+
+---
+
+# Raspberry Pi 3B Hosting Stack (v1.3 Addendum)
+
+**Researched:** 2026-05-14
+**Scope:** What changes when the same FastAPI + Celery + Redis + yt-dlp + librosa stack
+moves from Railway (x86_64 datacenter) to Raspberry Pi 3B (ARM, 1GB RAM, residential IP).
+Does NOT re-research the application layer — only infrastructure and ARM compatibility.
+
+---
+
+## Critical Architecture Decision: ARM64 (64-bit OS) vs ARM32 (armhf/armv7)
+
+**Recommendation: Run Raspberry Pi OS 64-bit (aarch64/linux/arm64) — NOT 32-bit.**
+
+This is the most consequential decision for the entire milestone. Everything else
+depends on it.
+
+**Why 64-bit wins despite 1GB RAM:**
+
+| Factor | arm32 (armhf/linux/arm/v7) | arm64 (aarch64/linux/arm64) | Winner |
+|--------|----------------------------|------------------------------|--------|
+| essentia pip wheel | NOT AVAILABLE — no PyPI wheel, no piwheels wheel; must compile from C++ source (hours) | NOT AVAILABLE on PyPI for Linux arm64 either — same problem | Tie (both bad) |
+| numpy pip wheel | Available via piwheels (armv7l, cp311) | Available via PyPI (manylinux aarch64, cp311) | arm64 (no piwheels needed) |
+| librosa pip wheel | Available via piwheels (py3-none-any — pure Python) | Available via PyPI (pure Python) | Tie |
+| Docker image ecosystem | Many modern images arm64-only; armhf deprecated by linuxserver since 2023 | Full range of Docker Hub images available | arm64 |
+| bgutil Docker image | Architecture unknown; likely x86-only per Docker Hub inspection | arm64 support more probable for Node.js images | arm64 |
+| mwader/static-ffmpeg | NOT available (amd64 + arm64 only) | Available | arm64 |
+| Redis official image | Available (arm32v7/redis) | Available (arm64v8/redis) | Tie |
+| Python official image | Available (arm32v7/python:3.11-slim-bookworm) | Available (python:3.11-slim-bookworm multi-arch) | Tie |
+| RAM overhead | Lower pointer size — saves ~50-100MB in practice | 64-bit pointers, slightly larger kernel footprint | arm32 (marginal) |
+
+**The essentia problem is the same on both architectures.** There are no Linux ARM
+binary wheels for essentia on PyPI or piwheels. This is the biggest stack risk for
+the Pi milestone regardless of which ARM variant you choose.
+
+**The 50-100MB RAM advantage of 32-bit is not worth the ecosystem friction** of
+arm32-only images, piwheels dependency, and missing mwader/static-ffmpeg. Use 64-bit.
+
+**Confidence:** HIGH for essentia no-ARM-wheel claim (verified PyPI page: only x86_64
+Linux and macOS ARM64 wheels); HIGH for mwader/static-ffmpeg arm64 availability;
+MEDIUM for RAM delta claim (community consensus, not benchmarked on this stack).
+
+---
+
+## Docker Base Image
+
+### Python Application Container
+
+**Recommended:** `python:3.11-slim-bookworm` (multi-arch, pulls arm64 automatically on 64-bit Pi OS)
+
+```dockerfile
+FROM python:3.11-slim-bookworm
+```
+
+**Why slim-bookworm:**
+- Official Python image, multi-arch manifest. On arm64 host pulls `linux/arm64` variant automatically.
+- Bookworm (Debian 12) aligns with Raspberry Pi OS 64-bit current stable.
+- `slim` variant removes locale data and documentation, saving ~50MB vs full image.
+- Python 3.11.15 is the current 3.11 patch — same minor version as Railway deploy.
+
+**Do NOT use alpine:** alpine uses musl libc. librosa's native deps (libsndfile, LAPACK)
+have musl compatibility issues on ARM. Bookworm uses glibc — same as piwheels and
+PyPI manylinux wheels.
+
+**Confidence:** HIGH — arm32v7/python:3.11-slim-bookworm confirmed on Docker Hub;
+arm64 pulls automatically via manifest on 64-bit OS.
+
+---
+
+## Redis Container
+
+**Recommended:** `redis:7-alpine` (official image, multi-arch, pulls arm64 automatically)
+
+```yaml
+redis:
+  image: redis:7-alpine
+  platform: linux/arm64
+```
+
+**Why redis:7 not redis:8:**
+- Redis 8.0 was released recently. The project currently uses `redis==6.4.0` Python
+  client, which is compatible with Redis 7.x. Staying on Redis 7 avoids any potential
+  protocol changes until the client library is validated with Redis 8.
+- The alpine variant saves ~30MB vs the debian variant — meaningful on Pi's SD card.
+
+**Confidence:** HIGH — official Redis image confirmed multi-arch including arm32v7 and arm64v8.
+
+---
+
+## FFmpeg in the Container
+
+**Recommended approach: Install system `ffmpeg` from Debian package inside the app container.**
+
+```dockerfile
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+```
+
+**Why apt-get instead of mwader/static-ffmpeg COPY --from:**
+- `mwader/static-ffmpeg` supports amd64 and arm64 only — works on 64-bit Pi.
+- However, Debian bookworm's `ffmpeg` package is ARM-native and includes both
+  `ffmpeg` and `ffprobe` at the same path, keeping the existing `shutil.which`
+  resolution logic working unchanged.
+- `apt-get install ffmpeg` on bookworm ARM installs FFmpeg 5.x (stable Debian release),
+  which is sufficient for audio extraction and WAV conversion.
+- The mwader approach is better for x86 production builds (newer FFmpeg version);
+  for Pi it adds complexity with no material benefit for audio-only workloads.
+
+**Alternative (mwader COPY --from) — valid if you want FFmpeg 7/8:**
+
+```dockerfile
+COPY --from=mwader/static-ffmpeg:8.1 /ffmpeg /usr/local/bin/
+COPY --from=mwader/static-ffmpeg:8.1 /ffprobe /usr/local/bin/
+```
+
+This works on arm64. The static binary has no external dependencies. If you need
+a newer FFmpeg (8.x for modern codec support), use this. For audio extraction
+from YouTube's HLS/DASH streams, FFmpeg 5.x suffices.
+
+**Confidence:** HIGH for apt-get approach; HIGH for mwader arm64 compatibility.
+
+---
+
+## The essentia Problem — Critical Blocker
+
+**essentia has NO binary wheels for Linux ARM (32-bit or 64-bit).** PyPI provides:
+- Linux x86_64 (manylinux)
+- macOS x86_64
+- macOS ARM64 (Apple Silicon)
+
+**There is no `linux/arm64` wheel for essentia on PyPI.** piwheels also does not have it.
+
+### Options for Running essentia on the Pi
+
+**Option A: Compile essentia from source inside Docker (HIGH effort, HIGH risk)**
+
+The build requires: `cmake`, `swig`, `libfftw3-dev`, `libsamplerate-dev`,
+`libyaml-dev`, `libavcodec-dev`, `libavformat-dev`, `libavresample-dev`,
+`libavutil-dev`, `python3-dev`, plus Eigen, TNT, Gaia, and other C++ deps.
+
+Build time on Pi 3B (1.2GHz quad-core): estimated 45-90 minutes for first build.
+Docker layer caching helps on rebuilds but the initial setup is painful.
+
+**Option B: Drop essentia, keep librosa for both BPM and key detection (RECOMMENDED)**
+
+librosa 0.11.0 provides:
+- `librosa.beat.beat_track()` — BPM detection
+- `librosa.key.key_to_notes()` + `librosa.feature.chroma_cqt()` — key estimation
+- Both are pure Python + numpy/scipy — no C++ compilation required
+
+librosa's key detection (via chroma features) is less accurate than essentia's
+KeyExtractor algorithm, but is adequate for the use case (beat/instrumental reference).
+
+**This is the recommended path for the Pi milestone.** Remove essentia from the Pi
+compose stack. If essentia accuracy is needed later, run a cross-compiled Docker
+image built on x86 with `--platform linux/arm64` (requires Docker buildx on a dev machine).
+
+**Option C: Cross-compile wheel on x86 with buildx (MEDIUM effort)**
+
+```bash
+docker buildx build --platform linux/arm64 -t soundgrabber-arm64 .
+```
+
+Build essentia inside a linux/arm64 QEMU environment on your x86 laptop/CI. Produces
+a wheel or an image layer. Slower than native but achievable. This is the right
+long-term approach if essentia accuracy matters.
+
+**Confidence:** HIGH for "no PyPI wheel" claim (verified PyPI page directly); MEDIUM for
+"librosa key detection adequate" (functional claim, not accuracy-benchmarked for music production).
+
+---
+
+## librosa + numpy on ARM
+
+**librosa 0.11.0:** Pure Python wheel (`py3-none-any`). Available on PyPI and piwheels.
+Installs without compilation on any Python 3.11 ARM environment.
+
+**numpy 2.x on arm64:** Available via PyPI manylinux wheels for aarch64 (no piwheels
+needed on 64-bit OS). Latest: numpy 2.4.4 (March 2026). The project's `numpy>=2.0,<3.0`
+constraint is satisfied by the PyPI arm64 wheel.
+
+**scipy on arm64:** Available via PyPI manylinux wheels for aarch64. Installs cleanly.
+
+**numba (librosa optional dependency):** numba provides JIT acceleration for some
+librosa functions. On ARM it is harder to install (LLVM dependency). However, numba
+is NOT required by librosa — it gracefully degrades to pure Python implementations
+when numba is not present. **Do not install numba on the Pi.** Set:
+
+```dockerfile
+ENV NUMBA_DISABLE_JIT=1
+```
+
+This tells numba (if somehow installed) to skip JIT compilation. Combined with
+not installing numba at all, this prevents any import-time JIT stall.
+
+**libsndfile:** Required by soundfile (librosa dependency). Bookworm package:
+`libsndfile1`. Add to `apt-get install`.
+
+```dockerfile
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    libsndfile1 \
+    && rm -rf /var/lib/apt/lists/*
+```
+
+**Confidence:** HIGH for librosa pure-Python claim (piwheels page confirmed `py3-none-any`);
+HIGH for numpy arm64 manylinux availability (piwheels page lists cp311 armv7l wheel, implying
+arm64 available natively via PyPI manylinux); MEDIUM for numba degradation claim (librosa
+changelog and community reports, not verified on this specific version in ARM Docker).
+
+---
+
+## bgutil PO Token Sidecar on ARM
+
+**bgutil-ytdlp-pot-provider Docker image architecture:** Not explicitly listed on Docker Hub.
+The image is Node.js/Deno based. Official Node.js Docker images support arm64.
+The bgutil Python plugin package is available on piwheels (pure Python pip install).
+
+**Recommendation:** Run bgutil as a separate container in `docker-compose.yml` using the
+official image. If the image does not pull on arm64, use the Node.js base directly:
+
+```dockerfile
+# Fallback: custom bgutil container
+FROM node:20-slim
+RUN npm install -g @imputnet/bgutil-ytdlp-pot-provider
+EXPOSE 4416
+CMD ["npx", "bgutil-ytdlp-pot-provider"]
+```
+
+The Pi's residential IP is the primary YouTube bot-detection defense. The client
+chain `tv,ios,web_embedded` (from v1.2) may work WITHOUT bgutil on a residential IP.
+**Validate the client chain first before deploying bgutil on the Pi.** bgutil adds
+~100MB of Node.js runtime to an already RAM-constrained environment.
+
+**If bgutil is needed:** Pin `brainicism/bgutil-ytdlp-pot-provider:0.8.1` (the version
+in requirements.txt), specify `platform: linux/arm64` in compose, and verify it pulls.
+
+**Confidence:** LOW for bgutil ARM Docker image architecture (not confirmed from Docker Hub);
+MEDIUM for "residential IP may not need bgutil" (hypothesis based on project's core goal).
+
+---
+
+## Memory Budget: 1GB RAM
+
+The Pi 3B has 1024MB RAM shared between OS, Docker daemon, and all containers.
+The GPU memory split (default 64MB for headless) can be reduced to 16MB via
+`/boot/firmware/config.txt`: `gpu_mem=16`.
+
+**Realistic memory budget:**
+
+| Component | Estimated RAM | Notes |
+|-----------|--------------|-------|
+| Raspberry Pi OS (headless) | 150-200MB | Base OS with Docker daemon |
+| GPU memory (reduced) | 16MB | Set `gpu_mem=16` in config.txt |
+| Redis container | 20-30MB | Minimal with no large datasets |
+| FastAPI + Uvicorn (1 worker) | 80-120MB | Python runtime + app code |
+| Celery worker (1 process) | 120-200MB | Idle; spikes to 400MB+ during librosa analysis |
+| librosa analysis peak | +200-300MB | numpy array allocations for audio FFT |
+| WAV file in memory | +50-150MB | 5-min WAV at 44.1kHz stereo = ~120MB |
+| **Total peak** | **~800-900MB** | Tight; leaves 100-200MB headroom |
+| **With essentia removed** | **No change** | essentia removed for ARM compatibility |
+| **With swap (2GB)** | **Safe** | Swap absorbs librosa peak; slower but stable |
+
+**The stack is viable on 1GB + swap. Without swap it will OOM on every librosa call.**
+
+### Required Memory Configuration Changes
+
+**1. Enable swap (2GB recommended):**
+
+```bash
+# On the Pi host (not inside Docker)
+sudo dphys-swapfile swapoff
+sudo sed -i 's/CONF_SWAPSIZE=.*/CONF_SWAPSIZE=2048/' /etc/dphys-swapfile
+sudo dphys-swapfile setup
+sudo dphys-swapfile swapon
+```
+
+Using a swap file on SD card is acceptable for this workload — audio analysis is
+intermittent, not continuous. If the Pi uses an SSD (USB3), swap is much faster.
+
+**2. Celery worker: concurrency=1, max-tasks-per-child=10:**
+
+```yaml
+celery:
+  command: celery -A celery_app worker --concurrency=1 --max-tasks-per-child=10 --loglevel=info
+```
+
+`--concurrency=1` means one audio job at a time. This is correct for the Pi —
+parallel jobs would OOM immediately. `--max-tasks-per-child=10` recycles the worker
+process every 10 tasks, releasing any leaked memory from librosa/numpy.
+
+**3. Enable Docker memory cgroup support:**
+
+By default on Raspberry Pi OS, Docker's `--memory` limit flag is silently ignored
+because memory cgroups are not enabled in the kernel boot parameters.
+
+```bash
+# Edit /boot/firmware/cmdline.txt — add to existing line (do NOT add a newline):
+cgroup_enable=cpuset cgroup_enable=memory cgroup_memory=1
+```
+
+After reboot, `docker stats` will show memory limits and Docker will enforce container
+memory caps. This allows the Celery container to be killed (not OOM the whole Pi)
+if it exceeds limits.
+
+**4. Docker resource limits in compose:**
+
+```yaml
+services:
+  celery:
+    mem_limit: 512m
+    memswap_limit: 768m
+  api:
+    mem_limit: 192m
+  redis:
+    mem_limit: 64m
+```
+
+**Confidence:** HIGH for memory estimates (based on librosa numpy allocation patterns,
+community reports for similar stacks); HIGH for cgroup fix (documented Pi-specific issue);
+MEDIUM for exact numbers (not benchmarked on this specific codebase on Pi hardware).
+
+---
+
+## Docker Compose Changes for Pi
+
+**Key changes from a hypothetical Railway-equivalent compose:**
+
+```yaml
+version: "3.9"
+
+services:
+  redis:
+    image: redis:7-alpine
+    platform: linux/arm64
+    restart: unless-stopped
+    mem_limit: 64m
+    command: redis-server --requirepass ${REDIS_PASSWORD}
+    volumes:
+      - redis_data:/data
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    platform: linux/arm64
+    restart: unless-stopped
+    mem_limit: 192m
+    ports:
+      - "8000:8000"
+    environment:
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
+      - NUMBA_DISABLE_JIT=1
+    volumes:
+      - ./cookies.txt:/app/cookies.txt:ro
+      - tmp_files:/tmp
+    depends_on:
+      - redis
+
+  celery:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    platform: linux/arm64
+    restart: unless-stopped
+    mem_limit: 512m
+    memswap_limit: 768m
+    command: celery -A celery_app worker --concurrency=1 --max-tasks-per-child=10 --loglevel=info
+    environment:
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
+      - NUMBA_DISABLE_JIT=1
+    volumes:
+      - ./cookies.txt:/app/cookies.txt:ro
+      - tmp_files:/tmp
+    depends_on:
+      - redis
+
+volumes:
+  redis_data:
+  tmp_files:
+```
+
+**restart: unless-stopped** — correct policy for Pi. Containers restart on crash or
+reboot unless explicitly stopped by `docker stop`. `always` is equivalent but
+`unless-stopped` allows manual stop for maintenance without the container auto-restarting.
+
+**Confidence:** MEDIUM — compose structure is based on known patterns; exact env var
+names and volume paths must be aligned with the actual codebase during implementation.
+
+---
+
+## Dockerfile Changes for Pi
+
+The Dockerfile must remove imageio-ffmpeg (x86-bundled binary) and use system FFmpeg.
+
+**Key Dockerfile sections:**
+
+```dockerfile
+FROM python:3.11-slim-bookworm
+
+# System dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    libsndfile1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Python dependencies
+COPY requirements-pi.txt .
+RUN pip install --no-cache-dir -r requirements-pi.txt
+
+# Application
+COPY . /app
+WORKDIR /app
+
+ENV NUMBA_DISABLE_JIT=1
+```
+
+**requirements-pi.txt** should be identical to `requirements.txt` with these changes:
+- REMOVE: `essentia==2.1b6.dev1389` — no ARM wheel available
+- REMOVE: `imageio-ffmpeg>=0.5.1` — bundled x86 binary; system FFmpeg replaces it
+- KEEP: everything else
+
+The pipeline.py `_resolve_ffprobe()` function (using `shutil.which`) already handles
+system-installed ffprobe correctly — no code changes needed there.
+
+**Confidence:** HIGH for removing imageio-ffmpeg (x86 binary confirmed; system apt install works);
+HIGH for removing essentia (no ARM wheel confirmed); MEDIUM for requirements-pi.txt approach
+(separate requirements file is one option; env var gating is another).
+
+---
+
+## What NOT to Change
+
+| Item | Reason |
+|------|--------|
+| FastAPI + Celery + Redis application code | Validated stack, runs on any Python 3.11; no ARM-specific changes |
+| yt-dlp client chain (`tv,ios,web_embedded`) | Carried forward from v1.2; IP change (residential) is the variable |
+| cookies.txt approach | Same mechanism, mounted via Docker volume |
+| Rate limiting, security gate controls | All Python/FastAPI; no ARM impact |
+| Redis auth | No change |
+| The 15-minute video length limit | No change |
+| librosa BPM detection logic | No change in pipeline.py; just remove essentia calls |
+
+---
+
+## Pi-Specific Pi Setup Commands (for setup script)
+
+```bash
+# 1. Reduce GPU memory
+echo 'gpu_mem=16' | sudo tee -a /boot/firmware/config.txt
+
+# 2. Enable cgroups memory for Docker memory limits
+sudo sed -i '$ s/$/ cgroup_enable=cpuset cgroup_enable=memory cgroup_memory=1/' \
+    /boot/firmware/cmdline.txt
+
+# 3. Enable swap (2GB)
+sudo dphys-swapfile swapoff
+sudo sed -i 's/CONF_SWAPSIZE=.*/CONF_SWAPSIZE=2048/' /etc/dphys-swapfile
+sudo dphys-swapfile setup && sudo dphys-swapfile swapon
+
+# 4. Install Docker (official script for Raspberry Pi OS)
+curl -fsSL https://get.docker.com | sh
+sudo usermod -aG docker $USER
+
+# 5. Reboot required after steps 1-3
+sudo reboot
+```
+
+**Confidence:** HIGH for GPU memory and cgroup steps (official Pi documentation patterns);
+HIGH for swap steps (standard dphys-swapfile tool); HIGH for Docker install script
+(official Docker docs for Raspberry Pi OS).
+
+---
+
+## Summary of Stack Changes for Pi
+
+| Layer | Railway | Raspberry Pi 3B | Change Required |
+|-------|---------|-----------------|-----------------|
+| OS/Platform | Linux x86_64 | Linux arm64 (64-bit Pi OS) | OS install decision |
+| Python runtime | Railway-managed | `python:3.11-slim-bookworm` Docker | Dockerfile |
+| FFmpeg + ffprobe | nixpacks system install | `apt-get install ffmpeg` in Dockerfile | Dockerfile |
+| imageio-ffmpeg | Installed (x86 bundled binary) | REMOVE | requirements-pi.txt |
+| essentia | Installed (x86 wheel) | REMOVE — no ARM wheel | requirements-pi.txt |
+| librosa | Installed (pure Python) | Keep — pure Python, works on ARM | No change |
+| numpy | Installed (x86 wheel) | Keep — arm64 manylinux wheel on PyPI | No change |
+| Redis | Railway Redis service | `redis:7-alpine` container | docker-compose.yml |
+| Celery concurrency | Not explicitly set (Railway scales) | `--concurrency=1` mandatory | docker-compose.yml |
+| Memory limits | Not needed (Railway manages) | All containers capped; swap enabled | Pi OS + compose |
+| Restart policy | Railway handles | `restart: unless-stopped` | docker-compose.yml |
+| bgutil sidecar | Optional (had connectivity issues) | Defer — test client chain first | Validate first |
+
+---
+
+## Sources (v1.3 Addendum)
+
+| Source | Confidence | URL |
+|--------|------------|-----|
+| essentia PyPI — no Linux ARM wheel | HIGH | https://pypi.org/project/essentia/ |
+| piwheels librosa 0.11.0 — py3-none-any | HIGH | https://www.piwheels.org/project/librosa/ |
+| piwheels numpy 2.4.4 cp311 armv7l | HIGH | https://www.piwheels.org/project/numpy/ |
+| arm32v7/python Docker Hub tags | HIGH | https://hub.docker.com/r/arm32v7/python/ |
+| arm64v8/redis Docker Hub | HIGH | https://hub.docker.com/r/arm64v8/redis/ |
+| mwader/static-ffmpeg — amd64 + arm64 only | HIGH | https://hub.docker.com/r/mwader/static-ffmpeg/ |
+| linuxserver/ffmpeg — armhf deprecated since 2023 | HIGH | https://docs.linuxserver.io/images/docker-ffmpeg/ |
+| Docker cgroup memory Pi fix | HIGH | https://dalwar23.com/how-to-fix-no-memory-limit-support-for-docker-in-raspberry-pi/ |
+| bgutil Docker Hub | LOW | https://hub.docker.com/r/brainicism/bgutil-ytdlp-pot-provider |
+| Celery --max-tasks-per-child docs | HIGH | https://docs.celeryq.dev/en/stable/userguide/workers.html |

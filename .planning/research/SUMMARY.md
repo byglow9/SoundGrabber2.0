@@ -2,198 +2,234 @@
 
 **Project:** SoundGrabber
 **Domain:** YouTube audio downloader + music analysis web utility for underground producers
-**Researched:** 2026-04-29
-**Confidence:** MEDIUM-HIGH (stack well-established; YouTube download reliability is the one structural unknown)
+**Researched:** 2026-05-14 (v1.3 Raspberry Pi Hosting — supersedes 2026-04-29 for infrastructure sections)
+**Confidence:** MEDIUM-HIGH (Pi hardware patterns HIGH; ARM package ecosystem MEDIUM; bgutil ARM behavior LOW)
 
 ---
 
 ## Executive Summary
 
-SoundGrabber is a stateless, no-auth public utility that solves a real and unmet need: no existing tool combines YouTube-to-WAV download with automatic BPM and key detection in a single zero-friction workflow. The closest competitors are either download-only (cobalt.tools) or analysis-only with file upload (TuneReveal, vocalremover.org). The product's cultural differentiation — a Y2K internet aesthetic targeting underground producers who grew up in that era — is as important as its functional gap. This is not a generic utility; it is a community artifact.
+SoundGrabber v1.3 migrates from Railway (datacenter x86_64) to a Raspberry Pi 3B (ARM Cortex-A53, 1GB RAM, residential IP). This is not a "run the same containers somewhere else" migration — it requires deliberate decisions on ARM architecture, Docker Compose structure, package compatibility, memory management, and unattended recovery. The single most important strategic insight from the research: the residential IP is the primary YouTube bot-detection defense. The IP change alone is likely to resolve the download reliability problems that required the v1.2 client-chain fix, without needing bgutil at all. Validate this first before adding any PO Token infrastructure to the Pi stack.
 
-The recommended architecture is a Python/FastAPI backend with Celery workers (separate processes) handling the yt-dlp download, FFmpeg conversion, and librosa analysis pipeline. The download and analysis pipeline must run in separate OS processes from the web server because both yt-dlp and librosa are CPU/IO-heavy and blocking — running them in the FastAPI event loop will freeze the server under any meaningful load. Job state is stored in Redis with a 10-minute TTL; no database is needed. The frontend is a single HTML page with vanilla JS polling for job status. No JavaScript framework is warranted for an app with one form and one result card.
+The most consequential pre-work decision is OS bitness. The Raspberry Pi 3B's CPU is 64-bit capable but defaults to a 32-bit OS. Essentia has no Linux ARM32 wheel and no Linux ARM64 wheel on PyPI — it must be dropped entirely for the Pi deployment. The stack replaces essentia with librosa-only BPM and key detection. If the Pi OS is 64-bit (aarch64), numpy/scipy/librosa pip wheels resolve cleanly from PyPI manylinux; if 32-bit, the team faces numba/llvmlite C++ build failures inside Docker. The research recommendation is unambiguous: run Raspberry Pi OS 64-bit (bookworm). Verify with `uname -m` before any other action.
 
-The highest-risk dependency is YouTube itself. Datacenter IPs are routinely flagged as bots, which causes download failures in production that do not reproduce locally. This is not a bug to fix — it is a structural constraint to design around from day one. The mitigation strategy is: use a VPS with a dedicated (non-PaaS) IP, pass valid YouTube session cookies with every request, keep yt-dlp updated weekly, and design the download layer as a swappable abstraction so its internals can change without touching the rest of the pipeline. Accept a 10-20% failure rate as a baseline, not a target.
+The architecture adds four net-new components that do not exist in the current codebase: a `Dockerfile`, a `docker-compose.yml`, a `deploy.sh` script, and a Cloudflare Tunnel configuration. The core application code (`pipeline.py`, `api/main.py`, `api/config.py`) requires no changes — it reads configuration via environment variables and the v1.2 ffprobe resolution logic (`shutil.which`) already handles system-installed FFmpeg correctly. The critical integration risk is the shared `/tmp` volume between the `api` and `worker` containers: in Railway, both run in the same container; in Docker Compose, they are separate with isolated filesystems, and without a shared tmpfs volume, `GET /files/{id}` always returns 404. This pattern is untested in this codebase and must be validated E2E before the milestone is considered complete.
 
 ---
 
 ## Key Findings
 
-### Recommended Stack
+### Stack Changes: Railway to Raspberry Pi 3B
 
-The stack is deliberate and minimal. Python 3.11 + FastAPI + Celery + Redis covers the backend. yt-dlp (latest) + FFmpeg handles download and conversion. librosa 0.11 handles BPM and key detection at launch, with Essentia as the upgrade path if librosa accuracy proves insufficient for the producer audience. The frontend is plain HTML/CSS/JS — no framework — because the entire UI is a form, a status indicator, and a result card. The Y2K aesthetic is deliberately hand-crafted in raw CSS; no component library will produce it.
+The existing application stack (FastAPI, Celery, Redis, yt-dlp, librosa) is ARM-compatible at the Python layer. The changes are entirely in the infrastructure layer.
 
-**Core technologies:**
-- **Python 3.11+**: Runtime — asyncio native, audio DSP ecosystem lingua franca, yt-dlp requires >=3.10
-- **FastAPI 0.115+**: API layer — async-native, streaming file responses, background task integration
-- **Celery + Redis**: Task execution — separates CPU/IO-bound workers from the web process; prevents event loop starvation under load
-- **yt-dlp (latest, date-versioned)**: YouTube download — the only actively maintained option; must stay near HEAD
-- **FFmpeg 6+**: Audio conversion — invoked by yt-dlp postprocessor; no separate Python wrapper needed
-- **librosa 0.11**: BPM + key detection — single pip install, proven in production at similar tools (StemSplit)
-- **Vanilla HTML/CSS/JS**: Frontend — one page, two states; React/Vue are category errors here
-- **Hetzner VPS (~5 EUR/mo) preferred over shared PaaS**: Hosting — dedicated IP dramatically improves YouTube download success rate
+**Removed from Pi stack:**
+- `essentia==2.1b6.dev1389` — no Linux ARM wheel (any architecture) on PyPI or piwheels; drop entirely, use librosa for both BPM and key detection
+- `imageio-ffmpeg>=0.5.1` — ships an x86-only bundled ffmpeg binary; system `apt install ffmpeg libsndfile1` replaces it
+- `nixpacks.toml` / `railway.toml` — Railway-specific; unused by Docker Compose
+- `start.sh` — replaced by Docker Compose in production; keep for local dev only
 
-**Key versions:**
-- `yt-dlp >= 2026.3.0` (update weekly via CI — pinning is dangerous)
-- `fastapi >= 0.115, < 1.0`
-- `librosa >= 0.11.0`
-- `numpy >= 1.24, < 2.0` (librosa 0.11 numpy 2.x compatibility is partial)
-- System packages: `ffmpeg >= 6.0`, `libsndfile1`
-- Docker base: `python:3.11-slim-bookworm` (not Alpine — musl libc breaks audio libs)
+**Added for Pi stack:**
+- `Dockerfile` — new file; `FROM python:3.11-slim-bookworm`, `apt-get install ffmpeg libsndfile1 nodejs`, `ENV NUMBA_DISABLE_JIT=1`
+- `docker-compose.yml` — new file; 3-4 services: redis, api, worker, cloudflared (optional)
+- `requirements-pi.txt` — essentia + imageio-ffmpeg removed; everything else unchanged
+- `deploy.sh` — SSH-callable update script; `git pull + docker compose up -d --no-deps worker api`
+- Cloudflare Tunnel (`cloudflared`) — public HTTPS access behind residential NAT without port forwarding
 
-### Expected Features
+**Docker image decisions:**
+- Python container: `python:3.11-slim-bookworm` (multi-arch manifest; pulls linux/arm64 automatically on 64-bit Pi OS)
+- Redis container: `redis:7-alpine` (multi-arch; specify `platform: linux/arm64` explicitly in compose)
+- FFmpeg: `apt-get install ffmpeg libsndfile1` — installs both `ffmpeg` AND `ffprobe` on Debian bookworm
 
-The feature gap SoundGrabber fills is real and validated. The competitor matrix confirms no tool currently combines download-to-WAV + BPM + key + no-account in a single workflow.
+**yt-dlp client chain from v1.2 carries forward unchanged:** `tv,ios,web_embedded`. On a residential IP, the `tv` client without PO Token is expected to work for most public videos. Test without bgutil first; the bgutil sidecar should only be added if canary downloads fail with bot-detection errors.
 
-**Must have (table stakes) — missing any of these means the product feels incomplete:**
-- URL paste and one-click processing — the entry point; everything else depends on this
-- Real-time progress feedback (download / converting / analyzing stages) — 10-60s pipeline reads as broken without it
-- Direct WAV download, no account, no email — gating creates abandonment; no-friction is non-negotiable
-- BPM display — producers set DAW tempo before doing anything else; this is the core payload
-- Musical key display (e.g. F# minor) — equal standing with BPM for producers writing chords or layering samples
-- Mobile-usable layout — 40-60% of web traffic; producers browse YouTube on phones while working at desk
-- HTTPS with no sketchy redirects — y2mate malware reputation is a known community concern; trust signals matter
-- End-to-end result under 60 seconds — competing tools return in 15-30s; over 90s loses users
+**Mandatory memory-critical settings (not optional):**
+- Celery: `--concurrency=1 --max-tasks-per-child=10`
+- Uvicorn: `--workers 1 --limit-concurrency 20`
+- Swap: 512MB on Pi host (`dphys-swapfile`, CONF_SWAPSIZE=512)
+- GPU memory: `gpu_mem=16` in `/boot/firmware/config.txt`
+- Docker memory cgroups: `cgroup_enable=memory cgroup_memory=1` in `/boot/firmware/cmdline.txt` (without this, `mem_limit` in compose is silently ignored)
 
-**Should have (differentiators) — add in v1 or v1.1:**
-- Y2K / phpBB / Tibia / Orkut visual aesthetic — cultural identity; signals "made for us, not everyone"
-- Combined download + analysis in one workflow — the explicit gap vs. all competitors; the core differentiator
-- Copy-to-clipboard on BPM and key — removes friction when producer reaches for FL Studio / Ableton
-- Camelot wheel notation alongside standard key (e.g. "F# minor / 11A") — harmonic mixing notation producers actually use
-- Half-time / double-time BPM toggle — trap and lo-fi frequently detected at double the "feel" BPM; a div-2 / x2 button resolves this without re-analysis
-- Estimated WAV file size shown before download — WAV is 30-40x larger than the compressed source; producers expect MP3 sizes
+**Memory budget at peak (Pi 3B, 1GB total):**
 
-**Defer to v2 or never:**
-- Waveform thumbnail (validate core workflow first)
-- BPM/key confidence indicator (useful but adds implementation complexity)
-- User accounts, download history, playlists, batch processing — anti-features that contradict no-friction
-- Multi-platform support (SoundCloud, TikTok) — each platform is a separate breakage surface
-- Stem separation, vocal remover — different product category
-- Multiple export formats — WAV is right; MP3 producers can convert in their DAW
+| Service | Typical | Peak |
+|---------|---------|------|
+| OS + Docker daemon | 150-200MB | 200MB |
+| redis (160m limit) | 30MB | 80MB |
+| api (256m limit) | 120MB | 200MB |
+| worker (512m limit) | 150MB idle | 400MB during librosa |
+| cloudflared (64m limit) | 40MB | 64MB |
+| **Total** | ~490MB | **~944MB** |
 
-### Architecture Approach
+Peak of ~944MB fits within 1GB with ~80MB headroom. Swap absorbs spikes. Without swap, OOM kill on every librosa analysis.
 
-SoundGrabber is a job-queue architecture: the API layer accepts requests and returns a job ID immediately, Celery workers execute the download-convert-analyze pipeline in separate OS processes, Redis stores job state with TTL, and the client polls for completion. The entire system is stateless with ephemeral file storage: WAV files are written to `/tmp/soundgrabber/{job_id}/`, streamed to the client via chunked `StreamingResponse`, then deleted by a `BackgroundTask` after the response ends. A fallback cron sweeper deletes any job directory older than 20 minutes.
+### Public Exposure: Cloudflare Tunnel
 
-**Major components:**
-1. **API Layer (FastAPI + Uvicorn, 2-4 workers)** — accepts POST /jobs, serves GET /jobs/{id} status polls, serves GET /files/{id} WAV streaming; rate limiting via `fastapi-limiter` + Redis sliding window per IP
-2. **Message Broker (Redis)** — Celery task queue, rate-limit counters, job state store with 10-min TTL
-3. **Processing Workers (Celery, 2-4 processes)** — yt-dlp download + FFmpeg WAV conversion + librosa BPM/key analysis; runs in separate OS processes so CPU work never blocks the API event loop
-4. **Temp File Storage (/tmp/soundgrabber/{job_id}/)** — isolated directory per job; deleted after download or after 20-min TTL sweep
-5. **Frontend (single HTML + vanilla JS)** — URL form, polling loop, result card; Y2K aesthetic in hand-crafted CSS
+The Pi is behind residential NAT without port forwarding. Three options evaluated:
 
-**Status communication:** 2-second polling over SSE or WebSockets. Jobs take 15-60s; at most 30 status checks per job — negligible. SSE creates persistent connections that are problematic at hundreds of concurrent users. Polling is simpler, retryable, and works behind any CDN or proxy.
+| Option | Custom Domain | ARM Support | Cost | Recommended |
+|--------|--------------|-------------|------|-------------|
+| Cloudflare Tunnel | Yes (CF DNS) | Yes (official apt) | Free | YES |
+| Tailscale Funnel | No (`.ts.net` only) | Yes (installed) | Free | Dev/backup only |
+| frp (self-hosted VPS) | Yes | Yes | ~$5/mo | Reject |
+
+Cloudflare Tunnel wins on every axis: custom domain (mandatory for user trust), no published bandwidth limit, official ARM32/arm64 packages, and WAV file downloads through Tunnel do not violate ToS (Tunnel is a connectivity product, not the CDN). Tailscale Funnel's custom-domain limitation is a confirmed open GitHub issue since 2025 and is not a workaround.
+
+Tailscale stays as the out-of-band SSH access mechanism — it is already installed on the Pi host, requires no compose configuration, and provides remote management even if the public tunnel breaks.
+
+### Architecture: Docker Compose Structure
+
+**Service topology:**
+```
+redis (redis:7-alpine)
+  api (soundgrabber:latest)  -- port 127.0.0.1:8000:8000 (localhost only when cloudflared active)
+  worker (soundgrabber:latest)  -- Celery, concurrency=1
+  cloudflared (cloudflare/cloudflared:latest)  -- optional, routes public traffic to api:8000
+```
+
+**Critical integration: shared /tmp volume.** The `api` serves WAV files that `worker` writes. Without a shared volume these are isolated containers and file serving always fails. Solution: define `sg_tmp` as a named tmpfs volume in docker-compose.yml, mounted as `/tmp` in both `api` and `worker`. tmpfs keeps audio writes in RAM (protects SD card, fast I/O). 512MB limit handles ~3 concurrent 15-min WAVs.
+
+**Volume inventory:**
+
+| Volume | Container path | Contents | Persistence |
+|--------|---------------|----------|-------------|
+| `sg_cookies` | `/data/yt-dlp-cache` | `cookies.txt` | Permanent — operator manages |
+| `sg_featured` | `/data/featured` | `featured-current.json` | Permanent — Yonkou panel |
+| `sg_tmp` | `/tmp` | `sg_*.wav` temp files | Ephemeral — tmpfs, lost on restart |
+| `redis_data` | `/data` | Empty — Redis runs without persistence | Discardable |
+
+**Tailscale integration:** Tailscale is already installed on the Pi host as a systemd service. Do NOT add a Tailscale sidecar container — it requires `/dev/net/tun`, `NET_ADMIN` cap, and network_mode changes for zero benefit. The host's `tailscale0` interface routes `100.x.x.x:8000` through Docker's `0.0.0.0:8000` port mapping to the api container automatically.
+
+**Deploy flow:** `ssh pi@100.x.x.x 'bash ~/soundgrabber/deploy.sh'`. The deploy script restarts `worker` before `api`, never restarts `redis` (would lose in-flight Celery jobs). Redis is shut down last and started first.
+
+**Components that are NEW (do not exist in codebase):**
+- `Dockerfile`
+- `docker-compose.yml`
+- `.env` (on Pi, not in git)
+- `deploy.sh`
+
+**Components unchanged (no code changes needed):**
+- `pipeline.py` — `YTDLP_CACHE_DIR` already reads from env; `shutil.which` ffprobe resolution already works with system FFmpeg
+- `api/main.py` — `DEV_MODE=false` activates production validations
+- `api/config.py` — 100% env-var driven
+
+### Feature Scope: Milestone Acceptance Criteria
+
+v1.3 is an infrastructure milestone. Product features are unchanged. The milestone is complete when exactly these conditions hold:
+
+**Must have (hard gate):**
+1. `cloudflared` running as systemd service or compose service on Pi
+2. Custom domain resolving via Cloudflare DNS to the Pi's tunnel
+3. Cloudflare Tunnel config pointing to `http://api:8000` (Docker internal network)
+4. All compose services with `restart: unless-stopped`
+5. Deploy script callable via SSH over Tailscale
+6. **3 successful end-to-end YouTube downloads via the public custom domain URL**
+
+**Explicitly out of scope:**
+- GitHub Actions CI/CD
+- Log aggregation / remote observability
+- Any new product features
+- bgutil sidecar (validate without it first; add only if residential IP is insufficient)
 
 ### Critical Pitfalls
 
-1. **Datacenter IP flagging by YouTube (CRITICAL)** — Production downloads fail while local dev works. Shared PaaS IPs achieve 20-40% success vs. 85-95% for residential IPs. Mitigation: VPS with dedicated IP, valid session cookies via `--cookies`, PO Token support, yt-dlp at latest. Abstract the download function behind an interface from day one so strategy can change without touching the pipeline.
+**P-CRITICAL-1: 32/64-bit OS mismatch (architecture-level)**
+If Pi is running 32-bit OS (armv7l) and images use `linux/arm64` (or vice versa), containers fail with `exec format error` on startup. Run `uname -m` on the Pi before any other work. If the output is `armv7l` and you want 64-bit (recommended), reflash with Raspberry Pi OS 64-bit. This cannot be fixed after the fact without reflashing.
 
-2. **Half-tempo / double-tempo BPM error (CRITICAL for producer trust)** — librosa systematically returns half the correct BPM for trap beats with half-time drum patterns (70 BPM instead of 140). Mitigation: always display both the detected BPM and its half/double (e.g., "140 BPM — or 70 BPM half-time"); run analysis at multiple start_bpm hints; analyze from the 20% track mark to skip drum-free intros.
+**P-CRITICAL-2: librosa/numba ARM build failure**
+numba has no pip-installable ARM wheels. On ARM Docker, `pip install librosa` may trigger C++ compilation of llvmlite that either fails outright or produces an import-crashing binary. Prevention: set `ENV NUMBA_DISABLE_JIT=1` in Dockerfile and do not install numba. Verify before writing compose: `docker run --rm soundgrabber:latest python -c "import librosa; print(librosa.__version__)"`. librosa works without numba — pure-Python fallback is 10-100x slower but functional and acceptable with concurrency=1.
 
-3. **Temp file accumulation and disk exhaustion (CRITICAL)** — Every download creates 3+ files. Failed/abandoned jobs leave orphans. On a small VPS, ~500 orphaned downloads fill the disk and crash the server. Mitigation: `tempfile.mkdtemp()` per job + `try/finally` with `shutil.rmtree` + periodic background sweeper. Must be established in Phase 1 — cannot be retrofitted.
+**P-CRITICAL-3: OOM kill during librosa analysis**
+A single 5-minute WAV analysis can spike to 400-600MB RAM. On 1GB total with the full stack running, the Linux OOM killer silently terminates the Celery worker — no Python exception, job frozen in `processing` state forever. Prevention requires ALL THREE simultaneously: swap enabled (512MB minimum), `--concurrency=1`, and `librosa.load(..., duration=90)` to cap analysis audio. Any one of these missing causes OOM on every non-trivial job.
 
-4. **yt-dlp version drift causing silent failures (HIGH)** — Outdated yt-dlp downloads HTML error pages that look like audio files until FFmpeg fails on them. Mitigation: validate every downloaded file with `ffprobe -v error -show_entries format=duration`; automate weekly yt-dlp updates in CI.
+**P-CRITICAL-4: Docker memory limits silently ignored**
+On fresh Raspberry Pi OS, `mem_limit` in docker-compose.yml is silently ignored. Docker reports "No memory limit support". Memory cgroups must be enabled in kernel boot parameters: add `cgroup_enable=memory cgroup_memory=1` to `/boot/firmware/cmdline.txt`, then reboot. Verify with `docker info | grep -i memory` — must show no warnings. Without this, container OOM kills affect the entire Pi, not just the container.
 
-5. **Concurrent librosa memory spikes causing OOM kills (MODERATE)** — A 10-minute WAV at 44.1kHz stereo consumes 200-400MB RAM per analysis job as NumPy float32 arrays. At 5 concurrent users on a 2GB VPS, the OOM killer fires. Mitigation: downsample to mono 22050 Hz for analysis (4x memory reduction), analyze a 90-second window starting at 20% of track duration, cap concurrent analysis jobs at 3 via semaphore.
+**P-HIGH-1: SD card corruption**
+Docker overlay2 + Redis + Celery logs create unusually write-heavy workloads that wear out consumer SD cards within months. Failure is silent — filesystem goes read-only, SSH may still work but the application produces nothing. Prevention: (1) high-endurance SD card (Samsung Endurance Pro), (2) Redis AOF disabled in compose (`--appendonly no --save ""`), (3) `/tmp` as tmpfs (audio files never touch SD card), (4) log2ram on Pi host for system logs.
+
+**P-HIGH-2: Pi freeze without physical access**
+An OOM kill of the networking subsystem or kernel panic leaves the Pi unreachable over Tailscale with no remote recovery. Prevention: enable hardware watchdog (`dtparam=watchdog=on` in config.txt; `RuntimeWatchdogSec=15` in systemd). Test the full power-cycle → SSH-reconnect cycle physically BEFORE going headless. Consider a smart plug ($15-25) as the last-resort power-cycle escape hatch.
+
+**P-HIGH-3: Celery timeouts set for x86 speed**
+The Pi 3B is ~10-15x slower than Railway x86 for numpy FFT. Without numba JIT, librosa analysis takes 45-90s per track. If `soft_time_limit` is still configured for Railway speeds (~30s), every Pi job times out. Set `soft_time_limit=180, time_limit=240` and benchmark actual wall-clock time on Pi hardware before finalizing values.
+
+**P-HIGH-4: Shared /tmp volume untested**
+The `sg_tmp` tmpfs shared between `api` and `worker` is a new pattern with no Railway equivalent. If misconfigured, all file downloads return 404 silently. Fallback if tmpfs causes problems: bind-mount `/tmp/soundgrabber` from the Pi host as a plain directory.
+
+**P-CARRY-FORWARD (from v1.2):** Cookie expiration (~2 weeks), Firefox-only export, startup `cookies_health_check()`, `no_cache_dir=True` in yt-dlp opts, `fragment_retries=3`. All carry forward unchanged.
 
 ---
 
 ## Implications for Roadmap
 
-### Phase 1: Processing Pipeline (Standalone Script)
+The v1.3 milestone has hard sequential dependencies. Each phase unblocks the next.
 
-**Rationale:** yt-dlp is the highest-risk dependency. Validate it works from the target hosting environment before building anything else. If YouTube blocks the server IP, no amount of API or frontend work matters. This is the existential gate.
+### Phase 1: Pi OS and Docker Foundation
 
-**Delivers:** A standalone Python script: YouTube URL in, WAV file + BPM + key out. No web framework, no UI — just the pipeline working end-to-end from the target host.
+**Rationale:** Architecture mismatch (32 vs 64-bit) cascades failures through every subsequent phase. Memory cgroup and watchdog configuration requires a reboot — must be done before compose work begins. Physical restart cycle test requires physical access — only opportunity is before going headless.
 
-**Addresses:** Table stakes — download, convert, BPM, key
+**Delivers:** Confirmed aarch64 OS; Docker installed; cgroups active (no memory limit warnings); swap enabled; GPU memory reduced; hardware watchdog active; physical restart cycle tested.
 
-**Avoids:**
-- Pitfall 1 (datacenter IP blocking) — establish cookie/PO Token strategy before any other layer is built
-- Pitfall 2 (yt-dlp version drift) — implement ffprobe validation from the first working version
-- Pitfall 3 (temp file accumulation) — establish `try/finally` + `shutil.rmtree` as the baseline
-- Pitfall 5 (librosa memory) — implement mono/22050Hz downsampling and windowed analysis from the start
+**Avoids:** P-CRITICAL-1, P-CRITICAL-4, P-HIGH-2, P-HIGH-1 (begins SD card protection)
 
-**Success gate:** 9/10 representative YouTube URLs (varied genres, lengths, ages) produce a valid WAV + plausible BPM + plausible key from the production host.
+**Research flag:** Standard — all steps are official Pi documentation. No deeper research needed.
 
 ---
 
-### Phase 2: API Layer
+### Phase 2: Dockerfile and Image Validation
 
-**Rationale:** Wrap the working pipeline in a web API. The job-queue contract (POST /jobs, poll GET /jobs/{id}) must exist before the frontend is built. The frontend polls the API; the API cannot be designed after the frontend.
+**Rationale:** librosa on ARM is the one dependency where `pip install` success does not guarantee runtime success. Validate the image in isolation before wiring inter-container dependencies. A broken image discovered during compose debugging wastes 20-40 minutes per rebuild on Pi.
 
-**Delivers:** A working HTTP API exercisable via curl. POST a URL, get a job ID, poll for status, get BPM + key + WAV download link.
+**Delivers:** Working `Dockerfile`; `requirements-pi.txt` with essentia/imageio-ffmpeg removed; image builds on Pi; all critical imports verified including librosa functional test; ffprobe resolution confirmed.
 
-**Uses:** FastAPI + Uvicorn, Celery + Redis, StreamingResponse WAV serving
+**Avoids:** P-CRITICAL-2 (numba failure); P-ARM-04 (build time surprise — build once, validate before compose)
 
-**Implements:** API layer + Celery worker layer + Redis job state + temp file cleanup
-
-**Avoids:**
-- Running yt-dlp or librosa inside the FastAPI process (Celery workers handle both)
-- Serving WAV via FileResponse loading whole file into memory (StreamingResponse with chunked generator)
-- Pitfall 10 (synchronous download blocking the web server)
-
-**Success gate:** `curl` workflow completes end-to-end; 3 concurrent `curl` jobs run simultaneously without API becoming unresponsive.
+**Research flag:** Moderate empirical risk — run `docker run` librosa validation before building compose.
 
 ---
 
-### Phase 3: Rate Limiting and Hardening
+### Phase 3: Docker Compose Stack and Private E2E Validation
 
-**Rationale:** Harden before exposing to users. No-auth + free + public is an abuse surface. Rate limiting, URL validation, duration caps, and disk safety must be in place before the frontend goes live.
+**Rationale:** Wire all services together and validate the shared `/tmp` volume with a real end-to-end download over Tailscale. This is the highest-risk integration test. All configuration errors (wrong env vars, cookie injection, memory limits, Celery timeouts) surface here before any public exposure.
 
-**Delivers:** A production-safe API that rejects malformed URLs, enforces per-IP rate limits (3/min, 20/hr), caps video duration at 15 minutes (~160MB WAV max), enforces a concurrent job ceiling (20 system-wide), and survives disk pressure.
+**Delivers:** Working `docker-compose.yml`; `.env` populated; all services healthy; `cookies.txt` in place; E2E download confirmed over Tailscale; `docker stats` confirms memory budget; analysis wall-clock time measured and `soft_time_limit` tuned; bgutil necessity determined.
 
-**Implements:** `fastapi-limiter` on POST /jobs, YouTube watch URL regex validation, `--match-filter "duration <= 900"` in yt-dlp, system-wide active-job counter in Redis, APScheduler disk sweeper, ffmpeg + libsndfile health check at startup
+**Avoids:** P-HIGH-4 (shared /tmp), P-CRITICAL-3 (OOM — confirmed by docker stats observation)
 
-**Avoids:**
-- Queue pollution from non-YouTube URLs
-- Disk exhaustion from oversized videos
-- IP ban acceleration from excessive retries (`--fragment-retries 3`)
-- Pitfall 8 and 9 (missing ffmpeg/libsndfile in container)
+**Research flag:** The shared tmpfs volume is the key empirical validation. If it fails, use bind-mount fallback before continuing.
 
 ---
 
-### Phase 4: Frontend
+### Phase 4: Cloudflare Tunnel and Public Access
 
-**Rationale:** Build the UI against the working, hardened API. This prevents mismatch between polling assumptions and actual status response shapes.
+**Rationale:** Add public exposure only after private E2E is confirmed. Cloudflare Tunnel configuration is straightforward but should not be debugged simultaneously with application issues.
 
-**Delivers:** Complete browser-based user flow: paste URL, watch progress stages, see BPM + key, click download. Includes copy-to-clipboard buttons, estimated file size before download, half-time/double-time toggle, Camelot notation.
+**Delivers:** `cloudflared` in compose or as systemd service; custom domain resolving; api port binding changed to `127.0.0.1:8000:8000`; `deploy.sh` at `~/soundgrabber/deploy.sh`; 3 successful downloads via public URL; UptimeRobot monitoring active.
 
-**Addresses:** All table stakes UX features
+**Avoids:** Premature public exposure during debugging; residential IP exposure (Cloudflare proxies it)
 
-**Uses:** Single `index.html` + `static/app.js` (~60-80 lines vanilla JS), FastAPI `StaticFiles` mount
-
-**Avoids:** React/HTMX/Next.js (no component graph exists), WAV size surprise (show size before download)
-
----
-
-### Phase 5: Visual Identity
-
-**Rationale:** Apply the Y2K aesthetic to the complete, working frontend. Aesthetic work done before the functional layer is validated risks rework if component layout changes.
-
-**Delivers:** The phpBB/Tibia/Orkut visual identity that signals cultural belonging to the underground producer community. Hand-crafted CSS: pixel fonts, gradient backgrounds, bordered boxes with retro chrome. Single deliberate aesthetic — no dark mode toggle.
-
-**Addresses:** The cultural differentiator that no competitor has. Low complexity, very high community value.
+**Research flag:** Standard pattern — fully documented. No additional research needed.
 
 ---
 
 ### Phase Ordering Rationale
 
-- Pipeline before API: yt-dlp viability on the target host is the existential dependency — prove it before building anything else
-- API before frontend: the polling contract (job state shape, error formats) must be real before the frontend consumes it
-- Hardening before public launch: no-auth + free + public is an abuse surface; rate limiting is not optional
-- Visual identity last: non-blocking; does not gate functional validation
+- OS/hardware first: cgroup and watchdog require reboots; physical restart test requires physical access — only one window
+- Image before compose: librosa ARM behavior must be confirmed empirically before building inter-service dependencies
+- Private E2E before public: validates the shared /tmp volume, cookie injection, memory budget, and Celery timing without 502s visible to users
+- Tunnel last: no complexity added to debugging; can be isolated as the only new variable in Phase 4
 
 ### Research Flags
 
-**Phases needing deeper research during planning:**
-- **Phase 1 (download pipeline):** YouTube bot detection countermeasures evolve rapidly. The PO Token strategy, cookie rotation approach, and specific yt-dlp flags need validation against the actual hosting environment before the API is built. Check yt-dlp GitHub issues for current YouTube breakages the week Phase 1 begins.
-- **Phase 3 (rate limiting):** The specific `fastapi-limiter` + Redis integration and concurrent job ceiling numbers are estimates that need tuning against observed traffic. Start conservative and adjust.
+Empirical validation required during execution (not planning-time research):
+- **Phase 2:** Run librosa `beat_track` validation inside the ARM Docker container before building compose
+- **Phase 3:** Observe `docker stats` during first librosa analysis; adjust `soft_time_limit` based on actual timing
+- **Phase 3:** Confirm bgutil not needed with residential IP on first 3 canary downloads; add bgutil service only if failures occur
 
-**Phases with standard patterns (skip deep research):**
-- **Phase 2 (API layer):** FastAPI + Celery + Redis is a well-documented, stable stack. Clear production guides exist. No surprises expected.
-- **Phase 4 (frontend):** Vanilla JS polling against a JSON API is a 2005-era pattern. No framework decisions to make.
-- **Phase 5 (visual identity):** Pure CSS/design work. Research is irrelevant — this is a creative decision.
+Standard patterns (no additional research needed):
+- Phase 1: official Raspberry Pi + Docker documentation
+- Phase 4: Cloudflare Tunnel ARM setup fully documented
 
 ---
 
@@ -201,45 +237,140 @@ SoundGrabber is a job-queue architecture: the API layer accepts requests and ret
 
 | Area | Confidence | Notes |
 |------|------------|-------|
-| Stack | MEDIUM-HIGH | Core Python/FastAPI/librosa choices are well-established. yt-dlp download reliability is the one structural unknown — it works but YouTube actively fights it. |
-| Features | HIGH | Competitor matrix is solid. The gap (download + analysis + no-account in one workflow) is verified against live tools. Feature priorities are based on verified community patterns. |
-| Architecture | HIGH | The job-queue pattern (FastAPI + Celery + Redis) is industry-standard for this class of app. Component boundaries and data flow are well-understood. Anti-patterns are documented from production failures in similar tools. |
-| Pitfalls | HIGH (YouTube/deployment), MEDIUM (analysis accuracy) | IP blocking and disk management pitfalls are extensively documented in yt-dlp issues. BPM accuracy numbers come from StemSplit production reports, not controlled benchmarks on underground beats. |
+| Stack (ARM package changes) | HIGH | essentia no-ARM-wheel confirmed via PyPI page; imageio-ffmpeg x86-only confirmed via source + issue #23; librosa pure-Python py3-none-any confirmed via piwheels |
+| Features (tunnel selection) | HIGH | Cloudflare Tunnel ARM support and ToS confirmed; Tailscale Funnel custom-domain limitation confirmed via open GitHub issue #11563 |
+| Architecture (Compose structure) | MEDIUM | Compose patterns well-established; shared tmpfs `/tmp` between api and worker is architecturally correct but empirically untested in this codebase |
+| Pitfalls (ARM hardware) | HIGH | SD card, OOM, watchdog, cgroup pitfalls extensively documented; all have specific official sources |
+| Pitfalls (ARM timing) | MEDIUM | librosa 45-90s estimate on Cortex-A53 is community consensus; not benchmarked on this specific codebase |
+| bgutil on ARM | LOW | bgutil Docker Hub does not list arm64 architecture; behavior on residential IP hypothesis unvalidated |
 
 **Overall confidence:** MEDIUM-HIGH
 
-### Gaps to Address
+### Gaps to Address During Execution
 
-- **BPM accuracy on trap/lo-fi in practice:** The 85-95% accuracy estimate comes from StemSplit's production data on pop/rock/electronic. Underground producer beats may skew harder toward half-time patterns. The half-time display mitigates severity, but actual error rate on this genre mix is unknown until tested in Phase 1.
-- **yt-dlp success rate on target hosting IP:** Failure rate estimates (10-20%) are based on community reports from PaaS. Actual rate on a dedicated Hetzner VPS is likely better but unknown until Phase 1 is run from that environment. This is the most important gap to validate first.
-- **Celery vs. BackgroundTasks:** STACK.md and ARCHITECTURE.md give mildly conflicting guidance (STACK recommends BackgroundTasks for simplicity; ARCHITECTURE recommends Celery for correctness). Resolution: use Celery from the start. librosa's CPU-bound NumPy work makes BackgroundTasks a false economy — the first time 3 users submit simultaneously, the API goes unresponsive. The operational overhead of Redis is worth it.
-- **Legal posture at scale:** At underground community scale the practical risk is IP blocking, not lawsuits. If the app grows significantly, DMCA §1201 exposure from bypassing YouTube's technical measures warrants a lawyer's review.
+- **Residential IP vs bgutil:** The core hypothesis of v1.3 is that residential IP removes the need for bgutil. This is unvalidated until Phase 3 canary downloads. If multiple canary downloads fail with bot-detection errors, the bgutil ARM path must be pursued before public launch.
+- **librosa analysis timing:** The 45-90s estimate is from similar hardware. Measure actual time with a representative 5-minute WAV on the Pi before setting `soft_time_limit`. Do not guess.
+- **essentia dev pin on arm64:** `essentia==2.1b6.dev1389` dev version — even if arm64 wheels exist for some essentia versions, dev pins may not have all platform wheels. Moot if essentia is fully removed; confirm removal is complete in requirements-pi.txt.
+- **bgutil Docker image architecture:** If bgutil is needed after Phase 3 canary validation, confirm `brainicism/bgutil-ytdlp-pot-provider` pulls on arm64 before adding it. Fallback: `FROM node:20-slim` with npm install.
+- **Tailscale → Docker port routing:** `0.0.0.0:8000:8000` binding makes api accessible at `100.x.x.x:8000` via Tailscale — logically correct, confirm empirically in Phase 3 before adding Cloudflare layer.
+
+---
+
+## Critical Pre-Deployment Checklist
+
+### Before Writing Any Code
+
+- [ ] `uname -m` on Pi returns `aarch64` — if `armv7l`, reflash SD card with Pi OS 64-bit first
+- [ ] `docker info` confirms Docker installed and running on Pi
+- [ ] Architecture decision recorded: 64-bit OS path (arm64 images, PyPI manylinux wheels)
+
+### Pi Host Configuration (one-time, requires reboot)
+
+- [ ] `gpu_mem=16` added to `/boot/firmware/config.txt`
+- [ ] `cgroup_enable=memory cgroup_memory=1` added to `/boot/firmware/cmdline.txt` (all on one line)
+- [ ] `dtparam=watchdog=on` added to `/boot/firmware/config.txt`
+- [ ] `RuntimeWatchdogSec=15` added to `/etc/systemd/system.conf`
+- [ ] Swap: `CONF_SWAPSIZE=512` in `/etc/dphys-swapfile`, `dphys-swapfile swapon` confirmed
+- [ ] log2ram installed and active
+- [ ] High-endurance SD card confirmed in use
+- [ ] **Reboot performed** after all config changes
+- [ ] `docker info | grep -i memory` — shows NO "No memory limit support" warnings
+- [ ] `cat /proc/sys/kernel/watchdog` — outputs `1`
+- [ ] **Physical restart cycle tested:** power off → power on → `ssh pi@100.x.x.x` succeeds within 90 seconds
+
+### Dockerfile and Image Validation
+
+- [ ] `FROM python:3.11-slim-bookworm` (not Alpine, not arm32v7/python)
+- [ ] `apt-get install -y --no-install-recommends ffmpeg libsndfile1 nodejs` in Dockerfile
+- [ ] `ENV NUMBA_DISABLE_JIT=1` in Dockerfile
+- [ ] essentia removed from `requirements-pi.txt`
+- [ ] imageio-ffmpeg removed from `requirements-pi.txt`
+- [ ] `docker build -t soundgrabber:latest .` completes without error
+- [ ] Import validation: `docker run --rm soundgrabber:latest python -c "import librosa, yt_dlp, fastapi, celery; print('OK')"`
+- [ ] librosa functional: `docker run --rm soundgrabber:latest python -c "import librosa; y, sr = librosa.load(librosa.ex('trumpet'), duration=10); t, _ = librosa.beat.beat_track(y=y, sr=sr); print('BPM:', t)"` — prints a BPM value, no errors
+- [ ] ffprobe found: `docker run --rm soundgrabber:latest python -c "import shutil; p = shutil.which('ffprobe'); assert p, 'ffprobe not found'; print(p)"`
+
+### Docker Compose Stack
+
+- [ ] `docker-compose.yml` created with redis, api, worker services (platform: linux/arm64 on all)
+- [ ] `restart: unless-stopped` on all services
+- [ ] Memory limits: redis 160m, api 256m, worker 512m, memswap_limit 768m on worker
+- [ ] `sg_tmp` volume defined as tmpfs with `size=512m,mode=1777`
+- [ ] Both `api` and `worker` mount `sg_tmp:/tmp`
+- [ ] Celery command: `--concurrency=1 --max-tasks-per-child=10`
+- [ ] `NUMBA_DISABLE_JIT=1` in environment for api and worker
+- [ ] `soft_time_limit` and `time_limit` set for ARM speed (start: 180s / 240s; adjust after benchmark)
+- [ ] Redis command: `--requirepass ${REDIS_PASSWORD} --maxmemory 128mb --maxmemory-policy allkeys-lru --save "" --appendonly no`
+- [ ] `.env` created with `REDIS_PASSWORD`, `ADMIN_PASSWORD`, `ADMIN_SESSION_SECRET` (not in git)
+- [ ] `docker compose ps` — all services show healthy status
+- [ ] `cookies.txt` populated in `sg_cookies` volume (Firefox-exported, confirmed < 10 days old)
+
+### E2E Validation via Tailscale (before public exposure)
+
+- [ ] `curl http://100.x.x.x:8000/health` returns HTTP 200
+- [ ] Full E2E: POST /jobs with a YouTube URL → poll status → GET /files returns a valid WAV file
+- [ ] `docker stats` observed during analysis: total RAM stays below 950MB
+- [ ] Analysis wall-clock time measured; `soft_time_limit` adjusted if needed
+- [ ] Second download confirms cleanup: no `sg_*.wav` files remain in `/tmp` after download completes
+- [ ] **Canary test without bgutil:** BGUTIL_BASE_URL empty; if 3/3 canary downloads succeed, bgutil is not needed
+
+### Cloudflare Tunnel and Public Access
+
+- [ ] Domain managed in Cloudflare DNS
+- [ ] `cloudflared tunnel login` and `tunnel create soundgrabber` completed
+- [ ] `tunnel route dns soundgrabber yourdomain.com` completed
+- [ ] `CLOUDFLARE_TUNNEL_TOKEN` added to `.env`
+- [ ] `cloudflared` service added to docker-compose.yml (or running as systemd service)
+- [ ] api port binding changed to `127.0.0.1:8000:8000`
+- [ ] `docker compose up -d` confirms cloudflared starts and stays running
+- [ ] Public URL (`https://yourdomain.com`) returns HTTP 200
+
+### Milestone Acceptance Gate (all 3 required)
+
+- [ ] Download 1: short beat (< 3 min) via public domain URL — WAV + BPM + key returned within timeout
+- [ ] Download 2: medium beat (5-8 min) via public domain URL — WAV + BPM + key returned
+- [ ] Download 3: different genre/style than downloads 1 and 2 — WAV + BPM + key returned
+- [ ] UptimeRobot or equivalent monitoring active on `GET /health`
+- [ ] `deploy.sh` tested: `ssh pi@100.x.x.x 'bash ~/soundgrabber/deploy.sh'` completes without error
 
 ---
 
 ## Sources
 
 ### Primary (HIGH confidence)
-- [yt-dlp GitHub repository + wiki](https://github.com/yt-dlp/yt-dlp) — download options, PO Token guide, bot detection issues
-- [FastAPI documentation](https://fastapi.tiangolo.com/tutorial/background-tasks/) — BackgroundTasks, StreamingResponse
-- [librosa 0.11 documentation](https://librosa.org/doc/0.11.0/beat.html) — beat_track, tempo, chroma_cqt
-- [Essentia algorithm reference](https://essentia.upf.edu/reference/std_KeyExtractor.html) — KeyExtractor, RhythmExtractor2013
-- [TuneReveal source code](https://github.com/duardodev/tunereveal) — competitor feature verification
-- [DMCA ruling on third-party YouTube downloads — MediaNama 2026](https://www.medianama.com/2026/02/223-dmca-ruling-third-party-youtube-downloads-legal-risks-creators/)
+
+- [essentia PyPI — no Linux ARM wheel](https://pypi.org/project/essentia/) — wheel list confirmed
+- [piwheels librosa 0.11.0 — py3-none-any pure Python](https://www.piwheels.org/project/librosa/)
+- [mwader/static-ffmpeg — amd64 + arm64 only, no arm32](https://hub.docker.com/r/mwader/static-ffmpeg/)
+- [Docker cgroup memory Pi fix](https://dalwar23.com/how-to-fix-no-memory-limit-support-for-docker-in-raspberry-pi/)
+- [Cloudflare Tunnel on Raspberry Pi (official ARM setup)](https://pimylifeup.com/raspberry-pi-cloudflare-tunnel/)
+- [Tailscale Funnel custom domain — open issue #11563](https://github.com/tailscale/tailscale/issues/11563)
+- [Celery --max-tasks-per-child docs](https://docs.celeryq.dev/en/stable/userguide/workers.html)
+- [numba issue #6723 — RPi3 LLVM mismatch](https://github.com/numba/numba/issues/6723)
+- [librosa issue #1854 — running without numba, NUMBA_DISABLE_JIT](https://github.com/librosa/librosa/issues/1854)
+- [Docker moby issue #35587 — cgroup memory warning = limits ignored](https://github.com/moby/moby/issues/35587)
+- [Hackaday: Raspberry Pi SD card corruption](https://hackaday.com/2022/03/09/raspberry-pi-and-the-story-of-sd-card-corruption/)
+- [yt-dlp PO Token Guide — tv client no PO token required](https://github.com/yt-dlp/yt-dlp/wiki/PO-Token-Guide)
+- [imageio-ffmpeg issue #23 — ffprobe not bundled](https://github.com/imageio/imageio-ffmpeg/issues/23)
+- [librosa issue #406 — 128MB memory constraint](https://github.com/librosa/librosa/issues/406)
+- [librosa issue #1286 — memory growth across iterations](https://github.com/librosa/librosa/issues/1286)
+- [Raspberry Pi Forums: watchdog configuration](https://forums.raspberrypi.com/viewtopic.php?t=147501)
 
 ### Secondary (MEDIUM confidence)
-- [StemSplit BPM/key detection blog (2025)](https://stemsplit.io/blog/bpm-key-detection-feature) — accuracy estimates (85-95%) for pop/rock/electronic
-- [Celery + Redis + FastAPI production guide 2025](https://medium.com/@dewasheesh.rana/celery-redis-fastapi-the-ultimate-2025-production-guide-broker-vs-backend-explained-5b84ef508fa7) — architecture validation
-- [6 Ways to Get YouTube Cookies for yt-dlp in 2026](https://dev.to/osovsky/6-ways-to-get-youtube-cookies-for-yt-dlp-in-2026-only-1-works-2cnb) — cookie/PO Token mitigation strategy
-- [fastapi-limiter library](https://github.com/long2ice/fastapi-limiter) — rate limiting implementation
-- [Camelot Wheel Guide — DJ.Studio](https://dj.studio/blog/camelot-wheel) — notation standard for producers
-- [Trap BPM guide — Producer Fury](https://producerfury.com/resources/trap-bpm-guide) — half-time pattern behavior
+
+- [Cloudflare Tunnel media serving community thread — WAV ToS](https://community.cloudflare.com/t/cloudflare-tunnels-and-video-based-traffic-bandwidth-restrictions/722185)
+- [Self-hosting API on Pi with Tailscale and Cloudflare](https://www.wirelog.net/posts/2025-02-15-api-server-on-raspberry-pi/)
+- [yt-dlp issue #16082 — SABR enforced even with bgutil token on datacenter IP](https://github.com/yt-dlp/yt-dlp/issues/16082)
+- [Zapier Engineering: jemalloc for Celery memory fragmentation](https://zapier.com/engineering/celery-python-jemalloc/)
 
 ### Tertiary (LOW confidence)
-- [BPM Finder Tunebat Alternative Benchmark](https://bpm-finder.net/posts/tunebat-bpm-alternative) — single-source benchmark; treat as directional only
-- [YouTube Proxy — Prevent Server IP Blocks](https://proxy001.com/blog/youtube-proxy-prevent-server-ip-blocks-after-deploying-yt-dlp-style-server-workloads) — residential vs. datacenter success rate estimates
+
+- [bgutil Docker Hub](https://hub.docker.com/r/brainicism/bgutil-ytdlp-pot-provider) — ARM architecture not listed; status on arm64 unknown
+- RAM delta estimate arm32 vs arm64 (~50-100MB savings on 32-bit) — community consensus, not benchmarked
 
 ---
 
-*Research completed: 2026-04-29*
+*Research completed: 2026-05-14 (v1.3 Raspberry Pi Hosting)*
+*Supersedes: 2026-04-29 for infrastructure, hosting, and ARM-related sections*
+*Product feature findings from 2026-04-29 remain valid and unchanged*
 *Ready for roadmap: yes*

@@ -366,6 +366,317 @@ Use the startup sweep from P1-05. Additionally, deduplicate jobs at the API laye
 
 ---
 
+## ARM / Raspberry Pi 3B Pitfalls (P-ARM)
+
+These pitfalls are specific to migrating the stack from Railway x86 to Raspberry Pi 3B (ARM Cortex-A53, 1GB RAM). They are **additive** to the pitfalls above — all of the railway pitfalls still apply.
+
+---
+
+### P-ARM-01: numba/llvmlite — The Librosa ARM Dependency That Breaks Everything
+
+**Severity:** CRITICAL
+
+**What goes wrong:**
+librosa uses numba (a JIT compiler) for performance-critical paths including beat tracking. numba depends on llvmlite, which requires a matching LLVM installation. On ARM/Raspberry Pi, this creates a multi-layer dependency failure:
+
+- PyPI does not ship `manylinux` wheels for `armv7l` or `aarch64` for numba/llvmlite
+- piwheels provides prebuilt wheels for Raspberry Pi OS (32-bit armv7l) but these are the *32-bit Raspbian OS* wheels, not Docker-compatible Linux wheels
+- Inside a Docker container using a generic `arm32v7/python:3.11` base image, pip will attempt to compile numba from source
+- Source compilation requires a matching LLVM C++ toolchain version; getting version compatibility right between LLVM, llvmlite, and numba on ARM is a known multi-hour debugging exercise
+
+The failure modes are layered:
+1. `pip install librosa` inside the ARM Docker container triggers C compilation of numba/llvmlite
+2. If LLVM apt package version mismatches what llvmlite expects, build fails with a cryptic C++ linker error
+3. Even if llvmlite builds, importing librosa can trigger `LLVM ERROR: inconsistency in registered CommandLine options` — a fatal process abort
+4. If `--no-deps librosa` is used to skip numba, librosa falls back to pure-Python implementations of beat tracking, which are 10-100x slower
+
+**Why it happens:**
+numba/llvmlite is not just a Python dependency — it embeds LLVM bitcode and compiles machine code at runtime. The ARM ISA support in older numba builds is incomplete. The conda-forge aarch64 build of numba exists (and works), but pip-installable ARM wheels do not exist as of 2026.
+
+**Consequences:**
+- Docker build fails entirely, blocking the entire deployment
+- Or: Docker build succeeds but librosa silently falls back to slow pure-Python paths
+- Or: `import librosa` crashes the Celery worker process on first import
+- Silent fallback means BPM/key detection takes 45-90 seconds per track on Cortex-A53 vs 2-5s on Railway x86
+
+**Prevention:**
+1. **Option A (Recommended): Use Raspberry Pi OS 64-bit + arm64v8 Docker image.** Run `uname -m` on the Pi — if it shows `aarch64`, the OS is 64-bit. Use `FROM python:3.11-slim` with `--platform linux/arm64`. numba provides conda-forge aarch64 wheels; piwheels is working on aarch64 support as of 2025.
+2. **Option B: Install via system packages instead of pip inside Docker.** `apt-get install python3-librosa python3-numba` inside the container uses Debian-packaged wheels that are compiled for the target architecture. Version will lag PyPI but avoids the wheel gap.
+3. **Option C: Skip numba entirely.** Install librosa with `pip install librosa[display] --no-deps` then install all other deps individually except numba. librosa will work without JIT acceleration. Set `NUMBA_DISABLE_JIT=1` environment variable. BPM and key detection still work, just slower (acceptable if concurrency is capped at 1).
+4. **Option D: conda/mamba.** Use a `continuumio/miniconda3` ARM base image. conda-forge has prebuilt numba for aarch64. This adds ~500MB to the image but eliminates the build complexity.
+
+**Validation test:**
+```bash
+docker run --rm --platform linux/arm64 python:3.11-slim \
+  python -c "import librosa; y, sr = librosa.load(librosa.ex('trumpet')); print(librosa.beat.beat_track(y=y, sr=sr))"
+```
+If this exits cleanly, the ARM librosa install is functional.
+
+**Confidence:** HIGH — Confirmed by numba issue #6723, piwheels issue #50, librosa issue #1854, and multiple community reports through 2025.
+
+---
+
+### P-ARM-02: 1GB RAM — librosa OOM Kill With No Warning
+
+**Severity:** CRITICAL
+
+**What goes wrong:**
+A single librosa analysis job on a 5-minute beat can consume 400-600MB of RAM during peak usage:
+- `librosa.load()` with default sr=22050: 5 min × 22050 × 4 bytes (float32) = ~26MB audio buffer
+- `librosa.beat.beat_track()` allocates intermediate spectrograms: 2-5x audio size in working memory (~130MB)
+- `librosa.feature.chroma_cqt()` for key detection allocates separately: another 50-150MB
+- `librosa.cqt()` internally: can spike to 400MB for a complex track
+
+On 1GB RAM with the full stack running (Redis ~50MB, FastAPI ~80MB, Celery master ~50MB, Celery worker ~150MB at idle), the system has ~600MB free before the first job. A 5-minute beat analysis at peak allocation can exceed this. The Linux OOM Killer terminates the Celery worker process with no Python exception — the job simply disappears from the worker's perspective.
+
+**Why it happens:**
+numpy/scipy allocate large intermediate arrays during FFT operations. The CQT (Constant-Q Transform) for key detection is particularly memory-intensive because it performs multiple FFTs at different frequency resolutions. These allocations cannot be avoided with the current librosa API without switching to streaming analysis.
+
+**Consequences:**
+- Celery worker killed mid-analysis; WAV file exists but job stuck in `processing` state forever
+- No exception raised; Redis job entry never transitions to `failed` or `done`
+- Next reboot of the worker brings back a clean state, but the "stuck" job never resolves
+
+**Prevention:**
+1. **Hard cap on audio duration at load time:** `librosa.load(path, mono=True, sr=22050, duration=90)` — analyze only the first 90 seconds for BPM/key. For most beats, the first 90s contains all relevant musical information.
+2. **Celery concurrency = 1:** Only one librosa analysis at a time. Default Celery spawns N workers = N CPU cores = 4 on Pi 3B. Four simultaneous analyses = guaranteed OOM.
+   ```
+   CELERY_WORKER_CONCURRENCY=1
+   ```
+3. **Add swap to the Pi:** `sudo dphys-swapfile` with CONF_SWAPSIZE=1024 (1GB swap on SD card). Swap on SD card is slow (~20 MB/s read) but prevents OOM kills. This trades OOM risk for slowdown. Set the Celery task `soft_time_limit` generously (180s) to tolerate swap thrashing.
+4. **worker_max_memory_per_child:** Set `CELERY_WORKER_MAX_MEMORY_PER_CHILD=400000` (400MB in KB). Celery will recycle the worker process after a job if it used more than 400MB. This prevents memory fragmentation buildup across multiple jobs.
+5. **Enable memory cgroup in Pi OS boot:** Without this, Docker's `--memory` flag is silently ignored. Add to `/boot/firmware/cmdline.txt`:
+   ```
+   cgroup_enable=memory cgroup_memory=1 swapaccount=1
+   ```
+   Then `docker-compose.yml` can enforce: `mem_limit: 600m` on the worker container.
+
+**Confidence:** HIGH — Librosa issues #1286, #1385, #406 confirm memory growth patterns. Docker cgroup silent-ignore confirmed by dalwar23.com Raspberry Pi Docker memory documentation.
+
+---
+
+### P-ARM-03: CPU Time — librosa Takes 30-90s on Cortex-A53
+
+**Severity:** HIGH
+
+**What goes wrong:**
+The Pi 3B's ARM Cortex-A53 at 1.2GHz is roughly 10-15x slower than a modern x86 server CPU for numpy/scipy FFT workloads. Without numba JIT (which may not be available — see P-ARM-01), librosa's beat tracking relies on pure-Python loops.
+
+Estimated times on Cortex-A53 without numba:
+- `librosa.load()` + resample: 8-15s for a 5-minute beat
+- `librosa.beat.beat_track()`: 20-45s
+- `librosa.feature.chroma_cqt()`: 15-30s
+- Total analysis pipeline: 45-90 seconds per job
+
+With the Celery task `soft_time_limit` currently set for Railway speeds (~30s), the Pi will time out on every analysis job.
+
+**Why it happens:**
+Railway runs on multi-core x86_64 with AVX2 SIMD instructions. numpy/scipy are compiled with AVX2 support on x86. On ARM, numpy is compiled with NEON SIMD, which is weaker per cycle. The Pi 3B's 1.2GHz clock is also significantly below server CPUs. There is no hardware acceleration path for pure FFT workloads on the Pi's GPU.
+
+**Consequences:**
+- All analysis jobs time out if `soft_time_limit` is not adjusted for ARM speed
+- Users wait 60-90 seconds vs. the <30s target in the product requirements
+- If `soft_time_limit` is not increased, `SoftTimeLimitExceeded` is raised during analysis, producing a WAV file with no BPM/key data
+
+**Prevention:**
+1. **Increase Celery timeouts for ARM:** `soft_time_limit=180, time_limit=240`
+2. **Cap audio duration for analysis:** `duration=90` seconds in `librosa.load()` significantly reduces processing time without meaningful quality loss for BPM/key detection
+3. **Use `hop_length=512` (the default) or larger:** A larger hop reduces the number of frames to analyze. For beat tracking on 90s of audio, hop_length=1024 is acceptable and halves processing time
+4. **Profile the actual Pi performance** before setting timeouts: run a single analysis job manually and measure wall time before deploying
+
+**Confidence:** MEDIUM — ARM vs x86 numpy benchmark data is not directly available for this specific workload; estimates from general SIMD performance comparisons and librosa community reports on slow machines.
+
+---
+
+### P-ARM-04: Docker Image Build Time — Hours on QEMU, Never on Pi Directly
+
+**Severity:** HIGH
+
+**What goes wrong:**
+Building the Docker image on the Pi itself is not viable for this stack. `pip install numpy scipy librosa` on the Pi's CPU:
+- Without prebuilt wheels (source compilation): 4-8 hours
+- With piwheels or prebuilt ARM wheels: 15-30 minutes
+
+Building via `docker buildx` from a laptop with QEMU arm32v7/arm64 emulation:
+- QEMU emulation of ARM for C extension compilation: 45-90 minutes per build
+- This is per build, meaning every `requirements.txt` change triggers a 45-90 minute CI cycle
+
+Neither path is acceptable for iterative development.
+
+**Why it happens:**
+Docker's `buildx` for cross-platform builds uses QEMU binary translation when native ARM hardware is not available. QEMU is not hardware-level virtualization — it translates every instruction. For compute-heavy compilation (numpy, scipy involve significant C/Fortran compilation), QEMU overhead is 10-20x native speed.
+
+**Consequences:**
+- Each Dockerfile change during iteration takes 45-90 minutes to validate
+- If CI/CD is set up on GitHub Actions with QEMU, every merge to main blocks for 90 minutes before deploy
+
+**Prevention:**
+1. **Build the image natively on the Pi.** SSH into the Pi, `docker build` runs natively in ARM. With piwheels integration via `--extra-index-url https://www.piwheels.org/simple`, prebuilt ARM wheels are fetched directly. Build time: 15-30 minutes. Painful but a one-time cost per requirements change.
+2. **Separate the heavy dependencies from the app code.** Use a two-stage Dockerfile:
+   - Stage 1 (`deps`): Install all Python packages. Tag and push this as `soundgrabber-deps:arm64-vX`. Only rebuilt when `requirements.txt` changes.
+   - Stage 2 (`app`): `FROM soundgrabber-deps:arm64-vX`, copy app code. Rebuilt on every code change in seconds.
+3. **Use GitHub Actions with native ARM runners.** GitHub has ARM64 runners (via `runs-on: ubuntu-24.04-arm`). Build there, push to GHCR, pull on Pi. No QEMU penalty.
+4. **Do not use `--platform linux/arm/v7` in the `FROM` line** on a 64-bit Pi OS. Use `--platform linux/arm64` to avoid the 32-bit/64-bit mismatch that causes binary incompatibility.
+
+**Confidence:** HIGH — QEMU overhead for ARM cross-compilation is well-documented across Docker community forums and the Photonix project build documentation.
+
+---
+
+### P-ARM-05: 32-bit vs 64-bit OS — Silent Binary Incompatibility
+
+**Severity:** HIGH
+
+**What goes wrong:**
+The Raspberry Pi 3B's CPU (ARM Cortex-A53) is 64-bit capable. However, the default Raspberry Pi OS installation is **32-bit (armv7l)**. This creates a critical mismatch:
+
+- The milestone context specifies `linux/arm/v7` (32-bit)
+- If the Pi is actually running a 64-bit OS (Raspberry Pi OS 64-bit, or Ubuntu Server 64-bit), `arm/v7` Docker containers will fail to start with: `exec /usr/local/bin/python: exec format error`
+- Conversely, if the Pi is 32-bit and a `linux/arm64` image is pulled, same error
+
+Additionally, the Python package ecosystem has **better support for 64-bit ARM** than 32-bit:
+- numba has conda-forge aarch64 wheels (no 32-bit ARM wheels)
+- Many Python scientific packages stopped providing armv7 wheels after 2022
+- piwheels supports 32-bit Raspbian but this only works when pip is invoked with piwheels as extra index AND the host is actually Raspbian (not Debian in Docker)
+
+**Why it happens:**
+`uname -m` on a Pi 3B with default OS returns `armv7l`. With 64-bit OS, it returns `aarch64`. The Docker `--platform` flag must match the running OS, not just the hardware capability. Mixing them produces the format error.
+
+**Prevention:**
+1. **Before writing any Dockerfile or compose file, determine the Pi's actual OS bitness:**
+   ```bash
+   ssh pi@<tailscale-ip> "uname -m && cat /etc/os-release | head -5"
+   ```
+2. **If the Pi is running 32-bit (armv7l):** Use `--platform linux/arm/v7` in docker-compose. Use piwheels as extra pip index. Expect numba/llvmlite issues.
+3. **If the Pi is running 64-bit (aarch64):** Use `--platform linux/arm64`. Use conda-forge for numba. Better overall package support. **This is the recommended path** — if the Pi is currently on 32-bit, consider reinstalling with 64-bit OS before starting the Docker setup.
+4. **If unsure, install Raspberry Pi OS 64-bit (bookworm)** from scratch. It supports Pi 3B as of the 2022 release. This is the cleaner starting point.
+
+**Confidence:** HIGH — Docker exec format error is a direct consequence of platform mismatch; architecture detection is standard Linux tooling.
+
+---
+
+### P-ARM-06: SD Card Corruption — The Unattended Server's Silent Killer
+
+**Severity:** HIGH
+
+**What goes wrong:**
+Consumer microSD cards have limited write endurance (typically 10,000-100,000 P/E cycles for TLC NAND). Docker + Celery + Redis on a Pi create an unusually write-heavy workload:
+- Docker overlay2 writes layer diffs on every container start
+- Redis AOF persistence writes continuously
+- Celery task logs write on every job
+- /tmp audio files write during every download
+
+On a cheap microSD card (Class 10, 32GB TLC), the card can fail within months of continuous use. The failure mode is silent: the filesystem becomes read-only or corrupted, writes silently fail, and the application appears to run but produces no output. Diagnosis over SSH (no physical access) is extremely difficult because log writes may also be failing.
+
+**Why it happens:**
+Consumer SD cards optimize for sequential read speed (marked on the card). Random write endurance is not advertised but is 10-50x worse than sequential write endurance. Docker's overlay filesystem performs many small random writes. Running a Redis server with AOF enabled is particularly damaging.
+
+**Consequences:**
+- Application stops producing results silently (writes fail silently in many filesystems when the card goes read-only)
+- SSH access may still work (reads succeed) but the application fails
+- Recovery requires physical SD card access — impossible without physical access
+
+**Prevention:**
+1. **Use a high-endurance microSD card:** Samsung Endurance Pro, SanDisk High Endurance, Kingston Canvas Go Plus. These are designed for dashcam/surveillance use and have 10-40x better write endurance than consumer cards.
+2. **Redis: disable AOF, use RDB snapshots only.** In `redis.conf`: `appendonly no`, `save 900 1 300 10 60 10000`. This dramatically reduces write frequency. For SoundGrabber (queue state, not persistent data), AOF durability is unnecessary.
+3. **log2ram:** Install on the Pi host before Docker. Routes system log writes to a RAM disk (syncs to SD periodically on clean shutdown). Eliminates the majority of OS-level SD writes.
+   ```bash
+   echo "deb [signed-by=/usr/share/keyrings/azlux-archive-keyring.gpg] http://packages.azlux.fr/debian/ bookworm main" | sudo tee /etc/apt/sources.list.d/azlux.list
+   sudo apt install log2ram
+   ```
+4. **Move /tmp to tmpfs (RAM disk):** Celery's audio temp files write to /tmp. Map /tmp to RAM in `/etc/fstab`:
+   ```
+   tmpfs /tmp tmpfs defaults,noatime,nosuid,size=300m 0 0
+   ```
+   This eliminates ALL /tmp SD writes. 300MB is sufficient for one queued job at a time.
+5. **Docker volumes on external USB drive:** For production, move Docker's data root (`/var/lib/docker`) to a USB flash drive or SSD. USB drives have significantly better write endurance than microSD. Requires: `sudo systemctl stop docker`, edit `/etc/docker/daemon.json` to set `"data-root": "/mnt/usb/docker"`, move existing data.
+
+**Confidence:** HIGH — SD card corruption on headless Pi servers is a well-documented failure mode. Hackaday and Raspberry Pi Forums have documented dozens of cases. log2ram and tmpfs are standard mitigations.
+
+---
+
+### P-ARM-07: Pi Freeze Without Physical Access — Recovery Protocol
+
+**Severity:** HIGH
+
+**What goes wrong:**
+A Pi 3B running headless over Tailscale can become unrecoverable if:
+- An OOM kill takes down the networking subsystem
+- A kernel panic occurs (less common but real)
+- The SD card filesystem becomes read-only mid-session
+- A Docker container consumes all memory and the kernel hangs before OOM killer acts
+- The Tailscale service itself OOMs and the Pi becomes unreachable
+
+Without physical access, any of these produces a "disappeared" server. The Pi is plugged in, LED shows activity, but SSH via Tailscale returns "Connection refused" or times out. The only traditional recovery is a physical hard reset (power cycle). Without physical access, there is no recovery.
+
+**Why it happens:**
+The Pi 3B has no BMC (Baseboard Management Controller), IPMI, or out-of-band management interface. Unlike cloud VMs, there is no "force restart" button available remotely.
+
+**Prevention:**
+1. **Hardware watchdog (mandatory):** The Pi 3B has a built-in hardware watchdog timer. Enable it:
+   ```bash
+   # In /boot/firmware/config.txt (or /boot/config.txt on older Pi OS):
+   dtparam=watchdog=on
+   ```
+   Then configure systemd to feed it:
+   ```bash
+   # /etc/systemd/system.conf
+   RuntimeWatchdogSec=15
+   ShutdownWatchdogSec=2min
+   ```
+   With this configured, if systemd stops responding for 15 seconds, the hardware watchdog triggers a hard reset. This handles kernel hangs and zombie states but NOT cases where systemd itself is running but the Pi is in a degraded state.
+
+2. **Docker restart policies:** All containers must use `restart: unless-stopped` (not `restart: always`, which can create restart loops). This ensures containers come back after a watchdog reboot without manual intervention.
+
+3. **Tailscale persistence:** Tailscale must be configured to start before Docker (it is a systemd service, dependency ordering matters). After a watchdog reboot, Tailscale must be available before Docker tries to start — otherwise Docker containers start with no network and the SSH entry point is gone.
+   ```bash
+   # Check Tailscale service starts before Docker:
+   sudo systemctl cat docker | grep After  # should include tailscaled or network-online.target
+   ```
+
+4. **Test the full restart cycle before going live:** Pull the power on the Pi while containers are running. Confirm that after power restoration: (1) Pi boots, (2) Tailscale connects, (3) Docker containers start, (4) Application is accessible via Tailscale IP. This must be tested with physical access BEFORE deploying remotely.
+
+5. **Monitoring ping:** Set up an external health check (free tier UptimeRobot, Better Stack, or a cron job from a separate machine via Tailscale) that pings `GET /health` every 5 minutes. Alert when it fails. Without this, a frozen Pi can go unnoticed for hours.
+
+6. **Smart plug as last resort:** A remotely controllable smart plug (e.g., TP-Link Kasa, Shelly) on the Pi's power outlet provides a true "power cycle from anywhere" escape hatch. At $15-25, this is worth the investment for a headless production server.
+
+**Confidence:** HIGH — Watchdog configuration verified via Raspberry Pi Forums. Docker restart policy behavior well-documented. Tailscale startup ordering is an operational requirement.
+
+---
+
+### P-ARM-08: Docker Memory Limits Silently Ignored Without cgroup Configuration
+
+**Severity:** MEDIUM
+
+**What goes wrong:**
+On a fresh Raspberry Pi OS installation, Docker reports:
+```
+WARNING: No memory limit support
+WARNING: No swap limit support
+```
+
+This means `mem_limit: 600m` in docker-compose.yml is silently ignored — the container can consume all available RAM. If the librosa worker (see P-ARM-02) needs to be hard-capped to prevent OOM killing the host, this cap does not work without explicit kernel configuration.
+
+**Why it happens:**
+Raspberry Pi OS does not enable memory cgroup by default to reduce boot overhead. Docker requires memory cgroups to enforce `--memory` limits.
+
+**Prevention:**
+Add these parameters to `/boot/firmware/cmdline.txt` (all on one line, space-separated):
+```
+cgroup_enable=memory cgroup_memory=1 swapaccount=1
+```
+Reboot. Verify with: `docker info 2>&1 | grep -i memory`
+
+After this change, `mem_limit` in docker-compose works as expected. Set:
+```yaml
+worker:
+  mem_limit: 600m
+  memswap_limit: 900m  # 300m of swap allowed
+```
+
+**Confidence:** HIGH — dalwar23.com documents exact cmdline.txt change. Docker moby issue #35587 confirms cgroup memory warning means limits are ignored.
+
+---
+
 ## Testing Strategy
 
 ### The Core Problem
@@ -447,18 +758,51 @@ def test_real_youtube_download():
 
 A suitable stable video: YouTube has multiple official short test videos under 60 seconds that have been stable for years. Any video from YouTube's own channel works; prefer one under 2 minutes to minimize download time.
 
+### Layer 5: ARM-Specific Validation (New for v1.3)
+
+Before declaring the Pi deployment complete, run these validations manually with physical SSH access:
+
+```bash
+# 1. Verify architecture matches the Docker platform
+uname -m  # must match platform in docker-compose.yml (aarch64 or armv7l)
+
+# 2. Verify memory cgroup is active
+docker info 2>&1 | grep -i memory  # must NOT show WARNING
+
+# 3. Verify librosa import does not crash
+docker exec <worker-container> python -c "import librosa; print(librosa.__version__)"
+
+# 4. Verify hardware watchdog is active
+cat /proc/sys/kernel/watchdog  # should output 1
+
+# 5. Benchmark analysis time on a real local file
+# (Use a short WAV, measure wall time, confirm < soft_time_limit)
+time docker exec <worker-container> python -c "
+import librosa
+y, sr = librosa.load('/tmp/test.wav', mono=True, sr=22050, duration=90)
+tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
+print('BPM:', tempo)
+"
+
+# 6. Test full restart cycle (do this before going headless)
+docker compose down && sudo reboot
+# Wait ~60s, then SSH back in and verify containers are running
+docker compose ps
+```
+
 ### What NOT to Do in Testing
 
 - Do not commit a real `cookies.txt` to the repo (contains session tokens)
 - Do not run yt-dlp against real YouTube in PR CI — this will eventually trigger a ban on the CI IP
 - Do not mock at the ffmpeg/subprocess level for security tests — the security controls (chmod, path validation) must run against the real filesystem
 - Do not test bgutil availability in unit tests — mock the `bgutil_base_url` parameter instead
+- Do not skip the physical restart cycle test before going fully remote — once the Pi is headless over Tailscale, testing the reboot cycle requires physical access
 
 ---
 
 ## Prevention Checklist
 
-For the v1.2 milestone before closing:
+### Existing Railway Pitfalls (carry forward)
 
 **Cookie management:**
 - [ ] Cookie export procedure documented in RUNBOOK (Firefox only, not Chrome)
@@ -474,7 +818,7 @@ For the v1.2 milestone before closing:
 
 **Binary resolution:**
 - [ ] `_FFPROBE_PATH` verified to exist at startup (not deferred to first call)
-- [ ] System `ffmpeg` (includes `ffprobe`) installed in Railway Nixpacks/Dockerfile
+- [ ] System `ffmpeg` (includes `ffprobe`) installed in Dockerfile
 - [ ] Resolution order: `shutil.which("ffprobe")` first, then imageio-ffmpeg parent path fallback
 
 **File cleanup:**
@@ -484,21 +828,57 @@ For the v1.2 milestone before closing:
 
 **yt-dlp version:**
 - [ ] `requirements.txt` pins yt-dlp to latest stable (not >3 months old)
-- [ ] Railway redeploy does not use cached yt-dlp pip layer (add version bump or `--no-cache`)
-
-**bgutil (if deployed):**
-- [ ] Use Rust image (`jim60105/bgutil-pot`), not TypeScript image
-- [ ] Railway restart policy configured for bgutil service
-- [ ] Pipeline gracefully falls back to `android` client if bgutil unreachable (startup health check)
+- [ ] Docker rebuild does not use cached yt-dlp pip layer (add version bump or `--no-cache`)
 
 **Rate limiting:**
 - [ ] `fragment_retries` set to 3 in yt-dlp options (default 10 risks IP ban)
 - [ ] Celery `rate_limit="10/m"` on the download task
 
+### New ARM / Raspberry Pi Checklist (v1.3)
+
+**Architecture verification (do first, before any code):**
+- [ ] `uname -m` on Pi confirms actual architecture (aarch64 vs armv7l)
+- [ ] Docker-compose `platform:` matches Pi OS bitness
+- [ ] Decision made: 32-bit or 64-bit path (recommendation: 64-bit/aarch64)
+
+**librosa/numba strategy:**
+- [ ] Strategy chosen and documented: (A) arm64 + conda-forge numba, (B) system packages, (C) numba-free librosa, or (D) conda base image
+- [ ] `import librosa` tested inside the target container before writing any application code
+- [ ] `NUMBA_DISABLE_JIT=1` set if using Option C
+- [ ] Analysis time benchmarked on Pi before setting task timeouts
+
+**Memory management:**
+- [ ] `CELERY_WORKER_CONCURRENCY=1` in Pi deployment config
+- [ ] `librosa.load(..., duration=90)` cap implemented in `analyze_audio()`
+- [ ] `CELERY_WORKER_MAX_MEMORY_PER_CHILD=400000` set
+- [ ] `soft_time_limit=180, time_limit=240` for ARM speed
+- [ ] Swap enabled on Pi host: `sudo dphys-swapfile` with 1GB
+- [ ] `/tmp` mounted as tmpfs (RAM disk) in Pi's `/etc/fstab`
+
+**Docker memory limits:**
+- [ ] cgroup memory enabled in `/boot/firmware/cmdline.txt`
+- [ ] Reboot confirmed, `docker info` shows no memory limit warnings
+- [ ] `mem_limit: 600m` set on worker container in docker-compose.yml
+
+**SD card protection:**
+- [ ] High-endurance SD card in use (Samsung Endurance Pro or equivalent)
+- [ ] Redis AOF disabled, RDB snapshots only
+- [ ] log2ram installed and active on Pi host
+- [ ] `/tmp` on tmpfs to eliminate audio file writes to SD card
+
+**Unattended recovery:**
+- [ ] Hardware watchdog enabled in `/boot/firmware/config.txt`
+- [ ] systemd watchdog configured (RuntimeWatchdogSec=15)
+- [ ] All Docker containers use `restart: unless-stopped`
+- [ ] Tailscale starts before Docker in systemd order
+- [ ] Physical restart cycle tested with SSH verification BEFORE going headless
+- [ ] External health check (UptimeRobot or equivalent) monitoring `GET /health`
+- [ ] Smart plug considered for power cycle recovery
+
 **Testing:**
-- [ ] `tests/test_pipeline_unit.py` added with mocked YoutubeDL covering bot detection, format unavailable, and cleanup paths
-- [ ] Cookie age test added with `pytest.mark.skipif` for CI
-- [ ] Canary test marked `@pytest.mark.canary` and excluded from PR CI (gated by `RUN_CANARY_TESTS`)
+- [ ] ARM-specific validation script run and all checks pass
+- [ ] Canary test run manually from Pi (real YouTube download)
+- [ ] `tests/test_pipeline_unit.py` added with mocked YoutubeDL
 
 ---
 
@@ -512,15 +892,23 @@ For the v1.2 milestone before closing:
 | ffprobe path resolution | P1-02: imageio-ffmpeg mismatch | Install system ffmpeg; startup verification |
 | yt-dlp version management | P1-01: nsig breakage | Pin to latest; rebuild on deploy |
 | outtmpl configuration | P1-04: Postprocessor confusion | Include %(ext)s in outtmpl |
-| Railway /tmp cleanup | P1-05: Disk exhaustion | Startup orphan sweep |
-| CI test pipeline | Testing: real YouTube hits | Mock YoutubeDL; canary tests gated |
+| Pi /tmp cleanup | P1-05 variant: SD card + tmpfs | Mount /tmp as tmpfs; startup orphan sweep |
 | Fragment download | P2-02: IP ban on retries | Set fragment_retries=3 |
 | Chrome cookie export | P2-04: Invalid cookies | Enforce Firefox; validate __Secure-3PSID presence |
+| ARM Docker setup | P-ARM-05: 32/64-bit mismatch | Check uname -m before writing Dockerfile |
+| librosa installation | P-ARM-01: numba build failure | Choose strategy before first build; test import |
+| Analysis job | P-ARM-02: OOM kill | concurrency=1; duration cap; swap enabled |
+| Analysis job | P-ARM-03: CPU timeout | Increase soft_time_limit to 180s; benchmark first |
+| Docker build | P-ARM-04: QEMU build time | Build natively on Pi; layer-split Dockerfile |
+| SD card | P-ARM-06: Corruption | High-endurance card; log2ram; tmpfs for /tmp |
+| Remote recovery | P-ARM-07: Pi freeze | Hardware watchdog; smart plug; pre-test restart cycle |
+| Docker limits | P-ARM-08: cgroup silent ignore | Enable cgroup_enable=memory in cmdline.txt |
 
 ---
 
 ## Sources
 
+### YouTube/yt-dlp (v1.2)
 - [yt-dlp issue #13964: YouTube cookies expire in 3-5 days](https://github.com/yt-dlp/yt-dlp/issues/13964) — HIGH confidence
 - [yt-dlp issue #16229: Cookies no longer working — SABR silent failure](https://github.com/yt-dlp/yt-dlp/issues/16229) — HIGH confidence
 - [yt-dlp issue #16128: DASH audio formats missing in yt-dlp 2026.03.03](https://github.com/yt-dlp/yt-dlp/issues/16128) — HIGH confidence
@@ -532,6 +920,22 @@ For the v1.2 milestone before closing:
 - [bgutil-ytdlp-pot-provider-rs DeepWiki: TypeScript vs Rust memory comparison](https://deepwiki.com/jim60105/bgutil-ytdlp-pot-provider-rs/6.3-migration-from-typescript-to-rust) — HIGH confidence
 - [DEV Community: 6 Ways to Get YouTube Cookies in 2026 — Only 1 Works](https://dev.to/osovsky/6-ways-to-get-youtube-cookies-for-yt-dlp-in-2026-only-1-works-2cnb) — HIGH confidence
 - [yt-dlp PO Token Guide (wiki)](https://github.com/yt-dlp/yt-dlp/wiki/PO-Token-Guide) — HIGH confidence
-- [Railway Docs: Ephemeral storage limits](https://docs.railway.com/reference/services) — HIGH confidence
-- [yt-dlp issue #15689: android sdkless bypasses SABR at extraction but 403 on download](https://github.com/yt-dlp/yt-dlp/issues/15689) — MEDIUM confidence
 - [yt-dlp issue #11674: Temporary file cleanup on interrupted download](https://github.com/yt-dlp/yt-dlp/issues/11674) — HIGH confidence
+- [yt-dlp issue #15689: android sdkless bypasses SABR at extraction but 403 on download](https://github.com/yt-dlp/yt-dlp/issues/15689) — MEDIUM confidence
+
+### ARM / Raspberry Pi (v1.3)
+- [numba issue #6723: RPi3 cannot install Numba due to LLVM toolchain mismatch](https://github.com/numba/numba/issues/6723) — HIGH confidence
+- [piwheels issue #50: librosa failing to install on Raspberry Pi 3](https://github.com/piwheels/packages/issues/50) — HIGH confidence
+- [librosa issue #1854: Running without numba](https://github.com/librosa/librosa/issues/1854) — HIGH confidence
+- [librosa issue #1286: Memory usage growing with iterations](https://github.com/librosa/librosa/issues/1286) — HIGH confidence
+- [librosa issue #406: Librosa in 128MB memory or less](https://github.com/librosa/librosa/issues/406) — HIGH confidence
+- [Docker moby issue #35587: cgroups memory cgroup not supported](https://github.com/moby/moby/issues/35587) — HIGH confidence
+- [Docker moby issue #46185: Can't use swap memory on docker Raspberry Pi OS](https://github.com/moby/moby/issues/46185) — HIGH confidence
+- [dalwar23.com: How to Fix "No memory limit support" for Docker in Raspberry Pi](https://dalwar23.com/how-to-fix-no-memory-limit-support-for-docker-in-raspberry-pi/) — HIGH confidence
+- [piwheels librosa page: version availability and Python 3.11 support](https://www.piwheels.org/project/librosa/) — HIGH confidence
+- [Raspberry Pi Forums: watchdog package configuration](https://forums.raspberrypi.com/viewtopic.php?t=147501) — HIGH confidence
+- [Hackaday: Raspberry Pi and the Story of SD Card Corruption](https://hackaday.com/2022/03/09/raspberry-pi-and-the-story-of-sd-card-corruption/) — HIGH confidence
+- [Celery issue #2011: Celery worker hangs after OOM kill of subprocess](https://github.com/celery/celery/issues/2011) — HIGH confidence
+- [Zapier Engineering: Decreasing RAM usage 40% with jemalloc](https://zapier.com/engineering/celery-python-jemalloc/) — MEDIUM confidence
+- [Docker Docs: Multi-platform builds](https://docs.docker.com/build/building/multi-platform/) — HIGH confidence
+- [DevGuide.dev: Keep Your Raspberry Pi Online — WiFi drops and SSH disconnects](https://devguide.dev/blog/raspberry-pi-stays-online) — MEDIUM confidence
