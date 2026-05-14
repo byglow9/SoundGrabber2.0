@@ -245,7 +245,10 @@ Plans:
   4. Running `bash pi-setup.sh` on a freshly flashed Pi OS 64-bit image reproduced the full environment (Docker, swap, cgroups, watchdog, log2ram) without manual steps beyond providing credentials — script is documented and committed to the repo
 **Plans**: 2 plans
 Plans:
+**Wave 1**
 - [ ] 12-01-PLAN.md — Wave 1: criar scripts/pi-setup.sh com 7 seções (arch, Docker, swap, cgroups, watchdog, log2ram, verificação final)
+
+**Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 12-02-PLAN.md — Wave 2: checkpoint humano — Moisés executa o script no Pi e documenta outputs em scripts/12-SETUP-LOG.md
 
 ### Phase 13: Docker Compose ARM
