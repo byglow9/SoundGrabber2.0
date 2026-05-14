@@ -1,10 +1,14 @@
-# Phase 12: Pi Foundation - Discussion Log
+# Phase 12: Notebook Foundation - Discussion Log
 
 > **Audit trail only.** Do not use as input to planning, research, or execution agents.
 > Decisions are captured in CONTEXT.md — this log preserves the alternatives considered.
+>
+> **Nota histórica:** Esta discussão foi conduzida originalmente para Raspberry Pi 3B.
+> Em 2026-05-14 o hardware foi trocado para notebook HP (Ubuntu Server 24.04 LTS x86_64).
+> As decisões abaixo estão supersedidas — ver 12-CONTEXT.md para decisões atuais.
 
 **Date:** 2026-05-14
-**Phase:** 12-Pi Foundation
+**Phase:** 12-Notebook Foundation (originalmente 12-Pi Foundation)
 **Areas discussed:** OS 32-bit contingência, Hardware watchdog, Proteção do cartão SD, Script de setup
 
 ---

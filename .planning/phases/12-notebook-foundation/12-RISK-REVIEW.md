@@ -1,263 +1,147 @@
-# Phase 12 Risk Review — Pi Foundation
+# Phase 12 Risk Review — Notebook Foundation
 
 **Data:** 2026-05-14
-**Escopo:** Revisao realista dos planos `12-01-PLAN.md` e `12-02-PLAN.md` antes de executar no Raspberry Pi 3B.
-**Veredito:** Nao executar o plano 12 como esta. O plano e bom como intencao, mas tem contradicoes e lacunas que podem gerar retrabalho ou um Pi inacessivel.
+**Escopo:** Revisão dos planos `12-01-PLAN.md` e `12-02-PLAN.md` para notebook HP com Ubuntu Server 24.04 LTS.
+**Veredito:** Planos prontos para execução. Riscos principais mapeados e mitigados nos planos.
 
 ---
 
 ## Resumo executivo
 
-A Phase 12 deveria ser uma fundacao conservadora: confirmar arquitetura, instalar Docker, habilitar swap/cgroups, configurar watchdog, reduzir desgaste do SD e produzir evidencia real do Pi.
+A migração do Raspberry Pi 3B para um notebook HP x86_64 elimina a maioria dos riscos originais desta fase:
+arquitetura ARM, cgroups manuais via cmdline.txt, SD card wear, log2ram, e incompatibilidade de wheels.
 
-O maior risco nao e escrever `scripts/pi-setup.sh`. O maior risco e o plano aceitar um Pi `armv7l` apesar de `PI-01` e o `ROADMAP.md` exigirem `aarch64`. Isso empurra para a Phase 13 uma decisao que deveria bloquear agora. Com o stack atual (`librosa`, `essentia`, `numpy`, `scipy`, `yt-dlp`, `bgutil`) em um Pi 3B de 1GB, arquitetura errada significa build instavel, dependencias ARM problemáticas e muito retrabalho.
+O maior risco desta fase agora é **o notebook sumir quando a tampa for fechada** — comportamento padrão
+do Ubuntu com notebook, que derrubaria o servidor sem aviso. O Plan 01 mitiga isso com drop-ins systemd
+antes de qualquer outro passo.
 
-Minha recomendacao: **transformar a arquitetura 64-bit em gate real**. Se `uname -m` retornar `armv7l`, parar e reinstalar Raspberry Pi OS 64-bit antes de Docker, a menos que a gente decida explicitamente mudar o milestone para suportar arm/v7 com risco maior.
+O segundo risco é **HDD lento para swap** — em workloads de pico o SoundGrabber pode pressionar RAM
+(Essentia + FFmpeg + Celery), e o HDD é 5-10x mais lento que SSD para swap. Mitigado com swappiness=10.
 
 ---
 
 ## Riscos bloqueadores
 
-### R-12-01 — Contradicao entre requisito e plano: `aarch64` vs `armv7l`
+### R-12-01 — Notebook suspende com tampa fechada (CRÍTICO para servidor headless)
 
-**Severidade:** Critica
+**Severidade:** Crítica
 
-**Evidencia local:**
-- `REQUIREMENTS.md` define `PI-01`: operador confirma OS 64-bit e `uname -m` retorna `aarch64`.
-- `ROADMAP.md` success criterion 1 da Phase 12 tambem exige `aarch64` antes de prosseguir.
-- `12-CONTEXT.md` D-01/D-02 e `12-01-PLAN.md` dizem para continuar normalmente se retornar `armv7l`.
-- `.planning/research/STACK.md` recomenda 64-bit explicitamente.
-- `.planning/research/PITFALLS.md` P-ARM-05 recomenda reinstalar 64-bit se o Pi estiver em 32-bit.
+**Contexto:** Ubuntu Server sem GUI ainda respeita sinais de ACPI para lid close e idle por padrão via
+systemd-logind. Fechar a tampa → HandleLidSwitch=suspend → servidor some da rede.
 
-**Por que importa:** Phase 13 vai construir imagem ARM com deps cientificas. `armv7l` aumenta friccao com wheels, imagens Docker e possiveis builds nativos. O plano atual deixa a decisao mais importante do milestone para depois, quando ja teremos modificado o host.
+**Mitigação no Plan 01:**
+- Drop-in `/etc/systemd/logind.conf.d/nosleep.conf` com `HandleLidSwitch=ignore` e `IdleAction=ignore`
+- Drop-in `/etc/systemd/sleep.conf.d/nosleep.conf` bloqueando suspend e hibernate
+- Verificação no Plan 02: `systemctl show logind | grep HandleLidSwitch` deve retornar `ignore`
 
-**Alternativa realista:** mudar o Plan 01 para:
-1. rodar preflight read-only;
-2. se `uname -m != aarch64`, imprimir instrucao de reinstalar Raspberry Pi OS Lite 64-bit e sair com erro;
-3. so instalar Docker/swap/cgroups/watchdog se `aarch64`.
-
-**Decisao necessaria:** manter requisito `aarch64` como gate ou rebaixar formalmente `PI-01` para aceitar `armv7l`. Eu recomendo manter `aarch64`.
+**Status:** Mitigado no plano. Requer validação real no Plan 02.
 
 ---
 
-### R-12-02 — Watchdog configurado de forma possivelmente insuficiente no Bookworm
+### R-12-02 — Módulo de hardware watchdog pode não estar disponível
 
 **Severidade:** Alta
 
-**Evidencia local:**
-- Plan 01 adiciona `dtparam=watchdog=on` e `bcm2835-wdt`.
-- P-ARM-07 tambem exige configurar systemd para alimentar o watchdog: `RuntimeWatchdogSec=15`.
-- O Plan 01 nao altera `/etc/systemd/system.conf` nem cria drop-in em `/etc/systemd/system.conf.d/`.
+**Contexto:** O systemd watchdog funciona via `/dev/watchdog`. Em notebooks Intel, o módulo `iTCO_wdt`
+expõe esse dispositivo. Em AMD, `sp5100_tco`. Algumas BIOSes desabilitam o TCO watchdog por padrão.
+Se `/dev/watchdog` não existir, o systemd ignora `RuntimeWatchdogSec` silenciosamente — sem erro, sem proteção.
 
-**Pesquisa externa:**
-- A documentacao atual da Raspberry Pi descreve `kernel_watchdog_timeout` e diz que em Raspberry Pi OS Bookworm `RuntimeWatchdogSec` nao vem habilitado por padrao; tambem afirma que `kernel_watchdog_timeout` e preferivel a `dtparam=watchdog` porque define explicitamente o `open_timeout`.
-  Fonte: https://www.raspberrypi.com/documentation/computers/config_txt.html
+**Evidência:** `systemctl show -p RuntimeWatchdogUSec` retorna `0` se watchdog não estiver disponível.
 
-**Por que importa:** o plano pode passar no grep (`dtparam=watchdog=on`) e ainda assim nao entregar recuperacao confiavel em caso de travamento. Isso cria uma falsa sensacao de seguranca para operacao headless.
+**Mitigação no Plan 01:**
+- Script configura o drop-in `10-watchdog.conf` (necessário de qualquer forma)
+- Seção de verificação final checa `systemctl show -p RuntimeWatchdogUSec`
 
-**Alternativa realista:** configurar:
-- `/boot/firmware/config.txt`: preferir `kernel_watchdog_timeout=15`; manter `dtparam=watchdog=on` apenas como fallback se validado no Pi.
-- `/etc/systemd/system.conf.d/10-watchdog.conf`:
-  ```ini
-  [Manager]
-  RuntimeWatchdogSec=15
-  ShutdownWatchdogSec=2min
-  ```
-- verificar depois do reboot com `cat /proc/sys/kernel/watchdog`, `dmesg | grep -i watchdog`, `systemctl show -p RuntimeWatchdogUSec`, e reconexao via SSH.
+**Ação no Plan 02 se watchdog não disponível:**
+- Documentar no 12-SETUP-LOG.md
+- Aceitar como limitação de hardware (não bloqueia operação — o notebook vai reiniciar normalmente em caso de falha de energia; o watchdog protege apenas contra hangs de kernel)
+- Registrar na CONTEXT.md como decisão consciente
+
+**Status:** Parcialmente mitigado. Risco residual baixo para o caso de uso do SoundGrabber.
 
 ---
 
-### R-12-03 — Instalar Docker via `get.docker.com` e log2ram via `master.tar.gz` ainda e supply-chain fraco
+## Riscos altos — não bloqueadores
 
-**Severidade:** Alta
+### R-12-03 — HDD lento degrada performance de swap
 
-**Evidencia local:**
-- Plan 01 baixa `https://get.docker.com` para `/tmp/sg_docker-install.sh` e executa.
-- Plan 01 baixa `https://github.com/azlux/log2ram/archive/master.tar.gz` e executa `install.sh`.
-- O plano evita `curl | sh`, o que e bom, mas ainda executa codigo remoto como root sem pinagem de versao/hash.
+**Severidade:** Alta (performance, não disponibilidade)
 
-**Pesquisa externa:**
-- Docker Docs dizem que o convenience script existe, mas e recomendado apenas para ambientes de teste/desenvolvimento; a instalacao via repositorio apt e o caminho mais controlavel.
-  Fonte: https://docs.docker.com/engine/install/debian/
-- README do log2ram mostra instalacao manual via tarball e recomenda reboot antes de instalar outras coisas.
-  Fonte: https://github.com/azlux/log2ram
+**Contexto:** Com 4GB RAM e o stack completo (FastAPI + Celery + Redis + Essentia + FFmpeg + yt-dlp),
+picos podem forçar swap. HDD (5400rpm típico em notebook antigo) entrega ~80-120 MB/s sequencial vs
+~500MB/s de SSD. Swap em HDD é funcional mas visível em latência de resposta.
 
-**Por que importa:** Phase 12 vira script reprodutivel. "Baixar master atual e rodar como root" nao e totalmente reprodutivel.
+**Mitigação no Plan 01:**
+- `vm.swappiness=10` — kernel só vai usar swap como último recurso
+- Com swappiness baixo, o Redis e o Celery worker ficam na RAM em operação normal
 
-**Alternativa realista:**
-- Docker: usar repo apt oficial da Docker para Debian/Raspberry Pi OS, com keyring em `/etc/apt/keyrings`, e instalar `docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin`.
-- log2ram: preferir apt repo do azlux com keyring, ou pin de commit/tag + hash se usar tarball.
-- Se mantiver `get.docker.com`, usar `--dry-run` no log, salvar versao instalada e aceitar conscientemente o risco.
+**Status:** Aceitável para o volume esperado (uso pessoal/underground). Não bloqueia a fase.
 
 ---
 
-### R-12-04 — Memory cgroups estao incompletos para o que a Phase 13 precisa
+### R-12-04 — Idempotência do script se executado em sistema parcialmente configurado
 
-**Severidade:** Alta
+**Severidade:** Média
 
-**Evidencia local:**
-- Plan 01 adiciona apenas `cgroup_enable=memory cgroup_memory=1`.
-- P-ARM-08 recomenda tambem `swapaccount=1`.
-- STACK.md usa `cgroup_enable=cpuset cgroup_enable=memory cgroup_memory=1`.
-- O plano verifica o arquivo de boot, mas nao verifica `/proc/cmdline` apos reboot.
+**Contexto:** Se o script for interrompido no meio e re-executado, algumas seções podem falhar (ex:
+`mkswap` em arquivo que já tem swap header, `usermod` tentando adicionar usuário já no grupo).
 
-**Pesquisa externa:**
-- A documentacao Raspberry Pi confirma que `cmdline.txt` deve ficar em uma unica linha e que `/proc/cmdline` e a fonte do estado efetivo apos boot.
-  Fonte: https://www.raspberrypi.com/documentation/computers/configuration.html
-- Docker Docs tratam memoria e swap como controles separados: `--memory-swap` so tem efeito junto com `--memory`.
-  Fonte: https://docs.docker.com/engine/containers/resource_constraints/
+**Mitigação no Plan 01:**
+- Verificações `[ -f /swapfile ]` antes de criar swap
+- `[ -f /etc/apt/keyrings/docker.asc ]` antes de baixar GPG key
+- `[ -f /etc/apt/sources.list.d/docker.list ]` antes de criar repo
+- `set -e` aborta em caso de falha real
 
-**Por que importa:** se Docker ainda mostrar warning de memory/swap limits, a Phase 13 pode colocar `mem_limit` no compose e ele ser ignorado. Em um Pi 3B de 1GB, isso pode derrubar o host.
-
-**Alternativa realista:** adicionar:
-```text
-cgroup_enable=cpuset cgroup_enable=memory cgroup_memory=1 swapaccount=1
-```
-e depois do reboot validar:
-```bash
-cat /proc/cmdline
-docker info 2>&1 | grep -iE 'memory|swap|cgroup'
-```
+**Status:** Mitigado para os caminhos mais prováveis. Aceitável.
 
 ---
 
-## Riscos altos nao bloqueadores, mas devem virar ajustes
+### R-12-05 — Docker instalado via apt pode conflitar com docker.io do Ubuntu
 
-### R-12-05 — `usermod -aG docker pi` assume usuario `pi` e concede privilegio root equivalente
+**Severidade:** Média
 
-**Evidencia:** Docker Docs avisam que o grupo `docker` concede privilegios equivalentes a root.
-Fonte: https://docs.docker.com/engine/install/linux-postinstall
+**Contexto:** Ubuntu inclui `docker.io` nos repos oficiais. Se o Moisés tiver instalado `docker.io`
+antes (via `apt install docker.io`), o script pode instalar `docker-ce` por cima criando conflito.
 
-**Ajuste recomendado:** usar `${SUDO_USER}` quando existir, nao hardcode `pi`, e imprimir aviso claro:
-```bash
-TARGET_USER="${SUDO_USER:-}"
-```
-Se vazio, nao adicionar ninguem ao grupo. Para um host headless simples isso pode ser aceitavel, mas deve ser explicito.
+**Mitigação:**
+- `apt-get install -y docker-ce` remove pacotes conflitantes automaticamente via apt resolver
+- Se houver conflito, o script aborta com mensagem clara via `set -e`
 
----
+**Ação se ocorrer:** Moisés reporta o erro; solução é `apt-get remove -y docker.io docker-compose` antes de re-executar.
 
-### R-12-06 — Swap via `fallocate` pode nao ser suficiente como logica idempotente
-
-**Problemas:**
-- Se ja existir swap menor via `dphys-swapfile`, o plano cria mais swap sem decidir se isso e desejado.
-- `fallocate` pode falhar ou criar arquivo inadequado em alguns FS; `dd` fallback e prudente.
-- O criterio do Plan 02 espera prioridade `-2`, mas isso pode variar.
-
-**Ajuste recomendado:**
-- detectar swap ativo com `swapon --show --bytes`;
-- se `/swapfile` existe mas nao tem 2GB, abortar com instrucao em vez de sobrescrever;
-- usar `dd if=/dev/zero of=/swapfile bs=1M count=2048 status=progress` como fallback;
-- validar por tamanho aproximado, nao prioridade exata.
-
----
-
-### R-12-07 — SD card ainda fica exposto a writes pesados do Docker
-
-**Evidencia local:** P-ARM-06 alerta para Docker overlay, Redis e logs. Plan 12 instala log2ram, mas nao configura Docker log rotation nem move Docker data-root.
-
-**Ajuste recomendado:** nao precisa resolver tudo na Phase 12, mas criar item obrigatorio para Phase 13:
-- Docker logging driver `local` ou `json-file` com `max-size`/`max-file`;
-- Redis sem AOF;
-- `/tmp` dos containers em tmpfs;
-- considerar USB/SSD para `/var/lib/docker` se o Pi virar host permanente.
-
----
-
-### R-12-08 — Verificacao do watchdog com freeze test pode ser perigosa
-
-**Problema:** success criterion fala em freeze test ou config confirmada. Fazer freeze remoto sem smart plug/physical access pode tornar o Pi indisponivel.
-
-**Ajuste recomendado:** Plan 02 deve separar:
-- verificacao segura obrigatoria: config + `/proc` + systemd + reboot normal;
-- freeze test opcional somente com acesso fisico ou smart plug.
+**Status:** Aceitável. Pouco provável em fresh install de Ubuntu Server.
 
 ---
 
 ## Risco transversal para pesquisar antes da Phase 13
 
-### R-13-01 — `essentia` e analise de audio no ARM sao o maior risco tecnico do milestone
+### R-13-01 — Essentia em x86_64 no Docker
 
-**Severidade:** Critica para Phase 13/14
+**Severidade:** Média para Phase 13 (sem impacto na Phase 12)
 
-**Evidencia local:**
-- `requirements.txt` fixa `essentia==2.1b6.dev1389`.
-- `pipeline.py` importa `essentia.standard`, `librosa`, `numpy`, `scipy`.
-- `analyze_audio()` carrega o WAV varias vezes:
-  - `detect_tuning()` usa `librosa.load(..., sr=None)` e HPSS;
-  - `detect_bpm()` usa `essentia.MonoLoader(..., sampleRate=44100)`;
-  - `detect_key()` usa outro `essentia.MonoLoader(..., sampleRate=44100)`.
-- `start-all.sh` atual ainda usa Celery `--concurrency=3`; para Pi 3B isso e agressivo.
+**Contexto:** Ao contrário do ARM onde Essentia não tem wheel, no x86_64 `essentia==2.1b6.dev1389`
+está disponível no PyPI para Python 3.11 / manylinux. O risco é de compatibilidade de versão com
+o numpy/scipy do requirements.txt, não de ausência de wheel.
 
-**Por que importa:** mesmo que a Phase 12 seja perfeita, a aplicacao pode nao subir ou pode OOMar na Phase 13. Esse risco precisa de spike antes de desenhar o compose final.
+**Ação recomendada antes de escrever o Plan 13:**
+1. Confirmar que `pip install essentia==2.1b6.dev1389` funciona em `python:3.11-slim`
+2. Testar `python -c "import essentia.standard; print('OK')"` no container
+3. Validar que `RhythmExtractor2013` e `KeyExtractor` funcionam com um WAV real
 
-**Spike recomendado antes/entre Phase 12 e Phase 13:**
-1. Em Pi OS 64-bit, rodar container `python:3.11-slim-bookworm`.
-2. Instalar deps minimas: `numpy scipy soundfile librosa essentia yt-dlp`.
-3. Testar:
-   ```bash
-   python -c "import numpy, scipy, librosa, essentia.standard, yt_dlp; print('OK')"
-   ```
-4. Rodar `analyze_audio()` em 1 WAV real de ate 90s e medir tempo/RAM.
-5. Se `essentia` falhar em ARM, decidir alternativa antes de Compose:
-   - compilar essentia em imagem propria;
-   - trocar BPM/key para librosa puro com menor precisao;
-   - usar imagem conda/mamba;
-   - mover analise para outro host e manter Pi so como gateway.
+**Status:** Não bloqueia Phase 12. Pesquisa necessária antes de Phase 13.
 
 ---
 
-## Ajustes recomendados no Plan 12
+## Decisão final
 
-### Reescrever Plan 01 em duas etapas
+**Planos aprovados para execução.**
 
-1. **Preflight read-only**
-   - `uname -m`
-   - `/etc/os-release`
-   - `getconf LONG_BIT`
-   - boot paths existentes: `/boot/firmware/{cmdline.txt,config.txt}` ou `/boot/{cmdline.txt,config.txt}`
-   - espaco livre: `df -h /`
-   - memoria: `free -h`
-   - swap atual: `swapon --show`
-   - Tailscale/SSH nao instalar, mas confirmar reconexao no Plan 02
+Os riscos R-12-01 (lid close) e R-12-02 (watchdog) estão mitigados no Plan 01 com configuração
+explícita. R-12-03 (HDD swap) é aceito conscientemente para o volume de uso esperado.
 
-2. **Setup somente se preflight passar**
-   - Docker via apt repo oficial preferencialmente;
-   - swap 2GB com fallback;
-   - cgroups com `cpuset`, `memory`, `swapaccount`;
-   - watchdog com `kernel_watchdog_timeout` + systemd `RuntimeWatchdogSec`;
-   - log2ram com metodo pinado;
-   - verificacao final deixando claro o que so ativa apos reboot.
-
-### Atualizar Plan 02
-
-- Nao exigir prioridade `-2` no `swapon --show`.
-- Verificar `/proc/cmdline`, nao so arquivo em `/boot`.
-- Verificar `systemctl show -p RuntimeWatchdogUSec`.
-- Trocar "volta em <90s" para "volta em ate 180s" para Pi 3B + Tailscale.
-- Freeze test somente opcional e com acesso fisico/smart plug.
-- Incluir resultado de `docker info` completo o bastante para ver cgroup driver e warnings.
+A grande simplificação vs versão Pi: sem ARM, sem cmdline.txt, sem SD card, sem log2ram, sem
+verificação de 32-bit vs 64-bit. Ubuntu Server 24.04 x86_64 é um alvo muito mais previsível.
 
 ---
 
-## Decisao recomendada
-
-**Minha alternativa preferida:** manter Phase 12, mas revisar os planos antes de executar:
-
-1. `aarch64` vira gate bloqueante.
-2. Docker muda para apt repo oficial, ou o risco do convenience script fica explicitamente aceito.
-3. Watchdog muda para configuracao Bookworm atual: `kernel_watchdog_timeout` + systemd.
-4. Cgroups incluem `swapaccount=1` e validacao via `/proc/cmdline`.
-5. Criar spike curto para `essentia/librosa` em ARM antes de escrever Phase 13.
-
-Essa rota e mais lenta no primeiro dia, mas evita o pior cenario: configurar um Pi 32-bit, descobrir tarde que as deps cientificas nao fecham, e ter que reinstalar tudo quando a Phase 13 ja estiver parcialmente feita.
-
----
-
-## Fontes consultadas
-
-- Docker Engine Debian install docs: https://docs.docker.com/engine/install/debian/
-- Docker Linux post-install docs: https://docs.docker.com/engine/install/linux-postinstall
-- Docker resource constraints docs: https://docs.docker.com/engine/containers/resource_constraints/
-- Raspberry Pi kernel command line docs: https://www.raspberrypi.com/documentation/computers/configuration.html
-- Raspberry Pi config/watchdog docs: https://www.raspberrypi.com/documentation/computers/config_txt.html
-- log2ram README: https://github.com/azlux/log2ram
+*Última atualização: 2026-05-14 — migrado de Raspberry Pi 3B para notebook HP x86_64*
