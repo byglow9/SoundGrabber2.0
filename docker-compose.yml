@@ -1,0 +1,73 @@
+# SoundGrabber — docker-compose local deploy (Phase 13)
+# Referências: D-08..D-15 em 13-CONTEXT.md
+# 4 serviços: redis, bgutil, api, worker — todos com restart: unless-stopped (DEPLOY-05)
+# CRÍTICO: volume sg_tmp usa named volume com driver_opts type=tmpfs — único modo de
+# compartilhar tmpfs entre containers (Pitfall 1 RESEARCH.md). Não usar "tmpfs: /tmp"
+# em cada serviço; isso cria volumes isolados não compartilhados.
+
+networks:
+  soundgrabber_net:
+    driver: bridge
+
+volumes:
+  sg_tmp:
+    driver: local
+    # Named volume com driver=local+tmpfs é o ÚNICO modo de compartilhar tmpfs entre
+    # containers (Pitfall 1 RESEARCH.md). tmpfs: /tmp em cada serviço NÃO funciona.
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: "size=512m,mode=1777"
+
+services:
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    networks:
+      - soundgrabber_net
+    # Sem ports: — Redis apenas na rede interna (D-10, D-14)
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    mem_limit: 128m
+
+  bgutil:
+    image: jim60105/bgutil-pot
+    restart: unless-stopped
+    networks:
+      - soundgrabber_net
+    # Sem ports: — porta 4416 só acessível internamente via http://bgutil:4416 (D-09, D-10)
+    mem_limit: 128m
+
+  api:
+    image: soundgrabber:latest
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    networks:
+      - soundgrabber_net
+    volumes:
+      - sg_tmp:/tmp
+    depends_on:
+      redis:
+        condition: service_healthy
+    env_file: .env
+    mem_limit: 512m
+
+  worker:
+    image: soundgrabber:latest
+    restart: unless-stopped
+    command: ["celery", "-A", "api.tasks", "worker", "--loglevel=info", "--concurrency=1", "--max-tasks-per-child=10"]
+    networks:
+      - soundgrabber_net
+    volumes:
+      - sg_tmp:/tmp
+    depends_on:
+      redis:
+        condition: service_healthy
+    env_file: .env
+    mem_limit: 1g
+    # Sem ports: — worker não expõe nada ao host
