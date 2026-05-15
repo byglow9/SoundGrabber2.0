@@ -279,12 +279,12 @@ Plans:
   1. The notebook startup log (accessible via `docker compose logs api`) shows no CRITICAL cookie warning — `cookies.txt` is present in the `sg_cookies` volume at `/data/yt-dlp-cache/cookies.txt` and the startup health check passes
   2. Running `ssh user@100.x.x.x 'bash ~/soundgrabber/deploy.sh'` from the operator's machine completes without error, pulling the latest code and restarting the api and worker containers in the correct order — one command, no manual steps
   3. Three different YouTube beat URLs submitted to `POST /jobs` on the notebook each reach `status=done` with a downloadable WAV, a plausible BPM value, and a key in standard notation — no `LOGIN_REQUIRED` errors, no bot-detection blocks, no bgutil dependency
-**Plans:** 1/4 plans executed
+**Plans:** 3/4 plans executed
 Plans:
 **Wave 1**
 - [x] 14-01-PLAN.md — Wave 0 (TDD RED): criar tests/test_deploy_sh.py com 8 stubs RED cobrindo AUTH-04 (bind mount no compose + .env.example) e AUTH-05 (deploy.sh: set -e, chmod 750, git pull, docker compose up, sem eval)
-- [ ] 14-02-PLAN.md — Wave 1: adicionar bind mount /data/yt-dlp-cache:ro nos serviços api e worker (D-01) preservando sg_tmp:/tmp; atualizar .env.example para YTDLP_CACHE_DIR=/data/yt-dlp-cache (D-02) e BGUTIL_BASE_URL= vazio (D-09)
-- [ ] 14-03-PLAN.md — Wave 1: criar scripts/deploy.sh com set -e + chmod 750 + cd ~/soundgrabber + git pull + sudo docker compose up --build -d (D-04..D-07); sem eval, sem migração de cookies (D-06)
+- [x] 14-02-PLAN.md — Wave 1: adicionar bind mount /data/yt-dlp-cache:ro nos serviços api e worker (D-01) preservando sg_tmp:/tmp; atualizar .env.example para YTDLP_CACHE_DIR=/data/yt-dlp-cache (D-02) e BGUTIL_BASE_URL= vazio (D-09)
+- [x] 14-03-PLAN.md — Wave 1: criar scripts/deploy.sh com set -e + chmod 750 + cd ~/soundgrabber + git pull + sudo docker compose up --build -d (D-04..D-07); sem eval, sem migração de cookies (D-06)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 14-04-PLAN.md — Wave 2 (checkpoint humano): operador cria /data/yt-dlp-cache (chmod 700, chown $USER), copia cookies frescos via scp, executa deploy.sh via SSH, valida AUTH-04 (logs sem CRITICAL) e PIPE-08 (3 beats reais → status=done com WAV/BPM/key); Plano B (BGUTIL_BASE_URL=http://bgutil:4416) documentado se necessário
@@ -318,7 +318,7 @@ Plans:
 | 11. Som da Semana | 4/4 | Done | 2026-05-14 |
 | 12. Notebook Foundation | 0/2 | Planned | - |
 | 13. Docker Compose | 4/4 | Complete    | 2026-05-15 |
-| 14. Pipeline E2E on Notebook | 1/4 | In Progress|  |
+| 14. Pipeline E2E on Notebook | 3/4 | In Progress|  |
 | 15. Cloudflare Tunnel | 0/TBD | Not started | - |
 
 ---
