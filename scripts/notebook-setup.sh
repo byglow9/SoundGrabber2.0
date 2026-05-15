@@ -43,8 +43,10 @@ fi
 
 OS_VERSION=$(lsb_release -rs 2>/dev/null || echo "desconhecido")
 log_info "Ubuntu Server: $OS_VERSION"
-if [ "$OS_VERSION" != "24.04" ]; then
-    log_warn "Versão do OS é $OS_VERSION — este script foi desenvolvido para 24.04 LTS."
+# Script testado em 24.04 LTS e 26.04 LTS — avisa apenas para versões mais antigas.
+MAJOR=$(echo "$OS_VERSION" | cut -d. -f1)
+if [ "$MAJOR" -lt 24 ] 2>/dev/null; then
+    log_warn "Versão $OS_VERSION é mais antiga que 24.04 — algumas seções podem precisar de ajuste."
 fi
 
 DISK_FREE=$(df -h / | awk 'NR==2 {print $4}')
@@ -134,9 +136,23 @@ fi
 # Detectar arquitetura e codename.
 DOCKER_ARCH=$(dpkg --print-architecture)
 . /etc/os-release
-if [ "$VERSION_CODENAME" != "noble" ]; then
-    log_error "VERSION_CODENAME=$VERSION_CODENAME — este script exige Ubuntu 24.04 LTS (noble). Abortando."
+
+# Verificar que é Ubuntu LTS — script foi testado em 24.04 e 26.04.
+# Aborta apenas se não for Ubuntu (VERSION_ID presente em /etc/os-release).
+if [ -z "$VERSION_CODENAME" ]; then
+    log_error "VERSION_CODENAME não detectado — sistema pode não ser Ubuntu. Abortando."
     exit 1
+fi
+if [ "$ID" != "ubuntu" ]; then
+    log_error "Sistema não é Ubuntu (ID=$ID). Abortando."
+    exit 1
+fi
+log_info "Ubuntu detectado: $PRETTY_NAME (codename: $VERSION_CODENAME)"
+
+# Aviso se for versão muito antiga (< 24.04) — não aborta, mas alerta.
+MAJOR_VER=$(echo "$VERSION_ID" | cut -d. -f1)
+if [ "$MAJOR_VER" -lt 24 ]; then
+    log_warn "Ubuntu $VERSION_ID é mais antigo que 24.04 — cgroups v2 e Docker podem não se comportar como esperado."
 fi
 
 # Adicionar repositório Docker.

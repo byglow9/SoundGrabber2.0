@@ -31,9 +31,11 @@ Esta fase não toca em código da aplicação nem em Docker Compose — é exclu
 
 ### Hardware e SO
 
-- **D-01:** Usar Ubuntu Server 24.04 LTS — sem GUI, suporte até 2029, Docker nativo, cgroups v2 ativo
-  por padrão, lightweight (~400MB RAM idle). Adequado para hardware confirmado: i5-3210M (Ivy Bridge,
-  2c/4t), 4GB DDR3, HDD 700GB. RAM livre em idle (~3.6GB) é suficiente para api + worker + Redis.
+- **D-01:** Usar Ubuntu Server LTS (24.04 ou 26.04) — sem GUI, suporte longo, Docker nativo, cgroups v2
+  ativo por padrão, lightweight (~400MB RAM idle). Script suporta ambas as versões. Adequado para
+  hardware confirmado: i5-3210M (Ivy Bridge, 2c/4t), 4GB DDR3, HDD 700GB. RAM livre em idle
+  (~3.6GB) é suficiente para api + worker + Redis. Ubuntu 26.04 LTS foi lançado em abril 2026
+  e é a versão corrente — usar se 24.04 não estiver disponível na página de download.
 - **D-02:** Arquitetura é x86_64 (confirmada — i5-3210M é amd64). `uname -m` retornará `x86_64`.
 
 ### Prevenção de Sleep/Hibernate (crítico para notebook servidor)
