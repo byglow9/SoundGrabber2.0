@@ -35,8 +35,6 @@ from pathlib import Path
 from typing import Any
 
 import essentia.standard as es
-import librosa
-import numpy as np
 import yt_dlp
 
 
@@ -400,33 +398,42 @@ def validate_wav(wav_path: Path) -> float:
 
 # Stage 3a: Tuning detection (TUNING-01, TUNING-02)
 def detect_tuning(wav_path: Path) -> float | None:
-    """Detecta frequência de referência (concert pitch) do beat via HPSS + librosa.estimate_tuning.
+    """Detecta frequência de referência via Essentia SpectralPeaks + TuningFrequency.
 
-    Aplica Harmonic-Percussive Source Separation (HPSS) para isolar o componente harmônico.
-    Se a razão de energia harmônica for < 0.2 (beat puramente percussivo), retorna None —
-    o resultado seria ruído, não um concert pitch mensurável.
+    Substitui a implementação baseada em HPSS. O gate de beat percussivo é aproximado
+    por ausência de picos espectrais ou por baixa dominância do pico mais forte.
 
     Args:
         wav_path: Path para o arquivo WAV.
 
     Returns:
-        Frequência de afinação em Hz (float), ou None se o beat for essencialmente percussivo.
-        Exemplo: 440.0 para A=440 padrão, 432.0 para A=432, None para trap sem melodia.
+        Frequência em Hz (float) ou None.
     """
-    y, sr = librosa.load(str(wav_path), sr=None, mono=True)
-    # margin=2.0: HPSS mais restritivo — ruído branco (ratio ~0.05 < 0.2) → None corretamente;
-    # sinal harmônico puro (ratio ~1.0) → passa o gate sem degradação.
-    y_harmonic, _ = librosa.effects.hpss(y, margin=2.0)
+    audio = es.MonoLoader(filename=str(wav_path), sampleRate=44100)()
+    if len(audio) < 2048:
+        return None
 
-    total_energy = float(np.sum(y**2))
-    harm_energy = float(np.sum(y_harmonic**2))
-    ratio = harm_energy / (total_energy + 1e-10)  # 1e-10: evita divisão por zero em silêncio puro
+    windowed = es.Windowing(type="blackmanharris62")(audio[:2048])
+    spectrum = es.Spectrum()(windowed)
+    freqs, mags = es.SpectralPeaks(
+        sampleRate=44100,
+        maxPeaks=10000,
+        magnitudeThreshold=0.00001,
+        maxFrequency=5000,
+        minFrequency=20,
+        orderBy="frequency",
+    )(spectrum)
 
-    if ratio < 0.2:
-        return None  # beat puramente percussivo — tuning seria ruído
+    if len(freqs) == 0:
+        return None
 
-    raw_tuning = librosa.estimate_tuning(y=y_harmonic, sr=sr, resolution=0.01)
-    return float(librosa.tuning_to_A4(raw_tuning))
+    total_magnitude = sum(float(mag) for mag in mags)
+    strongest_peak = max(float(mag) for mag in mags)
+    if total_magnitude <= 0.0 or strongest_peak / total_magnitude < 0.15:
+        return None
+
+    tuning_hz, _ = es.TuningFrequency()(freqs, mags)
+    return float(tuning_hz)
 
 
 # Stage 3b: BPM detection (PREC-01)
@@ -478,7 +485,7 @@ def detect_key(wav_path: Path, tuning_hz: float | None) -> tuple[str, float]:
 
 
 # Camelot wheel — 24-entry static table (ANALYSIS-04, Pattern 6 in RESEARCH.md).
-# Enharmonic aliases included: librosa prefers sharps (#) but bemol (b) forms
+# Enharmonic aliases included: sharps (#) and bemol (b) forms
 # are mapped defensively (Assumption A1 in RESEARCH.md).
 # Source: neume.io/camelot-wheel [VERIFIED]
 _CAMELOT: dict[str, str] = {
@@ -520,7 +527,7 @@ def key_to_camelot(key: str) -> str:
     """Convert a key string (e.g. 'F# minor') to its Camelot wheel code (e.g. '11A').
 
     Uses the 24-entry static CAMELOT table. Returns '?' for unrecognised keys
-    (e.g. if a future librosa version returns an unexpected spelling).
+    (e.g. if a future detector returns an unexpected spelling).
 
     Args:
         key: Key string from detect_key(), e.g. 'F# minor', 'C major'.
@@ -537,7 +544,7 @@ def analyze_audio(wav_path: Path) -> dict[str, Any]:
 
     Pipeline order:
       1. validate_wav  — ffprobe sanity check + duration retrieval.
-      2. detect_tuning — librosa HPSS: concert pitch Hz ou None se percussivo.
+      2. detect_tuning — Essentia TuningFrequency: concert pitch Hz ou None se percussivo.
       3. detect_bpm    — Essentia RhythmExtractor2013(method='multifeature').
       4. detect_key    — Essentia KeyExtractor(profileType='edma', tuningFrequency=tuning_hz).
                          tuning_hz passado ANTES dos bins HPCP serem computados (PREC-03).
