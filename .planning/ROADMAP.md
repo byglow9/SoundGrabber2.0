@@ -227,7 +227,7 @@ Plans:
 
 - [ ] **Phase 12: Notebook Foundation** - Install Ubuntu Server 24.04 LTS, configure Docker, swap, systemd watchdog, and lid-close prevention on the HP notebook, and produce a reproducible setup script
 - [x] **Phase 13: Docker Compose** - Build a Docker image and a three-service Compose stack with shared tmpfs and correct memory limits (completed 2026-05-15)
-- [ ] **Phase 14: Pipeline E2E on Notebook** - Migrate cookies, wire the deploy script, and validate three complete beat downloads on the notebook via Tailscale
+- [x] **Phase 14: Pipeline E2E on Notebook** - Migrate cookies, wire the deploy script, and validate three complete beat downloads on the notebook via Tailscale (completed 2026-05-15)
 - [ ] **Phase 15: Cloudflare Tunnel** - Expose the notebook publicly via a Cloudflare Tunnel HTTPS URL and validate three end-to-end downloads through it
 
 ---
@@ -279,7 +279,7 @@ Plans:
   1. The notebook startup log (accessible via `docker compose logs api`) shows no CRITICAL cookie warning — `cookies.txt` is present in the `sg_cookies` volume at `/data/yt-dlp-cache/cookies.txt` and the startup health check passes
   2. Running `ssh user@100.x.x.x 'bash ~/soundgrabber/deploy.sh'` from the operator's machine completes without error, pulling the latest code and restarting the api and worker containers in the correct order — one command, no manual steps
   3. Three different YouTube beat URLs submitted to `POST /jobs` on the notebook each reach `status=done` with a downloadable WAV, a plausible BPM value, and a key in standard notation — no `LOGIN_REQUIRED` errors, no bot-detection blocks, no bgutil dependency
-**Plans:** 3/4 plans executed
+**Plans:** 4/4 plans complete
 Plans:
 **Wave 1**
 - [x] 14-01-PLAN.md — Wave 0 (TDD RED): criar tests/test_deploy_sh.py com 8 stubs RED cobrindo AUTH-04 (bind mount no compose + .env.example) e AUTH-05 (deploy.sh: set -e, chmod 750, git pull, docker compose up, sem eval)
@@ -287,7 +287,7 @@ Plans:
 - [x] 14-03-PLAN.md — Wave 1: criar scripts/deploy.sh com set -e + chmod 750 + cd ~/soundgrabber + git pull + sudo docker compose up --build -d (D-04..D-07); sem eval, sem migração de cookies (D-06)
 
 **Wave 2** *(blocked on Wave 1 completion)*
-- [ ] 14-04-PLAN.md — Wave 2 (checkpoint humano): operador cria /data/yt-dlp-cache (chmod 700, chown $USER), copia cookies frescos via scp, executa deploy.sh via SSH, valida AUTH-04 (logs sem CRITICAL) e PIPE-08 (3 beats reais → status=done com WAV/BPM/key); Plano B (BGUTIL_BASE_URL=http://bgutil:4416) documentado se necessário
+- [x] 14-04-PLAN.md — Wave 2 (checkpoint humano): operador cria /data/yt-dlp-cache (chmod 700, chown $USER), copia cookies frescos via scp, executa deploy.sh via SSH, valida AUTH-04 (logs sem CRITICAL) e PIPE-08 (3 beats reais → status=done com WAV/BPM/key); Plano B (BGUTIL_BASE_URL=http://bgutil:4416) documentado se necessário
 
 ### Phase 15: Cloudflare Tunnel
 **Goal**: The SoundGrabber application is publicly accessible via a stable HTTPS URL backed by a Cloudflare Tunnel running on the notebook, with no open router ports and no residential IP exposure
@@ -318,7 +318,7 @@ Plans:
 | 11. Som da Semana | 4/4 | Done | 2026-05-14 |
 | 12. Notebook Foundation | 0/2 | Planned | - |
 | 13. Docker Compose | 4/4 | Complete    | 2026-05-15 |
-| 14. Pipeline E2E on Notebook | 3/4 | In Progress|  |
+| 14. Pipeline E2E on Notebook | 4/4 | Complete    | 2026-05-15 |
 | 15. Cloudflare Tunnel | 0/TBD | Not started | - |
 
 ---

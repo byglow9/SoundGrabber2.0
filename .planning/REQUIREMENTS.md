@@ -108,12 +108,12 @@
 
 ### AUTH — Cookies e Deploy Remoto
 
-- [ ] **AUTH-04**: Operador copia `cookies.txt` do Railway Volume para o notebook via SSH/Tailscale e startup log confirma cookies presentes sem erro CRITICAL
-- [ ] **AUTH-05**: Existe `deploy.sh` que executa `git pull + docker compose up --build -d` no notebook com um comando via SSH/Tailscale
+- [x] **AUTH-04**: Operador copia `cookies.txt` do Railway Volume para o notebook via SSH/Tailscale e startup log confirma cookies presentes sem erro CRITICAL
+- [x] **AUTH-05**: Existe `deploy.sh` que executa `git pull + docker compose up --build -d` no notebook com um comando via SSH/Tailscale
 
 ### PIPE — Validação E2E no Notebook
 
-- [ ] **PIPE-08**: 3 URLs de beats enviadas ao `POST /jobs` no notebook resultam em `status=done` com WAV válido, BPM e tonalidade — sem bgutil, sem `LOGIN_REQUIRED`
+- [x] **PIPE-08**: 3 URLs de beats enviadas ao `POST /jobs` no notebook resultam em `status=done` com WAV válido, BPM e tonalidade — sem bgutil, sem `LOGIN_REQUIRED`
 
 ### TUNNEL — Exposição Pública via Cloudflare
 
@@ -206,9 +206,9 @@
 | DEPLOY-04 | Phase 13 | Complete |
 | DEPLOY-05 | Phase 13 | Complete |
 | DEPLOY-06 | Phase 13 | Complete |
-| AUTH-04 | Phase 14 | Pending |
-| AUTH-05 | Phase 14 | Pending |
-| PIPE-08 | Phase 14 | Pending |
+| AUTH-04 | Phase 14 | Complete |
+| AUTH-05 | Phase 14 | Complete |
+| PIPE-08 | Phase 14 | Complete |
 | TUNNEL-01 | Phase 15 | Pending |
 | TUNNEL-02 | Phase 15 | Pending |
 

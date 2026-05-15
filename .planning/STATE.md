@@ -1,16 +1,16 @@
 ---
 gsd_state_version: 1.0
 milestone: v1.3
-milestone_name: Raspberry Pi Hosting
-status: executing
-last_updated: "2026-05-15T19:11:55.588Z"
+milestone_name: Phases — HP Notebook Hosting
+status: ready_to_plan
+last_updated: "2026-05-15T20:11:48.317Z"
 last_activity: 2026-05-15 -- Phase 14 execution started
 progress:
-  total_phases: 4
-  completed_phases: 1
-  total_plans: 10
-  completed_plans: 5
-  percent: 50
+  total_phases: 16
+  completed_phases: 7
+  total_plans: 26
+  completed_plans: 25
+  percent: 44
 ---
 
 # State — SoundGrabber
@@ -31,10 +31,10 @@ progress:
 
 ## Current Position
 
-Phase: 14 (pipeline-e2e-on-notebook) — EXECUTING
-Plan: 1 of 4
-Status: Executing Phase 14
-Last activity: 2026-05-15 -- Phase 14 execution started
+Phase: 15
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-05-15
 
 ---
 
@@ -122,7 +122,7 @@ Last activity: 2026-05-15 -- Phase 14 execution started
 3. Read este arquivo para contexto e riscos conhecidos
 4. Próximo comando: `/gsd-plan-phase 8`
 
-**Last session:** 2026-05-15T18:51:39.821Z
+**Last session:** 2026-05-15T20:11:48.311Z
 
 ---
 
