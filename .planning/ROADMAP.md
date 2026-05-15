@@ -226,7 +226,7 @@ Plans:
 ## v1.3 Phases — HP Notebook Hosting
 
 - [ ] **Phase 12: Notebook Foundation** - Install Ubuntu Server 24.04 LTS, configure Docker, swap, systemd watchdog, and lid-close prevention on the HP notebook, and produce a reproducible setup script
-- [ ] **Phase 13: Docker Compose** - Build a Docker image and a three-service Compose stack with shared tmpfs and correct memory limits
+- [x] **Phase 13: Docker Compose** - Build a Docker image and a three-service Compose stack with shared tmpfs and correct memory limits (completed 2026-05-15)
 - [ ] **Phase 14: Pipeline E2E on Notebook** - Migrate cookies, wire the deploy script, and validate three complete beat downloads on the notebook via Tailscale
 - [ ] **Phase 15: Cloudflare Tunnel** - Expose the notebook publicly via a Cloudflare Tunnel HTTPS URL and validate three end-to-end downloads through it
 
@@ -259,17 +259,17 @@ Plans:
   1. `docker build -t soundgrabber:latest .` completes without error on the notebook and `docker run --rm soundgrabber:latest python -c "import essentia.standard, yt_dlp, fastapi, celery; print('OK')"` exits 0 — the image is functional
   2. `docker compose ps` shows all three services (api, worker, redis) in a running/healthy state with `restart: unless-stopped` policy — confirmed by deliberately stopping one service and observing automatic restart
   3. A WAV file written by the worker container to `/tmp` is immediately readable by the api container at the same path via the shared `sg_tmp` tmpfs volume — confirmed by `docker exec api ls /tmp/sg_*.wav` after a test write in the worker container
-**Plans:** 4 plans
+**Plans:** 4/4 plans complete
 Plans:
 **Wave 1**
-- [ ] 13-01-PLAN.md — Wave 0 (TDD RED): criar tests/test_pipeline_docker.py com 3 stubs RED (test_no_imageio_ffmpeg_import, test_no_librosa_import, test_detect_tuning_essentia) cobrindo DEPLOY-04 / D-02 / D-03
-- [ ] 13-02-PLAN.md — Wave 1: remover imageio-ffmpeg e librosa de requirements.txt; refatorar pipeline.py (shutil.which fail-fast para ffmpeg/ffprobe; reescrever detect_tuning com Essentia SpectralPeaks + TuningFrequency); 3 testes Wave 0 viram GREEN
+- [x] 13-01-PLAN.md — Wave 0 (TDD RED): criar tests/test_pipeline_docker.py com 3 stubs RED (test_no_imageio_ffmpeg_import, test_no_librosa_import, test_detect_tuning_essentia) cobrindo DEPLOY-04 / D-02 / D-03
+- [x] 13-02-PLAN.md — Wave 1: remover imageio-ffmpeg e librosa de requirements.txt; refatorar pipeline.py (shutil.which fail-fast para ffmpeg/ffprobe; reescrever detect_tuning com Essentia SpectralPeaks + TuningFrequency); 3 testes Wave 0 viram GREEN
 
 **Wave 2** *(blocked on Wave 1 completion)*
-- [ ] 13-03-PLAN.md — Wave 2: criar .dockerignore (.venv, .git, cookies, .planning excluídos) + Dockerfile (python:3.11-slim + ffmpeg + Node 20 via NodeSource + libsndfile1 + pip install --no-cache-dir + CMD uvicorn) + checkpoint humano Gate D-07 (`docker run soundgrabber:latest python -c "import essentia.standard, yt_dlp, fastapi, celery"`)
+- [x] 13-03-PLAN.md — Wave 2: criar .dockerignore (.venv, .git, cookies, .planning excluídos) + Dockerfile (python:3.11-slim + ffmpeg + Node 20 via NodeSource + libsndfile1 + pip install --no-cache-dir + CMD uvicorn) + checkpoint humano Gate D-07 (`docker run soundgrabber:latest python -c "import essentia.standard, yt_dlp, fastapi, celery"`)
 
 **Wave 3** *(blocked on Wave 2 completion)*
-- [ ] 13-04-PLAN.md — Wave 3: criar .env.example (REDIS_URL, DEV_MODE=true, BGUTIL_BASE_URL) + docker-compose.yml (4 serviços api/worker/redis/bgutil + named volume sg_tmp tmpfs compartilhado + soundgrabber_net bridge + restart: unless-stopped) + checkpoint humano gates DEPLOY-05 (4x unless-stopped) e DEPLOY-06 (worker touch /tmp, api lê)
+- [x] 13-04-PLAN.md — Wave 3: criar .env.example (REDIS_URL, DEV_MODE=true, BGUTIL_BASE_URL) + docker-compose.yml (4 serviços api/worker/redis/bgutil + named volume sg_tmp tmpfs compartilhado + soundgrabber_net bridge + restart: unless-stopped) + checkpoint humano gates DEPLOY-05 (4x unless-stopped) e DEPLOY-06 (worker touch /tmp, api lê)
 
 ### Phase 14: Pipeline E2E on Notebook
 **Goal**: The operator can trigger a full deployment to the notebook with one SSH command, cookies are in place so yt-dlp authenticates without errors, and three real beat URLs complete the download-convert-analyze pipeline on notebook hardware without bot-detection failures
@@ -309,7 +309,7 @@ Plans:
 | 10.1. OAuth2 + Railway Volume Auth Migration | 3/5 | In Progress | - |
 | 11. Som da Semana | 4/4 | Done | 2026-05-14 |
 | 12. Notebook Foundation | 0/2 | Planned | - |
-| 13. Docker Compose | 0/4 | Planned | - |
+| 13. Docker Compose | 4/4 | Complete   | 2026-05-15 |
 | 14. Pipeline E2E on Notebook | 0/TBD | Not started | - |
 | 15. Cloudflare Tunnel | 0/TBD | Not started | - |
 
