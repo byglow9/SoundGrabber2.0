@@ -309,7 +309,7 @@ Plans:
 | 10.1. OAuth2 + Railway Volume Auth Migration | 3/5 | In Progress | - |
 | 11. Som da Semana | 4/4 | Done | 2026-05-14 |
 | 12. Notebook Foundation | 0/2 | Planned | - |
-| 13. Docker Compose | 4/4 | Complete   | 2026-05-15 |
+| 13. Docker Compose | 4/4 | Complete    | 2026-05-15 |
 | 14. Pipeline E2E on Notebook | 0/TBD | Not started | - |
 | 15. Cloudflare Tunnel | 0/TBD | Not started | - |
 

@@ -102,9 +102,9 @@
 
 ### DEPLOY — Docker Compose
 
-- [ ] **DEPLOY-04**: Dockerfile usa imagem python:3.11-slim (x86_64) com system ffmpeg instalado via apt — sem imageio-ffmpeg, sem NUMBA_DISABLE_JIT
-- [ ] **DEPLOY-05**: `docker-compose.yml` define serviços api, worker (`--concurrency=1 --max-tasks-per-child=10`) e redis com `restart: unless-stopped`
-- [ ] **DEPLOY-06**: api e worker compartilham volume tmpfs montado em `/tmp` — WAV gerado pelo worker é acessível pelo api para `GET /files/{id}`
+- [x] **DEPLOY-04**: Dockerfile usa imagem python:3.11-slim (x86_64) com system ffmpeg instalado via apt — sem imageio-ffmpeg, sem NUMBA_DISABLE_JIT
+- [x] **DEPLOY-05**: `docker-compose.yml` define serviços api, worker (`--concurrency=1 --max-tasks-per-child=10`) e redis com `restart: unless-stopped`
+- [x] **DEPLOY-06**: api e worker compartilham volume tmpfs montado em `/tmp` — WAV gerado pelo worker é acessível pelo api para `GET /files/{id}`
 
 ### AUTH — Cookies e Deploy Remoto
 
@@ -203,9 +203,9 @@
 | SVR-02 | Phase 12 | Pending |
 | SVR-03 | Phase 12 | Pending |
 | SVR-04 | Phase 12 | Pending |
-| DEPLOY-04 | Phase 13 | Pending |
-| DEPLOY-05 | Phase 13 | Pending |
-| DEPLOY-06 | Phase 13 | Pending |
+| DEPLOY-04 | Phase 13 | Complete |
+| DEPLOY-05 | Phase 13 | Complete |
+| DEPLOY-06 | Phase 13 | Complete |
 | AUTH-04 | Phase 14 | Pending |
 | AUTH-05 | Phase 14 | Pending |
 | PIPE-08 | Phase 14 | Pending |
