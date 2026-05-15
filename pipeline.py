@@ -35,7 +35,6 @@ from pathlib import Path
 from typing import Any
 
 import essentia.standard as es
-import imageio_ffmpeg
 import librosa
 import numpy as np
 import yt_dlp
@@ -43,29 +42,21 @@ import yt_dlp
 
 logger = logging.getLogger(__name__)
 
-_FFMPEG_PATH = imageio_ffmpeg.get_ffmpeg_exe()
-_FFMPEG_DIR = str(Path(_FFMPEG_PATH).parent)  # directory — for subprocess calls in validate_wav
 _system_ffprobe = shutil.which("ffprobe")
 if _system_ffprobe is None:
-    logger.warning(
-        "System ffprobe not found via shutil.which(); falling back to imageio-ffmpeg "
-        "path: %s. Install ffmpeg system package for reliable ffprobe resolution.",
-        str(Path(_FFMPEG_PATH).parent / "ffprobe"),
+    raise RuntimeError(
+        "ffprobe not found in PATH. Install ffmpeg system package: apt-get install ffmpeg"
     )
-# D-01: system ffprobe first; if unavailable, fall back to imageio-ffmpeg dir/ffprobe path.
-# Note: when the system has no ffprobe and imageio-ffmpeg only ships the ffmpeg binary,
-# _FFPROBE_PATH may point to a non-existent file. validate_wav handles this by falling
-# back to the ffmpeg executable via the _YTDLP_FFMPEG_LOCATION path.
-_FFPROBE_PATH = _system_ffprobe or str(Path(_FFMPEG_PATH).parent / "ffprobe")
+_FFPROBE_PATH = _system_ffprobe
 
-# DEPLOY-01 fix: yt-dlp ffmpeg_location must point to the executable (not directory) when the
-# imageio-ffmpeg binary has a versioned name (e.g. ffmpeg-linux-x86_64-v7.0.2) rather than the
-# plain 'ffmpeg' name. When a directory is passed and neither 'ffmpeg' nor 'ffprobe' exist with
-# plain names, yt-dlp raises "ffprobe and ffmpeg not found". Passing the executable path lets
-# yt-dlp detect the binary and use ffmpeg as a ffprobe fallback via `ffmpeg -i`.
-# If the system has ffmpeg on PATH, prefer it (gives proper ffprobe too).
+# DEPLOY-04 fix: ffmpeg/ffprobe resolvidos via PATH do sistema (apt no Dockerfile).
+# Sem fallback — startup falha rápido se ffmpeg não estiver instalado (D-02).
 _system_ffmpeg = shutil.which("ffmpeg")
-_YTDLP_FFMPEG_LOCATION = _system_ffmpeg if _system_ffmpeg else _FFMPEG_PATH
+if _system_ffmpeg is None:
+    raise RuntimeError(
+        "ffmpeg not found in PATH. Install ffmpeg system package: apt-get install ffmpeg"
+    )
+_YTDLP_FFMPEG_LOCATION = _system_ffmpeg
 _NODE_PATH = shutil.which("node")
 
 
@@ -333,9 +324,8 @@ def validate_wav(wav_path: Path) -> float:
     if not wav_path.exists():
         raise ValueError(f"WAV file does not exist: {wav_path}")
 
-    # DEPLOY-01 fix: when system ffprobe is unavailable and imageio-ffmpeg ships only
-    # the ffmpeg binary (versioned name, no ffprobe), _FFPROBE_PATH may not exist on disk.
-    # Fall back to using ffmpeg with -i flag to extract duration from stderr.
+    # Defensive fallback for non-standard ffprobe paths; normal startup fail-fast guarantees
+    # _FFPROBE_PATH and _YTDLP_FFMPEG_LOCATION are system binaries.
     _use_ffmpeg_fallback = not Path(_FFPROBE_PATH).exists()
     if _use_ffmpeg_fallback:
         probe_exe = _YTDLP_FFMPEG_LOCATION
@@ -360,7 +350,7 @@ def validate_wav(wav_path: Path) -> float:
     except FileNotFoundError as e:
         raise ValueError(
             f"ffprobe/ffmpeg binary not found: {probe_exe}. "
-            "Install FFmpeg >= 6.0 or ensure imageio-ffmpeg is installed."
+            "Install FFmpeg system package."
         ) from e
     except subprocess.TimeoutExpired as e:
         raise ValueError(f"ffprobe timed out after 10s on {wav_path}") from e
