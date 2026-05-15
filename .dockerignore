@@ -1,0 +1,40 @@
+# Secrets - NEVER include in image
+cookies.txt
+*.cookies
+www.youtube.com_cookies*.txt
+.env
+.env.local
+
+# Python build artifacts
+.venv/
+venv/
+env/
+__pycache__/
+*.pyc
+*.pyo
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local tooling
+.git/
+.claude/
+.codex/
+.claire/
+.agents/
+.vscode/
+.idea/
+.DS_Store
+
+# Planning + logs
+.planning/
+scripts/12-SETUP-LOG.md
+
+# Build artifacts
+dump.rdb
+.data/
+*.png
+bordas/
+*.swp
