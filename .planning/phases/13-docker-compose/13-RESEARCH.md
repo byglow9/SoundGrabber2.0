@@ -662,22 +662,22 @@ ADMIN_SESSION_SECRET=change-me-in-production
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **detect_tuning: remover função ou reescrever com Essentia?**
    - O que sabemos: librosa DEVE ser removido (MEMORY.md + D-03); detect_tuning usa librosa extensivamente
-   - O que está indefinido: CONTEXT.md não especifica o que fazer com detect_tuning além de "remover librosa"
-   - Recomendação: reescrever com Essentia SpectralPeaks + TuningFrequency. A função tem valor (melhora precisão de detect_key). Se a reescrita for complexa demais para a wave, stub retornando `None` (440Hz fallback em detect_key é seguro).
+   - O que estava indefinido: CONTEXT.md não especificava o que fazer com detect_tuning além de "remover librosa"
+   - **RESOLVED (Plan 13-02/T3):** Reescrever com Essentia SpectralPeaks + TuningFrequency. A função tem valor (melhora precisão de detect_key). Implementação usa `es.MonoLoader → es.Windowing → es.Spectrum → es.SpectralPeaks → es.TuningFrequency`.
 
 2. **soundfile em requirements.txt: manter ou remover?**
    - O que sabemos: soundfile não é usado em pipeline.py ou api/; usado apenas em tests/ e scripts/
-   - O que está indefinido: CONTEXT.md só menciona remoção de librosa e imageio-ffmpeg; não menciona soundfile
-   - Recomendação: manter soundfile. É necessário para `tests/test_pipeline.py::test_detect_tuning_percussive` e `scripts/generate_sample_wav.py`. Remover quebraria testes existentes sem benefício para DEPLOY-04.
+   - O que estava indefinido: CONTEXT.md só menciona remoção de librosa e imageio-ffmpeg; não menciona soundfile
+   - **RESOLVED (Plan 13-02/T1):** Manter `soundfile==0.13.1`. É necessário para `tests/test_pipeline.py::test_detect_tuning_percussive` e `scripts/generate_sample_wav.py`. Remover quebraria testes existentes sem benefício para DEPLOY-04.
 
 3. **Onde ficam os cookies.txt no compose (Phase 13)?**
    - O que sabemos: AUTH-04 (Phase 14) define como cookies chegam ao notebook; Phase 13 não cobre isso
-   - O que está indefinido: se YTDLP_CACHE_DIR deve apontar para bind mount em Phase 13 ou deixar vazio
-   - Recomendação: deixar `YTDLP_CACHE_DIR` vazio em `.env.example` para Phase 13. Worker funcionará sem cookies (modo android player_client); Phase 14 configura o bind mount.
+   - O que estava indefinido: se YTDLP_CACHE_DIR deve apontar para bind mount em Phase 13 ou deixar vazio
+   - **RESOLVED (Plan 13-04/T1):** `YTDLP_CACHE_DIR=` vazio em `.env.example` para Phase 13. Worker funciona sem cookies (modo android player_client); Phase 14 configura o bind mount.
 
 ---
 

@@ -261,9 +261,14 @@ Plans:
   3. A WAV file written by the worker container to `/tmp` is immediately readable by the api container at the same path via the shared `sg_tmp` tmpfs volume — confirmed by `docker exec api ls /tmp/sg_*.wav` after a test write in the worker container
 **Plans:** 4 plans
 Plans:
+**Wave 1**
 - [ ] 13-01-PLAN.md — Wave 0 (TDD RED): criar tests/test_pipeline_docker.py com 3 stubs RED (test_no_imageio_ffmpeg_import, test_no_librosa_import, test_detect_tuning_essentia) cobrindo DEPLOY-04 / D-02 / D-03
 - [ ] 13-02-PLAN.md — Wave 1: remover imageio-ffmpeg e librosa de requirements.txt; refatorar pipeline.py (shutil.which fail-fast para ffmpeg/ffprobe; reescrever detect_tuning com Essentia SpectralPeaks + TuningFrequency); 3 testes Wave 0 viram GREEN
+
+**Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 13-03-PLAN.md — Wave 2: criar .dockerignore (.venv, .git, cookies, .planning excluídos) + Dockerfile (python:3.11-slim + ffmpeg + Node 20 via NodeSource + libsndfile1 + pip install --no-cache-dir + CMD uvicorn) + checkpoint humano Gate D-07 (`docker run soundgrabber:latest python -c "import essentia.standard, yt_dlp, fastapi, celery"`)
+
+**Wave 3** *(blocked on Wave 2 completion)*
 - [ ] 13-04-PLAN.md — Wave 3: criar .env.example (REDIS_URL, DEV_MODE=true, BGUTIL_BASE_URL) + docker-compose.yml (4 serviços api/worker/redis/bgutil + named volume sg_tmp tmpfs compartilhado + soundgrabber_net bridge + restart: unless-stopped) + checkpoint humano gates DEPLOY-05 (4x unless-stopped) e DEPLOY-06 (worker touch /tmp, api lê)
 
 ### Phase 14: Pipeline E2E on Notebook
