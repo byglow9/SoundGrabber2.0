@@ -30,6 +30,7 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 import uuid
 from pathlib import Path
 from typing import Any
@@ -78,6 +79,23 @@ TMP_PREFIX = "sg_"      # /tmp/sg_{12hex}.wav per D-08
 WAV_TMP_DIR = Path("/tmp")
 
 
+def _writable_cookies(cookies_file: Path) -> Path:
+    """Copy read-only cookies.txt to a writable /tmp path so yt-dlp can save back without OSError.
+
+    The bind mount /data/yt-dlp-cache is :ro (Phase 14 D-01). yt-dlp always calls
+    save_cookies() on __exit__, which fails with EROFS on a read-only mount. Copying to
+    /tmp gives yt-dlp a writable target; the original protected file is never touched.
+    Caller is responsible for unlinking the returned path after use.
+    """
+    tmp = tempfile.NamedTemporaryFile(
+        prefix="sg_cookies_", suffix=".txt", dir="/tmp", delete=False
+    )
+    shutil.copy2(cookies_file, tmp.name)
+    os.chmod(tmp.name, 0o600)
+    tmp.close()
+    return Path(tmp.name)
+
+
 # Stage 0: Duration check (CORE-05, D-10)
 def check_duration(url: str, cache_dir: str) -> dict[str, Any]:
     """Fetch yt-dlp metadata WITHOUT downloading; verify duration <= MAX_DURATION_SEC.
@@ -120,10 +138,12 @@ def check_duration(url: str, cache_dir: str) -> dict[str, Any]:
     _configure_youtube_js_runtime(ydl_opts)
     # Cookies do Railway Volume — se existirem, yt-dlp usa autenticado (web_creator+mweb)
     # Híbrido: cookiefile E getpot_bgutil_baseurl coexistem nos ydl_opts
+    tmp_cookies: Path | None = None
     if cache_dir:
         cookies_file = Path(cache_dir) / "cookies.txt"
         if cookies_file.exists():
-            ydl_opts["cookiefile"] = str(cookies_file)
+            tmp_cookies = _writable_cookies(cookies_file)
+            ydl_opts["cookiefile"] = str(tmp_cookies)
             logger.warning(
                 "AUTH: check_duration usando cookiefile path=%s bytes=%s",
                 cookies_file,
@@ -144,6 +164,9 @@ def check_duration(url: str, cache_dir: str) -> dict[str, Any]:
             e,
         )
         raise RuntimeError(f"yt-dlp metadata failed: {e}") from e
+    finally:
+        if tmp_cookies and tmp_cookies.exists():
+            tmp_cookies.unlink(missing_ok=True)
 
     if info is None:
         raise ValueError("yt-dlp returned no metadata for the URL")
@@ -203,10 +226,12 @@ def download_audio(url: str, cache_dir: str) -> Path:
 
     # Cookies do Railway Volume — se existirem, yt-dlp usa autenticado (web_creator+mweb)
     cookies_file_path: str | None = None
+    tmp_cookies_dl: Path | None = None
     if cache_dir:
         cookies_file = Path(cache_dir) / "cookies.txt"
         if cookies_file.exists():
-            cookies_file_path = str(cookies_file)
+            tmp_cookies_dl = _writable_cookies(cookies_file)
+            cookies_file_path = str(tmp_cookies_dl)
             logger.warning(
                 "AUTH: download_audio usando cookiefile path=%s bytes=%s",
                 cookies_file,
@@ -259,6 +284,8 @@ def download_audio(url: str, cache_dir: str) -> Path:
                     f.unlink()
                 except OSError:
                     pass
+        if tmp_cookies_dl and tmp_cookies_dl.exists():
+            tmp_cookies_dl.unlink(missing_ok=True)
 
     if not wav_path.exists():
         candidates = list(WAV_TMP_DIR.glob(f"{TMP_PREFIX}{wav_id}*.wav"))
