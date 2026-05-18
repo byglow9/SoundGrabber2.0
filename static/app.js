@@ -223,7 +223,6 @@ function showDone(data) {
   $('bpm-double-value').textContent = data.bpm_double ?? '';
   $('key-value').textContent = data.key ?? '';
   $('camelot-value').textContent = data.camelot ?? '';
-  $('tuning-value').textContent = data.tuning_hz != null ? 'A = ' + data.tuning_hz.toFixed(1) + ' Hz' : '—';
   $('size-value').textContent = formatSizeMB(estimateSizeMB(data.duration_sec ?? 0));
 
   const downloadHref = (data.download_url && data.download_url.startsWith('/files/'))

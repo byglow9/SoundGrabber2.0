@@ -504,7 +504,9 @@ def _octave_correct(bpm: float, estimates: list[float]) -> float:
         return sum(1 for e in estimates if abs(e - target) / max(target, 1e-6) < 0.04)
 
     best = max(candidates, key=_votes)
-    if best != bpm and _votes(best) >= _votes(bpm) * 2:
+    # Limiar 1.5x (era 2x) — benchmark de 9 músicas mostrou que half-tempo não ativava
+    # para tracks com feel lento onde os estimates votam no BPM lento mas o real é o dobro.
+    if best != bpm and _votes(best) >= _votes(bpm) * 1.5:
         return best
     return bpm
 
@@ -538,40 +540,45 @@ def detect_bpm(wav_path: Path) -> float:
 
 # Stage 3c: Key detection (PREC-02, PREC-03, PREC-05)
 def detect_key(wav_path: Path, tuning_hz: float | None) -> tuple[str, float]:
-    """Tonalidade via Essentia KeyExtractor com seleção de perfil por confiança.
+    """Tonalidade via votação entre 3 perfis do Essentia KeyExtractor.
 
-    Executa dois perfis na mesma carga de áudio e retorna o resultado com maior
-    strength (confiança):
-      - "temperley": mais preciso para música ocidental, pop, trap, R&B
+    Perfis utilizados:
+      - "temperley": preciso para música ocidental, pop, trap, R&B
       - "edma": melhor para música eletrônica dançante (Gómez 2006)
+      - "bgate": robusto para música cromática/não-diatônica (Bozkurt)
 
-    O áudio é carregado uma única vez; KeyExtractor é instanciado duas vezes com
-    o mesmo array — sem I/O extra.
+    Votação via código Camelot — aliases enarmônicos (G#/Ab) são tratados como
+    o mesmo voto. Se 2 ou mais perfis concordam, retorna o de maior strength
+    entre os que concordaram. Se todos discordam, retorna o de maior strength.
 
     CRÍTICO: tuning_hz deve ser passado APÓS detect_tuning() (PREC-03).
-    Os bins HPCP são computados na instanciação; tuningFrequency=440 sem correção
-    introduz erro sistemático em gravações com pitch shift.
-
-    Args:
-        wav_path: Path para o arquivo WAV.
-        tuning_hz: Frequência de referência em Hz ou None (usa 440.0).
-
-    Returns:
-        Tuple de (key_string, confidence) onde key_string é '<NOTA> <major|minor>'.
     """
     audio = es.MonoLoader(filename=str(wav_path), sampleRate=44100)()
     freq = tuning_hz if tuning_hz is not None else 440.0
 
-    best_key, best_scale, best_strength = "", "", 0.0
-    for profile in ("temperley", "edma"):
+    results: list[tuple[str, float]] = []
+    for profile in ("temperley", "edma", "bgate", "krumhansl"):
         key, scale, strength = es.KeyExtractor(
             profileType=profile,
             tuningFrequency=freq,
         )(audio)
-        if float(strength) > best_strength:
-            best_key, best_scale, best_strength = str(key), str(scale), float(strength)
+        results.append((f"{key} {scale}", float(strength)))
 
-    return f"{best_key} {best_scale}", best_strength
+    # Agrupa por posição Camelot para tratar aliases enarmônicos como mesmo voto.
+    # key_to_camelot está definido mais abaixo no módulo — ok chamar em runtime.
+    votes: dict[str, int] = {}
+    best_per_code: dict[str, tuple[str, float]] = {}
+    for key_str, strength in results:
+        code = key_to_camelot(key_str)
+        votes[code] = votes.get(code, 0) + 1
+        if code not in best_per_code or strength > best_per_code[code][1]:
+            best_per_code[code] = (key_str, strength)
+
+    winner = max(votes, key=lambda c: (votes[c], best_per_code[c][1]))
+    if votes[winner] >= 2:
+        return best_per_code[winner]
+
+    return max(results, key=lambda x: x[1])
 
 
 # Camelot wheel — 24-entry static table (ANALYSIS-04, Pattern 6 in RESEARCH.md).
@@ -663,19 +670,18 @@ def analyze_audio(wav_path: Path) -> dict[str, Any]:
     """
     wav_path = Path(wav_path)
     duration_sec = validate_wav(wav_path)
-    tuning_hz = detect_tuning(wav_path)           # Step 2: ANTES de detect_key (PREC-03)
-    bpm = detect_bpm(wav_path)                    # Step 3: Essentia
-    key, key_confidence = detect_key(wav_path, tuning_hz)  # Step 4: tuning_hz já calculado
+    bpm = detect_bpm(wav_path)
+    bpm_int = int(round(float(bpm)))
+    key, key_confidence = detect_key(wav_path, None)  # 440.0 fixo — compensação de tuning removida
     camelot = key_to_camelot(key)
 
     return {
-        "bpm":            round(float(bpm), 1),
-        "bpm_half":       round(float(bpm) / 2, 1),
-        "bpm_double":     round(float(bpm) * 2, 1),
+        "bpm":            bpm_int,
+        "bpm_half":       int(round(bpm_int / 2)),
+        "bpm_double":     bpm_int * 2,
         "key":            str(key),
         "camelot":        str(camelot),
         "key_confidence": float(key_confidence),
-        "tuning_hz":      tuning_hz,    # float ou None — JSON-serializable (TUNING-03)
         "duration_sec":   round(float(duration_sec), 1),
         "wav_path":       str(wav_path),
     }
