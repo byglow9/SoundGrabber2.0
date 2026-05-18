@@ -62,6 +62,25 @@ def test_app_js_served(api_client):
     )
 
 
+def test_open_graph_meta_tags_present():
+    """Home deve declarar preview social para WhatsApp/Open Graph."""
+    html_text = (PROJECT_ROOT / "static" / "index.html").read_text(encoding="utf-8")
+
+    assert 'property="og:title" content="SoundGrabber"' in html_text
+    assert 'property="og:image" content="https://soundgrabber.com.br/static/og-image.png"' in html_text
+    assert 'property="og:image:width" content="1200"' in html_text
+    assert 'property="og:image:height" content="630"' in html_text
+    assert 'name="twitter:card" content="summary_large_image"' in html_text
+
+
+def test_open_graph_image_served(api_client):
+    """Imagem de preview social usada por WhatsApp/Open Graph deve estar publica."""
+    response = api_client.get("/static/og-image.png")
+
+    assert response.status_code == 200
+    assert response.headers.get("content-type", "").startswith("image/png")
+
+
 def test_html_required_ids_present(api_client):
     """CORE-01: HTML de GET / contém todos os IDs obrigatórios do UI-SPEC."""
     response = api_client.get("/")
