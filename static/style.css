@@ -928,3 +928,22 @@ body.yonkou-login-page {
     padding-right: 0;
   }
 }
+
+/* Footer */
+#site-footer {
+  padding: 12px 8px 4px 8px;
+  text-align: center;
+  border-top: 1px solid #333;
+}
+
+#site-footer a {
+  font-family: 'Courier New', monospace;
+  font-size: 10px;
+  color: #804400;
+  text-decoration: none;
+}
+
+#site-footer a:hover {
+  color: #ff8800;
+  text-decoration: underline;
+}
