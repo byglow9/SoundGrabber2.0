@@ -611,6 +611,10 @@ async def _limit_body_size(request: Request, call_next):
 @app.middleware("http")
 async def _security_headers(request: Request, call_next):
     response = await call_next(request)
+    # Força revalidação via ETag em cada request — sem isso o browser usa heuristic
+    # caching baseado em Last-Modified e pode servir CSS/JS velhos por horas após deploy.
+    if request.url.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "no-cache, must-revalidate"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
