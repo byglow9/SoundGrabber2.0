@@ -43,6 +43,7 @@ services:
     mem_limit: 128m
 
   api:
+    build: .
     image: soundgrabber:latest
     restart: unless-stopped
     ports:
