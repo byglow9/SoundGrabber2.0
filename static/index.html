@@ -7,14 +7,18 @@
   <link rel="stylesheet" href="/static/style.css">
   <!-- Google tag (gtag.js) -->
   <script async src="https://www.googletagmanager.com/gtag/js?id=G-YZ11H44JCS"></script>
-  <script>
-    window.dataLayer = window.dataLayer || [];
-    function gtag(){dataLayer.push(arguments);}
-    gtag('js', new Date());
-    gtag('config', 'G-YZ11H44JCS');
-  </script>
+  <script src="/static/analytics.js"></script>
 </head>
 <body>
+
+<div id="top-nav">
+  <a href="#" data-page="home">INICIO</a>
+  <span>/</span>
+  <a href="#" data-page="sobre">SOBRE</a>
+  <span>/</span>
+  <a href="#" data-page="privacidade">PRIVACIDADE</a>
+</div>
+
 <div id="wrapper">
   <table id="app" width="700" align="center" cellpadding="0" cellspacing="0">
 
@@ -132,13 +136,6 @@
       </td>
     </tr>
 
-    <!-- Footer row -->
-    <tr>
-      <td id="site-footer">
-        <a href="/static/privacy.html">Política de Privacidade</a>
-      </td>
-    </tr>
-
   </table>
 </div>
 
@@ -151,14 +148,72 @@
     <div id="info-modal-body">
       <p>Esta ferramenta foi desenvolvida para uso legítimo por produtores, artistas e entusiastas de música. Não somos afiliados ao YouTube ou ao Google.</p>
       <p>Por exigência legal, não nos responsabilizamos pelo conteúdo baixado por meio desta plataforma. Todo o uso é de inteira responsabilidade do usuário. Registros de acesso são mantidos conforme exigido por lei.</p>
-      <p>Se você é titular de algum direito e tiver uma solicitação, pode nos contatar. Dito isso, aproveite a ferramenta.</p>
+      <p>Se você é titular de algum direito e tiver uma solicitação, pode nos contatar. O aviso completo está na página <a href="/sobre#aviso-legal">Sobre</a>.</p>
     </div>
     <div id="info-modal-footer">
       <button type="button" id="info-close-btn">FECHAR</button>
     </div>
   </div>
 
+  <!-- Painel sobre/privacidade — exibido no lugar do app sem trocar de página -->
+  <div id="page-content" hidden>
+    <table id="page-table" width="700" align="center" cellpadding="0" cellspacing="0">
+      <tr id="section-projeto" class="page-section">
+        <td class="about-section">
+          <h1>O que é o SoundGrabber</h1>
+          <p>O SoundGrabber é uma ferramenta gratuita para produtores, artistas e entusiastas de música que precisam transformar links públicos do YouTube em arquivos WAV para estudo, referência, análise de BPM, tonalidade e organização de ideias musicais.</p>
+          <p>O projeto existe para apoiar o fluxo criativo independente — beatmakers, produtores underground e pessoas que trabalham com música de forma prática. A proposta não é redistribuir obras de terceiros nem substituir plataformas oficiais.</p>
+          <h2>Som da Semana</h2>
+          <p>Toda semana o SoundGrabber destaca um beat ou faixa de um artista underground brasileiro. A ideia é simples: dar visibilidade a quem produz fora do mainstream, apresentar referências sonoras novas e manter viva a cena independente.</p>
+          <p>Se você é produtor e quer ter seu som destacado, entre em contato pelo canal abaixo.</p>
+          <h2>Uso esperado</h2>
+          <p>Use a ferramenta apenas com conteúdos que você tem direito de acessar, baixar, estudar ou transformar. Cada usuário é responsável por respeitar direitos autorais, termos das plataformas de origem e leis aplicáveis.</p>
+          <p>Criado por <a href="https://instagram.com/divineglowboy" target="_blank" rel="noopener">@divineglowboy</a>. Código aberto no <a href="https://github.com/byglow9/SoundGrabber" target="_blank" rel="noopener">GitHub</a>.</p>
+        </td>
+      </tr>
+      <tr id="section-aviso-legal" class="page-section">
+        <td class="about-section">
+          <h2>Aviso legal</h2>
+          <p>O SoundGrabber não é afiliado, patrocinado ou endossado pelo YouTube, Google ou qualquer plataforma de origem dos links enviados pelos usuários.</p>
+          <p>O uso da aplicação é de inteira responsabilidade do usuário. Não nos responsabilizamos pelo conteúdo baixado, pela finalidade do uso ou por violações de direitos de terceiros realizadas por quem utiliza a ferramenta.</p>
+          <p>Se você é titular de direitos e precisa enviar uma solicitação, entre em contato pelo canal informado nesta página.</p>
+        </td>
+      </tr>
+      <tr id="section-privacidade" class="page-section">
+        <td class="about-section">
+          <h1>Política de Privacidade</h1>
+
+          <h2>1. O que coletamos</h2>
+          <p>O SoundGrabber não coleta cadastro, login ou qualquer dado pessoal identificável. Não armazenamos nome, e-mail, CPF ou informações de pagamento.</p>
+          <p>Os únicos dados registrados são logs técnicos de acesso (endereço IP, horário, URL requisitada) mantidos por exigência legal e para fins de segurança operacional.</p>
+
+          <h2>2. Google Analytics</h2>
+          <p>Este site utiliza o Google Analytics 4 para medir o volume de acessos e entender como os visitantes utilizam a ferramenta. O Google Analytics coleta informações de forma anônima por meio de cookies, incluindo páginas visitadas, tempo de sessão e origem do tráfego. Nenhum dado pessoal identificável é enviado ao Google por meio dessa integração.</p>
+          <p>Para saber como o Google utiliza as informações de sites que usam seus serviços, acesse: <a href="https://www.google.com/policies/privacy/partners/" target="_blank" rel="noopener">www.google.com/policies/privacy/partners/</a></p>
+
+          <h2>3. Cookies</h2>
+          <p>O SoundGrabber não define cookies próprios. O Google Analytics pode definir cookies de sessão e de medição de audiência no seu navegador. Você pode desativar cookies nas configurações do seu navegador a qualquer momento.</p>
+
+          <h2>4. Dados de terceiros</h2>
+          <p>O SoundGrabber não somos afiliados ao YouTube nem ao Google. Links e conteúdo acessados por meio desta ferramenta são de responsabilidade do usuário. Consulte os Termos de Serviço do YouTube em <a href="https://www.youtube.com/t/terms" target="_blank" rel="noopener">youtube.com/t/terms</a>.</p>
+
+          <h2>5. Contato</h2>
+          <p>Dúvidas ou solicitações relacionadas a esta política podem ser enviadas para <a href="mailto:contato@soundgrabber.com.br">contato@soundgrabber.com.br</a>.</p>
+          <p style="font-size:10px;color:#804400;margin-top:20px">Última atualização: maio de 2026</p>
+        </td>
+      </tr>
+      <tr id="section-contato" class="page-section">
+        <td class="about-section">
+          <h2>Contato</h2>
+          <p>Dúvidas ou solicitações de privacidade: <a href="mailto:contato@soundgrabber.com.br">contato@soundgrabber.com.br</a></p>
+          <p style="font-size:10px;color:#804400">Última atualização: maio de 2026</p>
+        </td>
+      </tr>
+    </table>
+  </div>
+
   <script src="/static/app.js?v=8"></script>
+  <script src="/static/nav.js"></script>
 <pre id="ascii-side">                                                                        ######mm
                                                                           ::MM++::
                                                                           ..--##@@

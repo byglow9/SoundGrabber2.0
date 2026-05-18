@@ -226,12 +226,18 @@ def test_security_headers(api_client):
     assert r.headers.get("X-Content-Type-Options") == "nosniff", (
         f"X-Content-Type-Options errado: {r.headers.get('X-Content-Type-Options')!r}"
     )
-    assert r.headers.get("Referrer-Policy") == "no-referrer", (
+    assert r.headers.get("Referrer-Policy") == "strict-origin-when-cross-origin", (
         f"Referrer-Policy errado: {r.headers.get('Referrer-Policy')!r}"
     )
     csp = r.headers.get("Content-Security-Policy", "")
     assert "default-src" in csp, f"CSP nao contem 'default-src': {csp!r}"
     assert "frame-ancestors" in csp, f"CSP nao contem 'frame-ancestors': {csp!r}"
+    assert "https://www.googletagmanager.com" in csp, (
+        f"CSP deve permitir o script oficial do Google Analytics: {csp!r}"
+    )
+    assert "https://www.google-analytics.com" in csp, (
+        f"CSP deve permitir coleta do Google Analytics: {csp!r}"
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -23,6 +23,30 @@ def test_index_html_served(api_client):
     html_text = response.text
     assert 'id="url-input"' in html_text, "HTML deve conter id=\"url-input\""
     assert 'id="submit-btn"' in html_text, "HTML deve conter id=\"submit-btn\""
+    assert 'href="/sobre"' in html_text, "Home deve linkar para a pagina Sobre"
+
+
+def test_about_page_served_with_legal_and_privacy_sections(api_client):
+    """Pagina Sobre publica reune proposito, aviso legal e privacidade."""
+    response = api_client.get("/sobre")
+
+    assert response.status_code == 200
+    assert response.headers.get("content-type", "").startswith("text/html")
+    html_text = response.text
+    assert "O que é o SoundGrabber" in html_text
+    assert 'id="aviso-legal"' in html_text
+    assert 'id="privacidade"' in html_text
+    assert "Google Analytics 4" in html_text
+    assert "google.com/policies/privacy/partners" in html_text
+
+
+def test_privacy_legacy_page_still_served(api_client):
+    """URL antiga de privacidade continua acessivel para compatibilidade."""
+    response = api_client.get("/static/privacy.html")
+
+    assert response.status_code == 200
+    assert "Política de Privacidade" in response.text
+    assert "/sobre#privacidade" in response.text
 
 
 def test_app_js_served(api_client):

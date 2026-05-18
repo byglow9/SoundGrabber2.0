@@ -12,7 +12,7 @@ from datetime import date
 from hmac import compare_digest
 from contextlib import asynccontextmanager
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 import redis as redis_lib
 from celery.result import AsyncResult
@@ -70,14 +70,31 @@ class JobRequest(BaseModel):
     @field_validator("youtube_url")
     @classmethod
     def must_be_youtube(cls, v: str) -> str:
-        parsed = urlparse(v)
+        parsed = urlparse(v.strip())
         if parsed.scheme not in ("http", "https"):
             raise ValueError("URL must use http or https")
         if parsed.netloc not in YOUTUBE_HOSTS:
             raise ValueError(
                 f"URL must be a YouTube link (got: {parsed.netloc or '(empty)'})"
             )
-        return v
+
+        # Normaliza para https://www.youtube.com/watch?v=ID — descarta list=, si=,
+        # start_radio= e quaisquer outros parâmetros que causam rejeição no yt-dlp
+        # quando noplaylist=True está ativo.
+        if parsed.netloc == "youtu.be":
+            # youtu.be/VIDEO_ID[?qualquer_coisa]
+            video_id = parsed.path.lstrip("/").split("/")[0]
+        else:
+            # youtube.com/watch?v=VIDEO_ID[&list=...&outros]
+            video_id = parse_qs(parsed.query).get("v", [None])[0]
+
+        if not video_id or len(video_id) != 11:
+            raise ValueError(
+                "Não foi possível identificar o vídeo na URL. "
+                "Use o link direto do vídeo (ex: youtube.com/watch?v=ID)."
+            )
+
+        return f"https://www.youtube.com/watch?v={video_id}"
 
 
 class FeaturedArtist(BaseModel):
@@ -599,9 +616,10 @@ async def _security_headers(request: Request, call_next):
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
-        "script-src 'self'; "
+        "script-src 'self' https://www.googletagmanager.com; "
         "style-src 'self' 'unsafe-inline'; "
-        "img-src 'self' data:; "
+        "img-src 'self' data: https://www.google-analytics.com https://www.googletagmanager.com; "
+        "connect-src 'self' https://www.google-analytics.com https://analytics.google.com https://region1.google-analytics.com; "
         "frame-src https://www.youtube.com; "
         "frame-ancestors 'none';"
     )
@@ -856,6 +874,12 @@ STATIC_DIR = Path(__file__).parent.parent / "static"
 def serve_index():
     """Serve index.html — browser entry point for Phase 4 frontend."""
     return FileResponse(str(STATIC_DIR / "index.html"))
+
+
+@app.get("/sobre")
+def serve_about():
+    """Serve the public about, legal notice, and privacy page."""
+    return FileResponse(str(STATIC_DIR / "about.html"))
 
 
 # Mount after serve_index to avoid shadowing GET /.

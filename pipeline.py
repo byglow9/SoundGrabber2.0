@@ -35,6 +35,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import essentia.standard as es
 import yt_dlp
 
@@ -425,90 +426,152 @@ def validate_wav(wav_path: Path) -> float:
 
 # Stage 3a: Tuning detection (TUNING-01, TUNING-02)
 def detect_tuning(wav_path: Path) -> float | None:
-    """Detecta frequência de referência via Essentia SpectralPeaks + TuningFrequency.
+    """Detecta frequência de referência analisando frames dos primeiros 30s.
 
-    Substitui a implementação baseada em HPSS. O gate de beat percussivo é aproximado
-    por ausência de picos espectrais ou por baixa dominância do pico mais forte.
+    A versão anterior analisava apenas 2048 amostras (~46ms), completamente
+    insuficiente para representar o tuning da faixa. Esta versão agrega picos
+    espectrais de ~323 frames não-sobrepostos, cobrindo até 30s de áudio.
 
     Args:
         wav_path: Path para o arquivo WAV.
 
     Returns:
-        Frequência em Hz (float) ou None.
+        Frequência em Hz (float) ou None se áudio insuficiente.
     """
     audio = es.MonoLoader(filename=str(wav_path), sampleRate=44100)()
-    if len(audio) < 2048:
+    if len(audio) < 4096:
         return None
 
-    windowed = es.Windowing(type="blackmanharris62")(audio[:2048])
-    spectrum = es.Spectrum()(windowed)
-    freqs, mags = es.SpectralPeaks(
+    frame_size = 4096
+    hop_size   = 4096           # sem sobreposição — cobertura máxima sem custo extra
+    segment    = audio[: 44100 * 30]  # primeiros 30s representativos
+
+    windowing    = es.Windowing(type="blackmanharris62")
+    spectrum_algo = es.Spectrum()
+    peaks_algo   = es.SpectralPeaks(
         sampleRate=44100,
-        maxPeaks=10000,
+        maxPeaks=1000,
         magnitudeThreshold=0.00001,
         maxFrequency=5000,
         minFrequency=20,
         orderBy="frequency",
-    )(spectrum)
+    )
 
-    if len(freqs) == 0:
+    all_freqs: list[float] = []
+    all_mags: list[float]  = []
+
+    for frame in es.FrameGenerator(segment, frameSize=frame_size, hopSize=hop_size, startFromZero=True):
+        windowed_frame = windowing(frame)
+        spectrum       = spectrum_algo(windowed_frame)
+        freqs, mags    = peaks_algo(spectrum)
+        if len(freqs) > 0:
+            all_freqs.extend(freqs.tolist())
+            all_mags.extend(mags.tolist())
+
+    if not all_freqs:
         return None
 
-    total_magnitude = sum(float(mag) for mag in mags)
-    strongest_peak = max(float(mag) for mag in mags)
-    if total_magnitude <= 0.0 or strongest_peak / total_magnitude < 0.15:
+    freqs_arr = np.array(all_freqs, dtype="float32")
+    mags_arr  = np.array(all_mags,  dtype="float32")
+
+    if float(mags_arr.sum()) <= 0.0:
         return None
 
-    tuning_hz, _ = es.TuningFrequency()(freqs, mags)
+    tuning_hz, _ = es.TuningFrequency()(freqs_arr, mags_arr)
     return float(tuning_hz)
+
+
+def _octave_correct(bpm: float, estimates: list[float]) -> float:
+    """Corrige erros de half/double tempo usando votação dos estimates por-segmento.
+
+    RhythmExtractor2013 retorna uma lista de BPMs estimados por janela de análise.
+    Se a maioria dos segmentos "vota" em bpm*2 ou bpm/2, o candidato com mais votos
+    vence — desde que tenha pelo menos 2x mais votos que o resultado original.
+
+    Tolerância de ±4% para considerar dois valores como "o mesmo BPM".
+    Faixa aceita: 40–220 BPM (cobre hip-hop lento a hardstyle).
+    """
+    candidates: set[float] = {bpm}
+    if 40.0 <= bpm * 2 <= 220.0:
+        candidates.add(bpm * 2)
+    if 40.0 <= bpm / 2 <= 220.0:
+        candidates.add(bpm / 2)
+
+    if len(candidates) == 1:
+        return bpm
+
+    def _votes(target: float) -> int:
+        return sum(1 for e in estimates if abs(e - target) / max(target, 1e-6) < 0.04)
+
+    best = max(candidates, key=_votes)
+    if best != bpm and _votes(best) >= _votes(bpm) * 2:
+        return best
+    return bpm
 
 
 # Stage 3b: BPM detection (PREC-01)
 def detect_bpm(wav_path: Path) -> float:
-    """BPM via Essentia RhythmExtractor2013 multifeature — mesmo algoritmo do Tunebat.
+    """BPM via Essentia RhythmExtractor2013 multifeature com correção de octave.
 
-    Resistente a erros de octave (half-tempo trap): o modo multifeature funde múltiplas
-    funções de onset e é built-in octave-resistant.
+    RhythmExtractor2013(method='multifeature') é o mesmo algoritmo base do Tunebat.
+    A novidade é o pós-processamento de octave: os `estimates` por-segmento são usados
+    como votação — se a maioria dos segmentos aponta para bpm/2 ou bpm*2, o candidato
+    majoritário vence (via _octave_correct). Requer ≥4 estimates para ativar.
 
-    CRÍTICO: sampleRate=44100 é obrigatório para RhythmExtractor2013. Valores incorretos
-    produzem BPM ~50% ou ~200% do real, sem Python exception.
+    CRÍTICO: sampleRate=44100 é obrigatório para RhythmExtractor2013.
 
     Args:
         wav_path: Path para o arquivo WAV.
 
     Returns:
-        BPM como Python float. Nunca numpy.float32 — float() defensivo aplicado.
+        BPM como Python float, corrigido de octave quando detectado.
     """
     audio = es.MonoLoader(filename=str(wav_path), sampleRate=44100)()
-    bpm, _, _, _, _ = es.RhythmExtractor2013(method="multifeature")(audio)
-    return float(bpm)  # float() defensivo: binding cp312 já retorna float, mas garante robustez futura
+    bpm, _, _, estimates, _ = es.RhythmExtractor2013(method="multifeature")(audio)
+    bpm = float(bpm)
+
+    if len(estimates) >= 4:
+        bpm = _octave_correct(bpm, [float(e) for e in estimates])
+
+    return bpm
 
 
 # Stage 3c: Key detection (PREC-02, PREC-03, PREC-05)
 def detect_key(wav_path: Path, tuning_hz: float | None) -> tuple[str, float]:
-    """Tonalidade via Essentia KeyExtractor(profileType='edma') com correção de tuning.
+    """Tonalidade via Essentia KeyExtractor com seleção de perfil por confiança.
 
-    CRÍTICO: tuning_hz deve ser passado APÓS detect_tuning() — não antes.
-    O parâmetro tuningFrequency é de instanciação: os bins HPCP são computados
-    uma única vez. Se tuning_hz for None (beat percussivo), usa 440.0 Hz como
-    fallback neutro — KeyExtractor ainda funciona, apenas sem correção de pitch.
+    Executa dois perfis na mesma carga de áudio e retorna o resultado com maior
+    strength (confiança):
+      - "temperley": mais preciso para música ocidental, pop, trap, R&B
+      - "edma": melhor para música eletrônica dançante (Gómez 2006)
+
+    O áudio é carregado uma única vez; KeyExtractor é instanciado duas vezes com
+    o mesmo array — sem I/O extra.
+
+    CRÍTICO: tuning_hz deve ser passado APÓS detect_tuning() (PREC-03).
+    Os bins HPCP são computados na instanciação; tuningFrequency=440 sem correção
+    introduz erro sistemático em gravações com pitch shift.
 
     Args:
         wav_path: Path para o arquivo WAV.
-        tuning_hz: Frequência de referência em Hz retornada por detect_tuning(),
-                   ou None para beat percussivo. Nunca passar None sem verificação.
+        tuning_hz: Frequência de referência em Hz ou None (usa 440.0).
 
     Returns:
-        Tuple de (key_string, confidence) onde key_string é '<NOTA> <major|minor>'
-        (ex: 'F# minor', 'A major') e confidence é float em [0.0, 1.0].
+        Tuple de (key_string, confidence) onde key_string é '<NOTA> <major|minor>'.
     """
     audio = es.MonoLoader(filename=str(wav_path), sampleRate=44100)()
     freq = tuning_hz if tuning_hz is not None else 440.0
-    key, scale, strength = es.KeyExtractor(
-        profileType="edma",
-        tuningFrequency=freq,
-    )(audio)
-    return str(f"{key} {scale}"), float(strength)
+
+    best_key, best_scale, best_strength = "", "", 0.0
+    for profile in ("temperley", "edma"):
+        key, scale, strength = es.KeyExtractor(
+            profileType=profile,
+            tuningFrequency=freq,
+        )(audio)
+        if float(strength) > best_strength:
+            best_key, best_scale, best_strength = str(key), str(scale), float(strength)
+
+    return f"{best_key} {best_scale}", best_strength
 
 
 # Camelot wheel — 24-entry static table (ANALYSIS-04, Pattern 6 in RESEARCH.md).
