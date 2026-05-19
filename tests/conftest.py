@@ -79,6 +79,8 @@ def api_client():
     counters do not leak across tests and cause 429s on the first request.
     """
     import redis as redis_lib
+    from slowapi import Limiter
+    from slowapi.util import get_remote_address
 
     from fastapi.testclient import TestClient
     from api.tasks import celery_app
@@ -103,6 +105,13 @@ def api_client():
     except Exception:
         pass  # Redis indisponível no host durante predeploy — sem estado residual a limpar
 
+    # Troca o limiter para memory storage — REDIS_URL pode apontar para hostname
+    # Docker-only (redis:6379) que não resolve no host durante predeploy.
+    # O middleware do slowapi usa request.app.state.limiter em cada request, então
+    # trocar aqui é suficiente; os @limiter.limit() decorators continuam funcionando.
+    _orig_limiter = app.state.limiter
+    app.state.limiter = Limiter(key_func=get_remote_address, storage_uri="memory://")
+
     celery_app.conf.task_always_eager = True
     celery_app.conf.task_eager_propagates = False  # exceptions stored, not propagated
     celery_app.conf.task_store_eager_result = True  # persist results to backend so AsyncResult works
@@ -113,5 +122,6 @@ def api_client():
     with patch("api.tasks.check_duration", side_effect=RuntimeError("mock: no network in unit tests")):
         yield client
 
+    app.state.limiter = _orig_limiter
     celery_app.conf.task_always_eager = False
     celery_app.conf.task_eager_propagates = False
