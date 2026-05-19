@@ -106,8 +106,12 @@ def api_client():
     # faz source .env antes do pytest, tornando os setdefault do topo do conftest ineficazes.
     _orig_admin_pw = _main.settings.admin_password
     _orig_admin_secret = _main.settings.admin_session_secret
+    _orig_dev_mode = _main.settings.dev_mode
     object.__setattr__(_main.settings, "admin_password", "correct horse")
     object.__setattr__(_main.settings, "admin_session_secret", "test-secret-for-signed-cookie")
+    # dev_mode=True força secure=False no cookie de sessão — TestClient usa HTTP
+    # e httpx não envia cookies secure em conexões HTTP, quebrando o fluxo de login.
+    object.__setattr__(_main.settings, "dev_mode", True)
 
     celery_app.conf.task_always_eager = True
     celery_app.conf.task_eager_propagates = False  # exceptions stored, not propagated
@@ -124,5 +128,6 @@ def api_client():
     _api_limiter._limiter.storage = _orig_storage
     object.__setattr__(_main.settings, "admin_password", _orig_admin_pw)
     object.__setattr__(_main.settings, "admin_session_secret", _orig_admin_secret)
+    object.__setattr__(_main.settings, "dev_mode", _orig_dev_mode)
     celery_app.conf.task_always_eager = False
     celery_app.conf.task_eager_propagates = False
