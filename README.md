@@ -25,7 +25,7 @@ Sem cadastro. Sem mensalidade. Sem enrolação.
 
 Para beatmakers, produtores e artistas underground que trabalham com música de forma prática.
 
-Você achou uma batida foda no YouTube. Quer saber o BPM exato antes de samplear, confirmar a tonalidade antes de encaixar no projeto, ter o WAV direto no computador pra abrir no DAW. O SoundGrabber faz tudo isso em menos de um minuto, sem precisar instalar nada.
+Você achou um som foda no YouTube. Quer saber o BPM exato antes de samplear, confirmar o tom antes de encaixar no projeto, ter o WAV direto no computador pra abrir na DAW sem precisar um monte de site horrivel cheio de anuncio travado que te redireciona pra 30 outras paginas. O SoundGrabber faz tudo isso em menos de um minuto, sem precisar instalar nada.
 
 ## Como funciona
 
@@ -42,7 +42,7 @@ Já tem o arquivo no computador? Clica em **ANALISAR** na tela inicial, arrasta 
 
 ## Som da Semana
 
-Toda semana o SoundGrabber destaca um beat ou faixa de um artista underground brasileiro. A lógica é simples: quem produz fora do mainstream merece palco também.
+Toda semana o SoundGrabber destaca uma faixa de um artista underground brasileiro. A lógica é simples: quem produz fora do mainstream merece palco também.
 
 Quer indicar seu projeto? → [soundgrabber.com.br/sobre#participar](https://soundgrabber.com.br/sobre#participar)
 
@@ -68,26 +68,7 @@ cp .env.example .env
 ./start.sh          # inicia Redis + Celery + Uvicorn com --reload
 ```
 
-Requer Redis, FFmpeg e Essentia instalados. Todas as variáveis de ambiente estão documentadas em `.env.example` e em `CLAUDE.md`.
-
-## Testes
-
-```bash
-pytest                         # unitários (~5s, sem rede)
-pytest -m integration          # integração (requer FFmpeg)
-pytest tests/test_security.py  # gate de segurança — deve estar verde antes de qualquer merge
-```
-
-## Deploy
-
-```bash
-bash scripts/predeploy-check.sh   # auditoria de dependências + segurança
-bash scripts/deploy.sh            # build + docker compose up
-```
-
-Documentação de deploy seguro em [`docs/DEPLOY-SECURE.md`](docs/DEPLOY-SECURE.md).
-
----
+Requer Redis, FFmpeg e Essentia instalados. Todas as variáveis de ambiente estão documentadas em `.env.example`
 
 <div align="center">
 
