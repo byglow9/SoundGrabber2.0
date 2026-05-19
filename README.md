@@ -59,7 +59,6 @@ Quer indicar seu projeto? → [soundgrabber.com.br/sobre#participar](https://sou
 | Análise | Essentia — RhythmExtractor2013 + KeyExtractor |
 | Frontend | Vanilla HTML / CSS / JS — zero frameworks |
 
-A estética do frontend segue os anos 2000 autênticos: layout em `<table>`, fontes bitmap, hex colors brutas, sem CSS variables, sem flexbox/grid.
 
 ## Rodando localmente
 
