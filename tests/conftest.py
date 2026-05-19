@@ -101,6 +101,14 @@ def api_client():
     _api_limiter._storage = _mem
     _api_limiter._limiter.storage = _mem
 
+    # settings é frozen dataclass: usa object.__setattr__ para forçar valores de teste.
+    # ADMIN_PASSWORD/ADMIN_SESSION_SECRET podem vir do .env de produção quando predeploy
+    # faz source .env antes do pytest, tornando os setdefault do topo do conftest ineficazes.
+    _orig_admin_pw = _main.settings.admin_password
+    _orig_admin_secret = _main.settings.admin_session_secret
+    object.__setattr__(_main.settings, "admin_password", "correct horse")
+    object.__setattr__(_main.settings, "admin_session_secret", "test-secret-for-signed-cookie")
+
     celery_app.conf.task_always_eager = True
     celery_app.conf.task_eager_propagates = False  # exceptions stored, not propagated
     celery_app.conf.task_store_eager_result = True  # persist results to backend so AsyncResult works
@@ -114,5 +122,7 @@ def api_client():
     _main._redis = _orig_redis
     _api_limiter._storage = _orig_storage
     _api_limiter._limiter.storage = _orig_storage
+    object.__setattr__(_main.settings, "admin_password", _orig_admin_pw)
+    object.__setattr__(_main.settings, "admin_session_secret", _orig_admin_secret)
     celery_app.conf.task_always_eager = False
     celery_app.conf.task_eager_propagates = False
