@@ -78,39 +78,28 @@ def api_client():
     Rate limit keys (LIMITS:LIMITER*) are flushed before each test so that slowapi
     counters do not leak across tests and cause 429s on the first request.
     """
-    import redis as redis_lib
-    from slowapi import Limiter
-    from slowapi.util import get_remote_address
+    import fakeredis
+    from limits.storage import MemoryStorage
 
     from fastapi.testclient import TestClient
     from api.tasks import celery_app
-    from api.main import app
+    import api.main as _main
+    from api.main import app, limiter as _api_limiter
 
-    # Flush rate-limit keys before each test to prevent cross-test contamination.
-    # WR-04: usa SCAN (não-bloqueante, O(1) por iteração) em vez de KEYS (O(N) bloqueante).
-    # Silencia erros de conexão — Redis pode estar indisponível no host (predeploy fora do Docker).
-    try:
-        _r = redis_lib.from_url(
-            os.environ.get("REDIS_URL", "redis://localhost:6380/0"),
-            decode_responses=True,
-            socket_connect_timeout=1,
-        )
-        cursor = 0
-        while True:
-            cursor, keys = _r.scan(cursor, match="LIMITS:LIMITER*", count=100)
-            if keys:
-                _r.delete(*keys)
-            if cursor == 0:
-                break
-    except Exception:
-        pass  # Redis indisponível no host durante predeploy — sem estado residual a limpar
+    # fakeredis: substitui _redis por Redis em memória — sem rede, sem Docker.
+    # Necessário porque alguns endpoints chamam _redis.set/get/llen diretamente,
+    # e REDIS_URL no servidor aponta para hostname Docker-only (redis:6379).
+    _fake = fakeredis.FakeRedis(decode_responses=True)
+    _orig_redis = _main._redis
+    _main._redis = _fake
 
-    # Troca o limiter para memory storage — REDIS_URL pode apontar para hostname
-    # Docker-only (redis:6379) que não resolve no host durante predeploy.
-    # O middleware do slowapi usa request.app.state.limiter em cada request, então
-    # trocar aqui é suficiente; os @limiter.limit() decorators continuam funcionando.
-    _orig_limiter = app.state.limiter
-    app.state.limiter = Limiter(key_func=get_remote_address, storage_uri="memory://")
+    # Os decorators @limiter.limit() capturam o objeto module-level `limiter` diretamente
+    # e chamam limiter._limiter.storage.incr(). Patchar o storage no objeto existente
+    # é necessário — trocar app.state.limiter não afeta os decorators.
+    _mem = MemoryStorage()
+    _orig_storage = _api_limiter._storage
+    _api_limiter._storage = _mem
+    _api_limiter._limiter.storage = _mem
 
     celery_app.conf.task_always_eager = True
     celery_app.conf.task_eager_propagates = False  # exceptions stored, not propagated
@@ -122,6 +111,8 @@ def api_client():
     with patch("api.tasks.check_duration", side_effect=RuntimeError("mock: no network in unit tests")):
         yield client
 
-    app.state.limiter = _orig_limiter
+    _main._redis = _orig_redis
+    _api_limiter._storage = _orig_storage
+    _api_limiter._limiter.storage = _orig_storage
     celery_app.conf.task_always_eager = False
     celery_app.conf.task_eager_propagates = False
