@@ -1,11 +1,37 @@
-# Secrets - NEVER commit
-cookies.txt
+# Secrets and local operational data - NEVER commit
 .env
+.env.*
+!.env.example
+cookies.txt
+*cookies*.txt
 *.cookies
+*.rdb
+dump.rdb
+*.aof
+appendonlydir/
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+*.sqlite
+*.sqlite3
+*.db
+*.sql
+*.bak
+*.backup
+*.log
+*token*
+*secret*
 
 # Pipeline temp output (D-08)
 /tmp/sg_*
 .data/
+
+# Local agent/tooling state
+.claude/
+.codex/
+.agents/
 
 # Python
 __pycache__/

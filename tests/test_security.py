@@ -25,6 +25,7 @@ Run: pytest tests/test_security.py -x -q
 from __future__ import annotations
 
 import os
+import re
 import stat
 from pathlib import Path
 from unittest.mock import patch
@@ -274,7 +275,7 @@ def test_queue_depth_limit(api_client):
     with patch.object(_redis, "llen", return_value=51):
         r = api_client.post(
             "/jobs",
-            json={"youtube_url": "https://www.youtube.com/watch?v=abc123"},
+            json={"youtube_url": "https://www.youtube.com/watch?v=abc123def45"},
         )
     assert r.status_code == 503, f"esperado 503, obtido {r.status_code}: {r.text}"
 
@@ -318,12 +319,12 @@ def test_redis_auth_bypass_dev_mode():
 def test_redis_auth_passes_with_password():
     """SEC-INFRA-01: _check_redis_auth aceita URLs com credenciais (presenca de '@').
 
-    Cobre o caminho positivo — formato Railway: redis://default:senha@host:6379
+    Cobre o caminho positivo — Redis com credenciais: redis://default:senha@host:6379
     """
     from api.main import _check_redis_auth
 
     # Nao deve levantar — URL tem credenciais
-    _check_redis_auth("redis://default:abc123@redis.railway.internal:6379", dev_mode=False)
+    _check_redis_auth("redis://default:abc123@localhost:6379", dev_mode=False)
 
 
 # ---------------------------------------------------------------------------
@@ -353,7 +354,8 @@ def test_hsts_header(api_client):
 
 def _featured_payload(links=None):
     return {
-        "artista": "DJ Subsolo",
+        "artistas": [{"nome": "DJ Subsolo", "url": ""}],
+        "produtores": [],
         "titulo": "Noite Laranja",
         "genero": "phonk",
         "descricao": "Beat underground escolhido para a semana.",
@@ -373,6 +375,15 @@ def _login_operator(api_client):
     assert any("sg_admin=" in cookie for cookie in cookie_headers), (
         f"cookie sg_admin ausente em Set-Cookie: {cookie_headers}"
     )
+    panel = api_client.get("/yonkou")
+    assert panel.status_code == 200, panel.text
+    match = re.search(r'data-csrf-token="([^"]+)"', panel.text)
+    assert match, "token CSRF ausente no painel autenticado"
+    return match.group(1)
+
+
+def _csrf_headers(token: str) -> dict[str, str]:
+    return {"X-CSRF-Token": token}
 
 
 def test_featured_get_rate_limit(api_client):
@@ -453,6 +464,33 @@ def test_yonkou_login_sets_secure_session_cookie(api_client):
     assert "correct horse" not in session_cookie
 
 
+def test_yonkou_mutation_requires_csrf_token(api_client):
+    """Yonkou usa cookie; mutacoes autenticadas exigem X-CSRF-Token do painel."""
+    _login_operator(api_client)
+
+    response = api_client.post("/yonkou/releases", json=_featured_payload())
+
+    assert response.status_code == 403, (
+        f"POST /yonkou/releases sem CSRF deveria ser 403, recebeu {response.status_code}: {response.text}"
+    )
+
+
+def test_yonkou_logout_clears_operator_cookie(api_client):
+    """Logout invalida o cookie de operador usando o mesmo token CSRF da sessao."""
+    csrf_token = _login_operator(api_client)
+
+    response = api_client.post(
+        "/yonkou/logout",
+        json={},
+        headers=_csrf_headers(csrf_token),
+    )
+
+    assert response.status_code == 200, response.text
+    cookie_headers = response.headers.get_list("set-cookie")
+    session_cookie = next((cookie for cookie in cookie_headers if "sg_admin=" in cookie), "")
+    assert "Max-Age=0" in session_cookie or "expires=" in session_cookie.lower()
+
+
 def test_post_featured_requires_operator_session(api_client):
     """D-01b/D-03/D-06: POST /featured exige cookie operador valido."""
     response = api_client.post("/yonkou/releases", json=_featured_payload())
@@ -464,44 +502,55 @@ def test_post_featured_requires_operator_session(api_client):
 
 def test_post_featured_validates_links(api_client):
     """D-03/D-06: ate tres links e URLs http/https obrigatorias."""
-    _login_operator(api_client)
+    csrf_token = _login_operator(api_client)
 
     too_many_links = [
         {"label": "Spotify", "url": "https://open.spotify.com/track/test"},
         {"label": "Instagram", "url": "https://instagram.com/djsubsolo"},
         {"label": "Bandcamp", "url": "https://djsubsolo.bandcamp.com"},
         {"label": "Site", "url": "https://example.com"},
+        {"label": "Outro", "url": "https://example.org"},
     ]
     response = api_client.post(
-        "/featured",
+        "/yonkou/releases",
         json=_featured_payload(links=too_many_links),
+        headers=_csrf_headers(csrf_token),
     )
     assert response.status_code == 422, (
-        f"POST /featured com mais de 3 links deveria ser 422, "
+        f"POST /yonkou/releases com links demais deveria ser 422, "
         f"recebeu {response.status_code}: {response.text}"
     )
 
     response = api_client.post(
-        "/featured",
+        "/yonkou/releases",
         json=_featured_payload(links=[{"label": "Arquivo", "url": "javascript:alert(1)"}]),
+        headers=_csrf_headers(csrf_token),
     )
     assert response.status_code == 422, (
-        f"POST /featured com URL nao-http deveria ser 422, recebeu {response.status_code}: {response.text}"
+        f"POST /yonkou/releases com URL nao-http deveria ser 422, recebeu {response.status_code}: {response.text}"
     )
 
 
 def test_post_featured_rate_limit(api_client):
     """D-06: POST /featured autenticado limita updates a 10/min."""
-    _login_operator(api_client)
+    csrf_token = _login_operator(api_client)
 
     for i in range(10):
-        response = api_client.post("/yonkou/releases", json=_featured_payload())
+        response = api_client.post(
+            "/yonkou/releases",
+            json=_featured_payload(),
+            headers=_csrf_headers(csrf_token),
+        )
         assert response.status_code in (200, 204), (
             f"update autenticado {i + 1}/10 deveria salvar, "
             f"recebeu {response.status_code}: {response.text}"
         )
 
-    response = api_client.post("/yonkou/releases", json=_featured_payload())
+    response = api_client.post(
+        "/yonkou/releases",
+        json=_featured_payload(),
+        headers=_csrf_headers(csrf_token),
+    )
     assert response.status_code == 429, (
         f"11o POST /featured deveria ser 429, recebeu {response.status_code}: {response.text}"
     )
@@ -589,13 +638,21 @@ def test_patch_featured_requires_operator_session(api_client):
 
 def test_patch_featured_rate_limit(api_client):
     """PATCH /featured autenticado limita edições a 10/min."""
-    _login_operator(api_client)
+    csrf_token = _login_operator(api_client)
     for i in range(10):
-        response = api_client.patch("/yonkou/releases/current", json=_correct_payload())
+        response = api_client.patch(
+            "/yonkou/releases/current",
+            json=_correct_payload(),
+            headers=_csrf_headers(csrf_token),
+        )
         assert response.status_code in (200, 204), (
             f"PATCH autenticado {i + 1}/10 deveria salvar, recebeu {response.status_code}: {response.text}"
         )
-    response = api_client.patch("/yonkou/releases/current", json=_correct_payload())
+    response = api_client.patch(
+        "/yonkou/releases/current",
+        json=_correct_payload(),
+        headers=_csrf_headers(csrf_token),
+    )
     assert response.status_code == 429, (
         f"11o PATCH /featured deveria ser 429, recebeu {response.status_code}: {response.text}"
     )
@@ -603,17 +660,25 @@ def test_patch_featured_rate_limit(api_client):
 
 def test_patch_featured_preserves_data_adicao(api_client):
     """PATCH /featured atualiza conteudo sem alterar a data original de publicacao."""
-    _login_operator(api_client)
+    csrf_token = _login_operator(api_client)
     from api.main import _redis
 
     original = _correct_payload()
-    create_response = api_client.post("/yonkou/releases", json=original)
+    create_response = api_client.post(
+        "/yonkou/releases",
+        json=original,
+        headers=_csrf_headers(csrf_token),
+    )
     assert create_response.status_code == 200, create_response.text
     original_date = create_response.json()["data_adicao"]
 
     edited = _correct_payload()
     edited["titulo"] = "Noite Laranja Editada"
-    patch_response = api_client.patch("/yonkou/releases/current", json=edited)
+    patch_response = api_client.patch(
+        "/yonkou/releases/current",
+        json=edited,
+        headers=_csrf_headers(csrf_token),
+    )
     assert patch_response.status_code == 200, patch_response.text
     body = patch_response.json()
     assert body["titulo"] == "Noite Laranja Editada"
@@ -660,7 +725,7 @@ def test_featured_redis_fallback(api_client, tmp_path, monkeypatch):
     fallback_path = tmp_path / "featured-fallback.json"
     monkeypatch.setenv("FEATURED_FALLBACK_PATH", str(fallback_path))
     payload = _featured_payload()
-    _login_operator(api_client)
+    csrf_token = _login_operator(api_client)
 
     with patch.object(
         _redis,
@@ -671,9 +736,13 @@ def test_featured_redis_fallback(api_client, tmp_path, monkeypatch):
         "get",
         side_effect=redis_lib.exceptions.TimeoutError("mock redis timeout"),
     ):
-        save_response = api_client.post("/featured", json=payload)
+        save_response = api_client.post(
+            "/yonkou/releases",
+            json=payload,
+            headers=_csrf_headers(csrf_token),
+        )
         assert save_response.status_code in (200, 204), (
-            f"POST /featured deveria salvar via fallback JSON, "
+            f"POST /yonkou/releases deveria salvar via fallback JSON, "
             f"recebeu {save_response.status_code}: {save_response.text}"
         )
 
@@ -683,6 +752,6 @@ def test_featured_redis_fallback(api_client, tmp_path, monkeypatch):
             f"recebeu {get_response.status_code}: {get_response.text}"
         )
         body = get_response.json()
-        assert body["artista"] == payload["artista"]
+        assert body["artistas"][0]["nome"] == payload["artistas"][0]["nome"]
         assert body["links"][0]["url"].startswith("https://")
         assert fallback_path.exists(), "FEATURED_FALLBACK_PATH deveria conter fallback JSON"

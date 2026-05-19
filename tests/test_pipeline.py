@@ -88,7 +88,11 @@ def test_download_opts_include_auth(monkeypatch, tmp_path):
         except (FileNotFoundError, RuntimeError):
             pass  # Expected: FakeYDL.download() creates a stub WAV but the path check may fail
 
-    assert captured_opts.get("cookiefile") == str(cookies), "cookiefile not wired to ydl_opts"
+    cookiefile = captured_opts.get("cookiefile")
+    assert cookiefile, "cookiefile not wired to ydl_opts"
+    assert cookiefile != str(cookies), "yt-dlp should receive a writable temp cookie copy"
+    assert str(cookiefile).startswith("/tmp/sg_cookies_")
+    assert cookies.exists(), "original cookies.txt should remain untouched"
     extractor_args = captured_opts.get("extractor_args", {})
     yt_args = extractor_args.get("youtube", {})
     assert isinstance(yt_args, dict), f"extractor_args.youtube must be dict, got {type(yt_args)}"

@@ -1,5 +1,5 @@
-# DEPLOY-01: Install system ffmpeg (includes ffprobe) on Railway.
-# nixpacks uses the Debian apt package manager on Railway.
+# DEPLOY-01: Install system ffmpeg (includes ffprobe) when using Nixpacks.
+# Local notebook deployment uses Ubuntu apt packages directly.
 # ffmpeg package installs both /usr/bin/ffmpeg and /usr/bin/ffprobe on PATH.
 # This allows pipeline.py to resolve ffprobe via shutil.which("ffprobe") — PIPE-01.
 # nodejs is required by yt-dlp 2026.x to solve YouTube signature/n challenges.

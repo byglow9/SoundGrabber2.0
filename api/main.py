@@ -5,19 +5,21 @@ import json
 import logging
 import os as _os
 import re
+import secrets
 import threading
 import time
 import uuid
 from html import escape
 from datetime import date
 from hmac import compare_digest
+from ipaddress import ip_address, ip_network
 from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 import redis as redis_lib
 from celery.result import AsyncResult
-from fastapi import FastAPI, File, HTTPException, Request, Response, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, Request, Response, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -45,23 +47,56 @@ _redis = redis_lib.from_url(settings.redis_url, decode_responses=True)
 # WR-03: JOB_REGISTRY_KEY (shared set) substituído por chaves individuais sg:job:{id}.
 # Padrão de chave: sg:job:{job_id} — valor "1", TTL = wav_ttl segundos.
 
+def _trusted_proxy_networks() -> list:
+    networks = []
+    for raw in settings.trusted_proxy_ips.split(","):
+        value = raw.strip()
+        if not value:
+            continue
+        try:
+            networks.append(ip_network(value, strict=False))
+        except ValueError:
+            logger.warning("Ignoring invalid TRUSTED_PROXY_IPS entry: %s", value)
+    return networks
+
+
+_TRUSTED_PROXY_NETWORKS = _trusted_proxy_networks()
+
+
+def _peer_is_trusted_proxy(peer_ip: str) -> bool:
+    if not _TRUSTED_PROXY_NETWORKS:
+        return False
+    try:
+        parsed = ip_address(peer_ip)
+    except ValueError:
+        return False
+    return any(parsed in network for network in _TRUSTED_PROXY_NETWORKS)
+
+
 # Rate limiting — D-01/D-02/D-03 (Phase 3)
 # Redis backend obrigatorio: in-memory falha com multiplos workers Uvicorn (issue #226)
-# CR-01: usa request.client.host (IP real da conexão TCP) em vez de get_ipaddr, que lê
-# X-Forwarded-For sem verificação — qualquer cliente poderia rotacionar esse header e
-# burlar o limite. client.host é setado pelo ASGI layer a partir da conexão TCP e não
-# pode ser forjado pelo cliente.
 def _real_ip(request: Request) -> str:
-    """Retorna o IP real do cliente via conexão TCP — não spoofável."""
+    """Return rate-limit identity.
+
+    Direct requests use the TCP peer. Behind a trusted Cloudflare Tunnel/proxy,
+    CF-Connecting-IP is accepted only when the peer address is explicitly trusted.
+    X-Forwarded-For is intentionally ignored because clients can spoof it.
+    """
     if request.client is None:
-        # Fallback seguro: retorna string fixa para não quebrar o rate limiter.
-        # Isso é raro (proxy mal configurado) mas não deve causar 500.
         return "unknown"
-    return request.client.host  # definido pelo ASGI layer, não pelo cliente
+    peer_ip = request.client.host
+    if _peer_is_trusted_proxy(peer_ip):
+        cf_ip = request.headers.get("cf-connecting-ip", "").strip()
+        try:
+            if cf_ip:
+                return str(ip_address(cf_ip))
+        except ValueError:
+            logger.warning("Ignoring invalid CF-Connecting-IP from trusted proxy")
+    return peer_ip
 
 
 limiter = Limiter(
-    key_func=_real_ip,               # IP da conexão TCP — não spoofável via header
+    key_func=_real_ip,
     storage_uri=settings.redis_url,  # Redis compartilhado entre todos os workers
     headers_enabled=True,            # Injeta Retry-After, X-RateLimit-* automaticamente
 )
@@ -245,12 +280,11 @@ def _run_sweeper_loop() -> None:
 def _check_redis_auth(redis_url: str, dev_mode: bool) -> None:
     """SEC-INFRA-01: Falha cedo se Redis sem senha em producao (D-06, D-07).
 
-    Em producao (Railway), o servico Railway Redis injeta REDIS_URL com formato
-    `redis://default:<senha>@redis.railway.internal:6379` (ver D-08), entao o
-    check `"@" in redis_url` confirma a presenca de credenciais.
+    Em producao no notebook, REDIS_URL deve apontar para um Redis local ou privado
+    com senha. O check `"@" in redis_url` confirma a presenca de credenciais.
 
     DEV_MODE=true bypassa a checagem para desenvolvimento local com Redis sem auth.
-    DEV_MODE NAO eh definido em producao Railway (D-14).
+    DEV_MODE NAO deve ser definido em producao.
 
     Args:
         redis_url: A URL completa do Redis (ex: redis://:senha@host:6379/0).
@@ -274,6 +308,27 @@ def _featured_fallback_path() -> Path:
     return Path(_os.environ.get("FEATURED_FALLBACK_PATH", settings.featured_fallback_path))
 
 
+def _write_json_private(path: Path, payload: dict | list) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    try:
+        _os.chmod(path.parent, 0o700)
+    except OSError:
+        logger.warning("Could not chmod featured fallback directory: %s", path.parent)
+    tmp_path = path.with_suffix(f"{path.suffix}.tmp")
+    data = json.dumps(payload, ensure_ascii=False)
+    fd = _os.open(tmp_path, _os.O_WRONLY | _os.O_CREAT | _os.O_TRUNC, 0o600)
+    try:
+        with _os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(data)
+            fh.flush()
+            _os.fsync(fh.fileno())
+        tmp_path.replace(path)
+        _os.chmod(path, 0o600)
+    except Exception:
+        tmp_path.unlink(missing_ok=True)
+        raise
+
+
 def _read_featured_fallback() -> dict | None:
     fallback_path = _featured_fallback_path()
     if not fallback_path.exists():
@@ -288,10 +343,7 @@ def _read_featured_fallback() -> dict | None:
 
 def _write_featured_fallback(payload: dict) -> None:
     fallback_path = _featured_fallback_path()
-    fallback_path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = fallback_path.with_suffix(f"{fallback_path.suffix}.tmp")
-    tmp_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
-    tmp_path.replace(fallback_path)
+    _write_json_private(fallback_path, payload)
 
 
 def _history_fallback_path() -> Path:
@@ -311,10 +363,7 @@ def _read_history_fallback() -> list[dict]:
 
 def _write_history_fallback(entries: list[dict]) -> None:
     path = _history_fallback_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(f"{path.suffix}.tmp")
-    tmp.write_text(json.dumps(entries, ensure_ascii=False), encoding="utf-8")
-    tmp.replace(path)
+    _write_json_private(path, entries)
 
 
 def _append_to_history(payload: dict) -> None:
@@ -373,11 +422,12 @@ def _admin_serializer() -> URLSafeTimedSerializer:
     return URLSafeTimedSerializer(secret_key=secret, salt="soundgrabber-admin")
 
 
-def _sign_admin_session() -> str:
-    return _admin_serializer().dumps({"admin": True})
+def _sign_admin_session() -> tuple[str, str]:
+    csrf_token = secrets.token_urlsafe(32)
+    return _admin_serializer().dumps({"admin": True, "csrf": csrf_token}), csrf_token
 
 
-def _require_admin(request: Request) -> None:
+def _require_admin(request: Request) -> dict:
     cookie = request.cookies.get(ADMIN_COOKIE_NAME)
     if not cookie:
         raise HTTPException(status_code=401, detail="Admin login required")
@@ -387,6 +437,24 @@ def _require_admin(request: Request) -> None:
         raise HTTPException(status_code=401, detail="Admin login required") from None
     if not isinstance(payload, dict) or payload.get("admin") is not True:
         raise HTTPException(status_code=401, detail="Admin login required")
+    return payload
+
+
+def _require_admin_csrf(request: Request) -> dict:
+    payload = _require_admin(request)
+    expected = str(payload.get("csrf", ""))
+    supplied = request.headers.get("x-csrf-token", "")
+    if not expected or not supplied or not compare_digest(supplied, expected):
+        raise HTTPException(status_code=403, detail="Invalid CSRF token")
+    return payload
+
+
+def _admin_required_dependency(request: Request) -> dict:
+    return _require_admin(request)
+
+
+def _admin_csrf_dependency(request: Request) -> dict:
+    return _require_admin_csrf(request)
 
 
 def _normalize_artistas(current: dict) -> list:
@@ -412,6 +480,14 @@ def _featured_document(request_body: FeaturedReleaseRequest) -> dict:
 _KNOWN_LINK_LABELS = ["Youtube", "Soundcloud", "Spotify", "Instagram"]
 
 
+def _safe_http_url(value: object) -> str:
+    raw = str(value or "").strip()
+    parsed = urlparse(raw)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        return ""
+    return raw
+
+
 def _link_label_html(link: dict, index: int) -> str:
     raw = str(link.get("label", ""))
     is_known = raw in _KNOWN_LINK_LABELS
@@ -429,7 +505,12 @@ def _link_label_html(link: dict, index: int) -> str:
     )
 
 
-def _operator_panel_html(authenticated: bool, featured: dict | None = None, history: list[dict] | None = None) -> str:
+def _operator_panel_html(
+    authenticated: bool,
+    featured: dict | None = None,
+    history: list[dict] | None = None,
+    session_payload: dict | None = None,
+) -> str:
     _css_v = int(_os.path.getmtime(_os.path.join(_os.path.dirname(__file__), "..", "static", "style.css")))
     if not authenticated:
         return f"""<!DOCTYPE html>
@@ -457,6 +538,7 @@ def _operator_panel_html(authenticated: bool, featured: dict | None = None, hist
 </html>"""
 
     current = featured or {}
+    csrf_token = escape(str((session_payload or {}).get("csrf", "")), quote=True)
     has_current = bool(current)
     links = current.get("links") if isinstance(current.get("links"), list) else []
     link_1 = links[0] if len(links) > 0 and isinstance(links[0], dict) else {}
@@ -474,16 +556,16 @@ def _operator_panel_html(authenticated: bool, featured: dict | None = None, hist
 
     def _person_html(p: dict) -> str:
         nome = escape(str(p.get("nome", "") or ""))
-        url = escape(str(p.get("url", "") or ""))
+        url = escape(_safe_http_url(p.get("url")), quote=True)
         return f'<a href="{url}" target="_blank" rel="noopener">{nome}</a>' if url else nome
 
     artistas_html = " &amp; ".join(_person_html(a) for a in artistas_data) if artistas_data else "-"
     produtores_html = " &amp; ".join(_person_html(p) for p in produtores_data) if produtores_data else ""
 
     links_html = "".join(
-        f'<a href="{escape(str(lk.get("url","") or ""))}" target="_blank" rel="noopener" class="dash-link">'
+        f'<a href="{escape(_safe_http_url(lk.get("url")), quote=True)}" target="_blank" rel="noopener" class="dash-link">'
         f'{escape(str(lk.get("label","") or lk.get("url","") or ""))}</a>'
-        for lk in links if isinstance(lk, dict) and lk.get("url")
+        for lk in links if isinstance(lk, dict) and _safe_http_url(lk.get("url"))
     )
 
     # Card esquerdo — som atual
@@ -524,10 +606,15 @@ def _operator_panel_html(authenticated: bool, featured: dict | None = None, hist
 <link rel="stylesheet" href="/static/style.css?v={_css_v}">
 </head>
 <body class="yonkou-page">
-<div id="yonkou-wrapper">
+<div id="yonkou-wrapper" data-csrf-token="{csrf_token}">
 <table id="yonkou-panel" width="700" align="center" cellpadding="0" cellspacing="0">
 <tr><td id="yonkou-header">
-<div id="site-tagline">painel operador / yonkou</div>
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="border:none">
+<tr>
+<td style="border:none;padding:0"><div id="site-tagline">painel operador / yonkou</div></td>
+<td align="right" style="border:none;padding:0"><button type="button" id="logout-btn" class="yonkou-secondary">sair</button></td>
+</tr>
+</table>
 </td></tr>
 <tr><td id="yonkou-card" style="border:none;padding-top:18px">
 <div id="yonkou-dashboard">
@@ -640,21 +727,21 @@ def _operator_panel_html(authenticated: bool, featured: dict | None = None, hist
 
 
 def _check_oauth_cache(cache_dir: str) -> None:
-    """AUTH: Valida cookies.txt no Railway Volume — substitui _check_cookies() (PIPE-05).
+    """AUTH: Valida cookies.txt no cache local — substitui _check_cookies() (PIPE-05).
 
     Non-blocking — logs CRITICAL e retorna. Nao levanta excecao. Nao bloqueia startup.
-    Mesmo padrao de PIPE-05: aviso visivel nos Railway logs antes do primeiro job.
+    Mesmo padrao de PIPE-05: aviso visivel nos logs antes do primeiro job.
     (Phase 10.1 D-08 — adaptacao de D-03 para cookies no Volume)
 
     Args:
-        cache_dir: Path do Railway Volume (YTDLP_CACHE_DIR). Cookies em cache_dir/cookies.txt.
-                   String vazia = Volume nao configurado.
+        cache_dir: Path do cache local (YTDLP_CACHE_DIR). Cookies em cache_dir/cookies.txt.
+                   String vazia = cache nao configurado.
     """
     if not cache_dir:
         logger.critical(
             "AUTH: YTDLP_CACHE_DIR nao configurado. Downloads podem falhar com bot detection. "
-            "Monte um Railway Volume em /data/yt-dlp-cache e configure YTDLP_CACHE_DIR. "
-            "Para popular o Volume: railway run -- cp /local/cookies.txt /data/yt-dlp-cache/cookies.txt"
+            "Crie um diretorio local protegido, configure YTDLP_CACHE_DIR "
+            "e copie cookies.txt para esse diretorio."
         )
         return
 
@@ -662,7 +749,7 @@ def _check_oauth_cache(cache_dir: str) -> None:
     if not cookies_file.exists():
         logger.critical(
             "AUTH: cookies.txt nao encontrado em %s. "
-            "Copie cookies validos do YouTube para o Railway Volume. "
+            "Copie cookies validos do YouTube para o cache local. "
             "Exports podem ser feitos via extensao 'Get cookies.txt LOCALLY' no browser.",
             cookies_file,
         )
@@ -700,7 +787,7 @@ async def lifespan(app: FastAPI):
     # SEC-INFRA-01: Redis auth enforcement (D-06, D-07).
     # _check_redis_auth levanta RuntimeError se sem senha e nao em DEV_MODE — startup falha cedo.
     _check_redis_auth(settings.redis_url, settings.dev_mode)
-    # AUTH: cookies validation no Railway Volume — non-blocking, log only (Phase 10.1 D-08).
+    # AUTH: cookies validation no cache local — non-blocking, log only (Phase 10.1 D-08).
     _check_oauth_cache(settings.cache_dir)
     sweeper = threading.Thread(
         target=_run_sweeper_loop,
@@ -726,7 +813,22 @@ app.state.limiter = limiter
 
 _MAX_BODY_BYTES = 4 * 1024  # 4 KB — far exceeds any valid YouTube URL POST body
 _ANALYZE_MAX_BYTES = 50 * 1024 * 1024  # 50 MB — legitimate audio file upload (WAV ~5min, MP3 ~45min)
+_ANALYZE_MULTIPART_OVERHEAD_BYTES = 1024 * 1024
 _ALLOWED_AUDIO_EXTENSIONS = frozenset({".wav", ".mp3", ".flac", ".m4a"})
+
+
+def _looks_like_allowed_audio(prefix: bytes, suffix: str) -> bool:
+    if suffix == ".wav":
+        return len(prefix) >= 12 and prefix[:4] == b"RIFF" and prefix[8:12] == b"WAVE"
+    if suffix == ".flac":
+        return prefix.startswith(b"fLaC")
+    if suffix == ".mp3":
+        return prefix.startswith(b"ID3") or (
+            len(prefix) >= 2 and prefix[0] == 0xFF and (prefix[1] & 0xE0) == 0xE0
+        )
+    if suffix == ".m4a":
+        return len(prefix) >= 12 and prefix[4:8] == b"ftyp"
+    return False
 
 
 @app.middleware("http")
@@ -769,7 +871,7 @@ async def _security_headers(request: Request, call_next):
         "frame-src https://www.youtube.com; "
         "frame-ancestors 'none';"
     )
-    # SEC-INFRA-04: HSTS — Railway entrega TLS, mas nao adiciona o header. (D-09)
+    # SEC-INFRA-04: HSTS — Cloudflare entrega TLS, mas o app tambem declara o header. (D-09)
     # Browsers ignoram este header em conexoes HTTP (RFC 6797), entao eh seguro em local.
     response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     return response
@@ -833,7 +935,7 @@ def submit_job(request: Request, request_body: JobRequest, response: Response) -
     # _redis.expire(JOB_REGISTRY_KEY, ...) resetava o TTL do set inteiro a cada
     # submit — jobs antigos podiam expirar prematuramente com alta carga, e jobs
     # em andamento ficavam sem registro se o set expirasse por inatividade.
-    _redis.set(f"sg:job:{task.id}", "1", ex=settings.wav_ttl)
+    _redis.set(f"sg:job:{task.id}", "1", ex=settings.job_ttl)
     return {"job_id": task.id}
 
 
@@ -854,7 +956,7 @@ def submit_analyze(
     cl_header = request.headers.get("content-length")
     if cl_header is not None:
         try:
-            if int(cl_header) > _ANALYZE_MAX_BYTES:
+            if int(cl_header) > _ANALYZE_MAX_BYTES + _ANALYZE_MULTIPART_OVERHEAD_BYTES:
                 return JSONResponse(
                     status_code=413,
                     content={"error": "Arquivo muito grande. Máximo 50 MB.", "error_type": "request_error"},
@@ -862,19 +964,36 @@ def submit_analyze(
         except ValueError:
             pass
 
-    content = file.file.read()
-    if len(content) > _ANALYZE_MAX_BYTES:
-        return JSONResponse(
-            status_code=413,
-            content={"error": "Arquivo muito grande. Máximo 50 MB.", "error_type": "request_error"},
-        )
-
     tmp_path = Path("/tmp") / f"sg_{uuid.uuid4().hex[:12]}_upload{suffix}"
-    tmp_path.write_bytes(content)
-    _os.chmod(tmp_path, 0o600)
-
-    task = analyze_local_file.delay(str(tmp_path))
-    _redis.set(f"sg:job:{task.id}", "1", ex=settings.wav_ttl)
+    total = 0
+    prefix = b""
+    fd = _os.open(tmp_path, _os.O_WRONLY | _os.O_CREAT | _os.O_EXCL, 0o600)
+    try:
+        with _os.fdopen(fd, "wb") as out:
+            while True:
+                chunk = file.file.read(1024 * 1024)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if len(prefix) < 16:
+                    prefix = (prefix + chunk)[:16]
+                if total > _ANALYZE_MAX_BYTES:
+                    raise HTTPException(status_code=413, detail="Arquivo muito grande. Máximo 50 MB.")
+                out.write(chunk)
+        if total == 0 or not _looks_like_allowed_audio(prefix, suffix):
+            raise HTTPException(status_code=422, detail="Formato inválido. Use WAV, MP3, FLAC ou M4A.")
+        task = analyze_local_file.delay(str(tmp_path))
+    except HTTPException as exc:
+        tmp_path.unlink(missing_ok=True)
+        error_type = "request_error" if exc.status_code == 413 else "validation_error"
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"error": str(exc.detail), "error_type": error_type},
+        )
+    except Exception:
+        tmp_path.unlink(missing_ok=True)
+        raise
+    _redis.set(f"sg:job:{task.id}", "1", ex=settings.job_ttl)
     return {"job_id": task.id}
 
 
@@ -1002,10 +1121,17 @@ def get_featured(request: Request, response: Response):
 @limiter.limit("60/minute")
 def yonkou_panel(request: Request, response: Response) -> HTMLResponse:
     try:
-        _require_admin(request)
+        session_payload = _require_admin(request)
     except HTTPException:
         return HTMLResponse(_operator_panel_html(authenticated=False))
-    return HTMLResponse(_operator_panel_html(authenticated=True, featured=_load_featured(), history=_get_history(limit=5)))
+    return HTMLResponse(
+        _operator_panel_html(
+            authenticated=True,
+            featured=_load_featured(),
+            history=_get_history(limit=5),
+            session_payload=session_payload,
+        )
+    )
 
 
 @app.post("/yonkou/login")
@@ -1023,27 +1149,40 @@ def yonkou_login(
     if not compare_digest(request_body.password, settings.admin_password):
         raise HTTPException(status_code=401, detail="Invalid operator credentials")
 
-    token = _sign_admin_session()
+    token, _csrf_token = _sign_admin_session()
     response = JSONResponse(status_code=200, content={"status": "ok"})
     response.set_cookie(
         ADMIN_COOKIE_NAME,
         token,
         httponly=True,
         secure=not settings.dev_mode,
-        samesite="lax",
+        samesite="strict",
         max_age=ADMIN_SESSION_MAX_AGE,
     )
     return response
 
 
-@app.post("/yonkou/releases")
+@app.post("/yonkou/logout")
+@limiter.limit("10/minute")
+def yonkou_logout(request: Request, response: Response) -> JSONResponse:
+    _require_admin_csrf(request)
+    response = JSONResponse(status_code=200, content={"status": "ok"})
+    response.delete_cookie(
+        ADMIN_COOKIE_NAME,
+        httponly=True,
+        secure=not settings.dev_mode,
+        samesite="strict",
+    )
+    return response
+
+
+@app.post("/yonkou/releases", dependencies=[Depends(_admin_csrf_dependency)])
 @limiter.limit("10/minute")
 def post_release(
     request: Request,
     request_body: FeaturedReleaseRequest,
     response: Response,
 ) -> dict:
-    _require_admin(request)
     current = _load_featured()
     if current:
         _append_to_history(current)
@@ -1052,14 +1191,13 @@ def post_release(
     return payload
 
 
-@app.patch("/yonkou/releases/current")
+@app.patch("/yonkou/releases/current", dependencies=[Depends(_admin_csrf_dependency)])
 @limiter.limit("10/minute")
 def patch_release(
     request: Request,
     request_body: FeaturedReleaseRequest,
     response: Response,
 ) -> dict:
-    _require_admin(request)
     current = _load_featured()
     existing_id = current.get("id") if current else None
     existing_data_adicao = current.get("data_adicao") if current else None
@@ -1072,10 +1210,9 @@ def patch_release(
     return payload
 
 
-@app.get("/yonkou/releases")
+@app.get("/yonkou/releases", dependencies=[Depends(_admin_required_dependency)])
 @limiter.limit("30/minute")
 def get_releases(request: Request, response: Response):
-    _require_admin(request)
     entries = _get_history()
     if not entries:
         return Response(status_code=204)

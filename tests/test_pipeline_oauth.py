@@ -43,6 +43,17 @@ def _make_fake_ydl(captured_opts: dict, info: dict):
     return FakeYDL
 
 
+def _assert_writable_cookie_copy(captured_opts: dict, original: Path) -> None:
+    cookiefile = captured_opts.get("cookiefile")
+    assert cookiefile, "cookiefile deveria estar presente nos ydl_opts"
+    assert cookiefile != str(original), (
+        "cookiefile deve ser copia temporaria gravavel, nao o cookies.txt original montado :ro"
+    )
+    assert Path(cookiefile).name.startswith("sg_cookies_")
+    assert str(cookiefile).startswith("/tmp/")
+    assert original.exists(), "cookies.txt original deve permanecer intacto"
+
+
 def test_check_duration_uses_cookiefile_from_cache_dir(tmp_path, monkeypatch):
     """AUTH-01/plan-06: check_duration deve usar cookiefile=cache_dir/cookies.txt quando existir.
 
@@ -58,10 +69,7 @@ def test_check_duration_uses_cookiefile_from_cache_dir(tmp_path, monkeypatch):
     with patch("pipeline.yt_dlp.YoutubeDL", FakeYDL):
         pipeline.check_duration("https://www.youtube.com/watch?v=test", str(tmp_path))
 
-    assert captured_opts.get("cookiefile") == str(cookies), (
-        f"AUTH-01: cookiefile deveria ser {cookies!s}, obtido {captured_opts.get('cookiefile')!r}. "
-        "check_duration deve usar cache_dir/cookies.txt como cookiefile."
-    )
+    _assert_writable_cookie_copy(captured_opts, cookies)
     assert "username" not in captured_opts, (
         "AUTH-01: username=oauth2 nao deve estar presente nos ydl_opts. "
         "OAuth2 foi removido do yt-dlp 2026.3.17."
@@ -87,9 +95,7 @@ def test_check_duration_hybrid_with_bgutil_and_cookies(tmp_path, monkeypatch):
     with patch("pipeline.yt_dlp.YoutubeDL", FakeYDL):
         pipeline.check_duration("https://www.youtube.com/watch?v=test", str(tmp_path))
 
-    assert captured_opts.get("cookiefile") == str(cookies), (
-        f"plan-06: cookiefile deveria ser {cookies!s} (Volume), obtido {captured_opts.get('cookiefile')!r}."
-    )
+    _assert_writable_cookie_copy(captured_opts, cookies)
     youtube_args = captured_opts.get("extractor_args", {}).get("youtube", {})
     assert youtube_args.get("getpot_bgutil_baseurl") == ["https://bgutil-test.example.com"], (
         f"plan-06: getpot_bgutil_baseurl deveria estar em extractor_args.youtube. "
@@ -184,10 +190,7 @@ def test_download_audio_uses_cookiefile_from_cache_dir(tmp_path, monkeypatch):
         except (FileNotFoundError, RuntimeError, OSError):
             pass  # FakeYDL cria WAV stub mas validate_wav pode falhar — irrelevante para este teste
 
-    assert captured_opts.get("cookiefile") == str(cookies), (
-        f"AUTH-01: cookiefile deveria ser {cookies!s}, obtido {captured_opts.get('cookiefile')!r}. "
-        "download_audio deve usar cache_dir/cookies.txt como cookiefile."
-    )
+    _assert_writable_cookie_copy(captured_opts, cookies)
     assert (
         "retries" in captured_opts and captured_opts["retries"] == 3
     ), (
@@ -222,9 +225,7 @@ def test_download_audio_hybrid_with_bgutil_and_cookies(tmp_path, monkeypatch):
         except (FileNotFoundError, RuntimeError, OSError):
             pass
 
-    assert captured_opts.get("cookiefile") == str(cookies), (
-        f"plan-06: cookiefile deveria ser {cookies!s} (Volume), obtido {captured_opts.get('cookiefile')!r}."
-    )
+    _assert_writable_cookie_copy(captured_opts, cookies)
     youtube_args = captured_opts.get("extractor_args", {}).get("youtube", {})
     assert youtube_args.get("getpot_bgutil_baseurl") == ["https://bgutil-test.example.com"], (
         f"plan-06: getpot_bgutil_baseurl deveria estar em extractor_args.youtube de download_audio. "

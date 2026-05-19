@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
-# start-all.sh — Railway single-container startup (Uvicorn + Celery Worker)
+# start-all.sh — single-host startup (Uvicorn + Celery Worker)
 #
 # Inicia Celery Worker em background e Uvicorn em foreground.
-# Railway monitora o processo foreground (Uvicorn, PID 1 após exec) para health checks.
-# SIGTERM do Railway chega diretamente ao Uvicorn via exec — graceful shutdown funciona.
+# Em produção residencial, rode atrás do proxy Cloudflare e de um supervisor local
+# (systemd, tmux ou shell persistente) que monitore o processo foreground.
 #
 # Por que exec: sem exec, o bash seria PID 1 e precisaria repassar sinais manualmente.
 # Com exec, uvicorn substitui o processo bash e recebe SIGTERM diretamente.
 #
-# Por que & (background) para Celery: Railway monitora apenas o processo foreground.
+# Por que & (background) para Celery: Uvicorn permanece como processo foreground.
 # Celery recebe SIGTERM do kernel quando o grupo de processos termina (task_acks_late=True
 # já configurado em api/tasks.py — Celery termina após completar o job atual).
 #
-# Substitui o padrão de dois containers separados (railway.toml + railway-worker.toml).
+# Substitui o padrão antigo de dois serviços separados.
 # Referência: D-01 de .planning/phases/10-failure-hardening-and-e2e-validation/10-CONTEXT.md
 set -e
 
@@ -24,7 +24,7 @@ print('present' if importlib.util.find_spec('yt_dlp_plugins') else 'missing')
 PY
 )"
 
-# Phase 10.1 D-06/D-07: bootstrap seguro dos cookies no Railway Volume.
+# Phase 10.1 D-06/D-07: bootstrap seguro dos cookies no cache local.
 # Usa YTDLP_CACHE_DIR como fonte unica para evitar divergencia entre env var e mount real.
 CACHE_DIR="${YTDLP_CACHE_DIR:-}"
 COOKIES_FILE=""

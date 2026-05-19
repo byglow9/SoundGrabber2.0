@@ -8,6 +8,18 @@ function yonkouMessage(text) {
   if (node) node.textContent = text;
 }
 
+function csrfToken() {
+  var wrapper = document.getElementById('yonkou-wrapper');
+  return wrapper && wrapper.dataset ? wrapper.dataset.csrfToken || '' : '';
+}
+
+function csrfHeaders() {
+  return {
+    'Content-Type': 'application/json',
+    'X-CSRF-Token': csrfToken()
+  };
+}
+
 function initialFeaturedList(key) {
   var form = document.getElementById('featured-editor');
   if (!form || !form.dataset || !form.dataset[key]) return [];
@@ -240,6 +252,22 @@ function wireVoltarButton() {
   btn.addEventListener('click', hideFormSection);
 }
 
+function wireLogoutButton() {
+  var btn = document.getElementById('logout-btn');
+  if (!btn) return;
+  btn.addEventListener('click', function() {
+    fetch('/yonkou/logout', {
+      method: 'POST',
+      headers: csrfHeaders(),
+      body: JSON.stringify({ logout: true })
+    }).then(function() {
+      window.location.href = '/yonkou';
+    }).catch(function() {
+      window.location.href = '/yonkou';
+    });
+  });
+}
+
 function wireEditButton() {
   var btn = document.getElementById('edit-btn');
   if (!btn) return;
@@ -321,7 +349,7 @@ function wireFeaturedEditor() {
         : '/yonkou/releases';
       fetch(endpoint, {
         method: _submitMethod,
-        headers: { 'Content-Type': 'application/json' },
+        headers: csrfHeaders(),
         body: JSON.stringify(payload)
       }).then(function(response) {
         if (response.ok) {
@@ -351,6 +379,7 @@ document.addEventListener('DOMContentLoaded', function() {
   wireEditButton();
   wireNewButton();
   wireVoltarButton();
+  wireLogoutButton();
   wireFeaturedEditor();
   wireSelectLabels();
 });

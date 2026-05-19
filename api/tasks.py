@@ -36,7 +36,7 @@ celery_app.conf.update(
     result_serializer="json",
     accept_content=["json"],
     task_track_started=True,
-    result_expires=settings.wav_ttl,                              # D-02: 15-min TTL on Redis backend
+    result_expires=settings.job_ttl,
     worker_prefetch_multiplier=1,                                  # CPU-bound; cap of 3 workers per STATE.md
     broker_transport_options={"visibility_timeout": 1800},         # 30 min > max video duration (Pitfall 2)
     task_acks_late=True,

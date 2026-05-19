@@ -9,9 +9,10 @@
 #
 # O que faz:
 #   1. git pull — atualiza o código (incluindo este script)
-#   2. docker compose up --build -d — reconstrói a imagem e reinicia os containers
-#   3. Aguarda o health check ficar verde
-#   4. Exibe status final dos containers
+#   2. scripts/predeploy-check.sh — bloqueia deploy inseguro
+#   3. docker compose up --build -d — reconstrói a imagem e reinicia os containers
+#   4. Aguarda o health check ficar verde
+#   5. Exibe status final dos containers
 #
 # Referências: D-04, D-05, D-06 (14-CONTEXT.md); Security Gate (CLAUDE.md)
 set -e
@@ -33,11 +34,15 @@ cd ~/soundgrabber
 log "Atualizando código..."
 git pull
 
-# 2. Rebuild e restart dos containers
+# 2. Gate de deploy seguro
+log "Rodando predeploy-check..."
+bash scripts/predeploy-check.sh
+
+# 3. Rebuild e restart dos containers
 log "Rebuilding imagem e reiniciando containers..."
 sudo docker compose up --build -d
 
-# 3. Aguardar health check
+# 4. Aguardar health check
 log "Aguardando aplicação ficar saudável..."
 ATTEMPTS=0
 MAX=30
@@ -51,8 +56,8 @@ done
 
 ok "Aplicação saudável após $((ATTEMPTS * 2))s"
 
-# 4. Status final
+# 5. Status final
 echo ""
 sudo docker compose ps
 echo ""
-ok "Deploy concluído. Site disponível em http://localhost:8000"
+ok "Deploy concluído. Origem local disponível em http://127.0.0.1:8000"

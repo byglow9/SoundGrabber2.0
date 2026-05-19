@@ -21,6 +21,8 @@ import yaml
 COMPOSE_PATH = Path("docker-compose.yml")
 ENV_EXAMPLE_PATH = Path(".env.example")
 DEPLOY_SH_PATH = Path("scripts/deploy.sh")
+PREDEPLOY_SH_PATH = Path("scripts/predeploy-check.sh")
+OPS_CHECK_SH_PATH = Path("scripts/ops-check.sh")
 
 
 def _load_compose() -> dict:
@@ -141,6 +143,7 @@ def test_deploy_sh_security_gate_and_commands():
         'chmod 750 "$(realpath "$0")"',
         "cd ~/soundgrabber",
         "git pull",
+        "bash scripts/predeploy-check.sh",
         "sudo docker compose up --build -d",
     ]
     for substr in required_substrings:
@@ -151,3 +154,46 @@ def test_deploy_sh_security_gate_and_commands():
     assert "eval" not in script_text, (
         "scripts/deploy.sh contém 'eval' — uso proibido pelo Security Gate (CLAUDE.md)"
     )
+
+
+def test_predeploy_check_blocks_unsafe_production_config():
+    """Deploy gate deve validar checklist de seguranca antes do compose up."""
+    assert PREDEPLOY_SH_PATH.exists(), "scripts/predeploy-check.sh deve existir"
+    script_text = PREDEPLOY_SH_PATH.read_text(encoding="utf-8")
+
+    required_substrings = [
+        "DEV_MODE",
+        'DEV_MODE precisa ser false',
+        "REDIS_PASSWORD",
+        "REDIS_URL precisa incluir senha Redis",
+        "CLOUDFLARE_ACCESS_YONKOU_ENABLED",
+        "ORIGIN_LOCKDOWN_ENABLED",
+        "SECRETS_ROTATED_AFTER_AUDIT",
+        "MONITORING_ENABLED",
+        "BACKUP_ENCRYPTED_OFF_GIT",
+        "-r requirements.txt",
+        "docker compose config --quiet",
+        "tests/test_security.py tests/test_deploy_sh.py",
+    ]
+    for substr in required_substrings:
+        assert substr in script_text, f"predeploy-check sem controle esperado: {substr}"
+
+    assert "eval" not in script_text
+
+
+def test_ops_check_covers_runtime_observability():
+    """Script operacional deve mostrar fila, disco/tmp, CPU/RAM e logs recentes."""
+    assert OPS_CHECK_SH_PATH.exists(), "scripts/ops-check.sh deve existir"
+    script_text = OPS_CHECK_SH_PATH.read_text(encoding="utf-8")
+
+    required_substrings = [
+        "/health",
+        "llen celery",
+        "df -h /tmp",
+        "docker stats --no-stream",
+        "docker compose logs --since=30m api worker",
+    ]
+    for substr in required_substrings:
+        assert substr in script_text, f"ops-check sem observabilidade esperada: {substr}"
+
+    assert "eval" not in script_text

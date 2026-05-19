@@ -2,8 +2,28 @@
 cookies.txt
 *.cookies
 www.youtube.com_cookies*.txt
+*cookies*.txt
 .env
+.env.*
 .env.local
+*.rdb
+dump.rdb
+*.aof
+appendonlydir/
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+*.sqlite
+*.sqlite3
+*.db
+*.sql
+*.bak
+*.backup
+*.log
+*token*
+*secret*
 
 # Python build artifacts
 .venv/
@@ -35,6 +55,4 @@ scripts/12-SETUP-LOG.md
 # Build artifacts
 dump.rdb
 .data/
-*.png
-bordas/
 *.swp

@@ -42,7 +42,7 @@ Estes passos são humanos — não há CLI/API que os automatize.
 2. Instale uma extensão como [Get cookies.txt LOCALLY](https://chrome.google.com/webstore/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc).
 3. Em `youtube.com`, exporte como `cookies.txt`.
 4. Coloque o arquivo na raiz do projeto (`./cookies.txt`).
-5. **Importante:** `chmod 600 cookies.txt` e confirme que está no `.gitignore`.
+5. **Importante:** em deploy, coloque em `/data/yt-dlp-cache/cookies.txt`, rode `chmod 600 /data/yt-dlp-cache/cookies.txt` e confirme que cookies nunca entram no Git.
 
 ### 2. Obter um PO Token (D-02)
 
@@ -57,15 +57,14 @@ Copie `.env.example` para `.env` e preencha:
 ```bash
 cp .env.example .env
 # Edite .env:
-# YTDLP_COOKIES_FILE=./cookies.txt
-# YTDLP_PO_TOKEN=<seu_token_aqui>
+# YTDLP_CACHE_DIR=/data/yt-dlp-cache
+# DEV_MODE=false em producao
 ```
 
 Ou exporte diretamente:
 
 ```bash
-export YTDLP_COOKIES_FILE=./cookies.txt
-export YTDLP_PO_TOKEN=<seu_token>
+export YTDLP_CACHE_DIR=/data/yt-dlp-cache
 ```
 
 ## Usage
@@ -126,7 +125,7 @@ celery -A api.tasks worker --loglevel=info --concurrency=3
 
 Terminal 3 — FastAPI:
 ```bash
-uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
+uvicorn api.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
 ## File Layout
@@ -189,6 +188,16 @@ Se houver vulnerabilidades reportadas:
 3. **NAO fazer deploy** com vulnerabilidades de severidade HIGH ou CRITICAL sem decisao explicita.
 
 **Nota:** `pip-audit` eh ferramenta de auditoria, NAO runtime — nao precisa estar em `requirements.txt` de producao. Instalar sob demanda na maquina de deploy ou em CI.
+
+## Deploy Seguro
+
+Antes de publicar o repositorio ou rodar deploy no notebook, leia [docs/DEPLOY-SECURE.md](docs/DEPLOY-SECURE.md) e execute:
+
+```bash
+bash scripts/predeploy-check.sh
+```
+
+O deploy via `scripts/deploy.sh` chama esse gate automaticamente antes de `docker compose up --build -d`.
 
 
 ## License

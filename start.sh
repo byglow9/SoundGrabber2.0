@@ -30,12 +30,28 @@ if [ -f "$PROJECT_DIR/.env" ]; then
     set +a
 fi
 
-# Defaults locais de desenvolvimento. Produção deve definir valores próprios no Railway.
+# Defaults locais de desenvolvimento. Produção no notebook deve definir valores próprios no .env.
 export DEV_MODE="${DEV_MODE:-true}"
 export REDIS_URL="${REDIS_URL:-redis://localhost:6379/0}"
 export ADMIN_PASSWORD="${ADMIN_PASSWORD:-correct horse}"
 export ADMIN_SESSION_SECRET="${ADMIN_SESSION_SECRET:-local-dev-admin-session-secret}"
 export FEATURED_FALLBACK_PATH="${FEATURED_FALLBACK_PATH:-$PROJECT_DIR/.data/featured-current.json}"
+export SOUNDGRABBER_HOST="${SOUNDGRABBER_HOST:-127.0.0.1}"
+
+if [ "$DEV_MODE" != "true" ]; then
+    if [ "$ADMIN_PASSWORD" = "correct horse" ] || [ -z "$ADMIN_PASSWORD" ]; then
+        echo "[start] DEV_MODE=false exige ADMIN_PASSWORD forte no .env."
+        exit 1
+    fi
+    if [ "$ADMIN_SESSION_SECRET" = "local-dev-admin-session-secret" ] || [ -z "$ADMIN_SESSION_SECRET" ]; then
+        echo "[start] DEV_MODE=false exige ADMIN_SESSION_SECRET aleatorio no .env."
+        exit 1
+    fi
+    if [ "$REDIS_URL" = "redis://localhost:6379/0" ]; then
+        echo "[start] DEV_MODE=false exige REDIS_URL com senha Redis."
+        exit 1
+    fi
+fi
 
 # Cores e log() definidos ANTES de qualquer uso (WR-03: evita crash sob set -e)
 C_RESET='\033[0m'
@@ -83,7 +99,7 @@ log "Iniciando Celery..."
 "$VENV/bin/python" -m celery -A api.tasks worker --loglevel=info --concurrency=3 2>&1 \
     | sed "s/^/$(printf "${C_CELERY}")[celery]$(printf "${C_RESET}") /" &
 
-log "Iniciando servidor em http://localhost:8000"
+log "Iniciando servidor em http://$SOUNDGRABBER_HOST:8000"
 log "Uvicorn reload ativo: alterações em Python recarregam o servidor automaticamente."
 log "Painel operador local: http://localhost:8000/yonkou (senha: ADMIN_PASSWORD do .env ou default local)."
 log "Pressione Ctrl+C para encerrar tudo."
@@ -96,5 +112,5 @@ cleanup() {
 }
 trap cleanup EXIT
 
-"$VENV/bin/python" -m uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload --limit-concurrency 100 --timeout-keep-alive 5 2>&1 \
+"$VENV/bin/python" -m uvicorn api.main:app --host "$SOUNDGRABBER_HOST" --port 8000 --reload --limit-concurrency 100 --timeout-keep-alive 5 2>&1 \
     | sed "s/^/$(printf "${C_SERVER}")[server]$(printf "${C_RESET}") /"

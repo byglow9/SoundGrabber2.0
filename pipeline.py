@@ -3,7 +3,7 @@
 Single-module Python implementation of the download → convert → analyze pipeline.
 Designed to be imported directly by Phase 2 (FastAPI + Celery) without rework.
 
-Contract per D-02 (.planning/phases/10.1-oauth2-railway-volume-auth-migration/10.1-CONTEXT.md):
+Contract per D-02 (OAuth/cookie cache auth migration context):
   check_duration(url, cache_dir) -> dict
   download_audio(url, cache_dir) -> Path
   convert_to_wav(audio_path) -> Path
@@ -12,7 +12,7 @@ Contract per D-02 (.planning/phases/10.1-oauth2-railway-volume-auth-migration/10
 Authentication (Phase 10.1 gap closure — plan 06 — hybrid architecture):
   Arquitetura híbrida: cookies do Volume (identidade autenticada) + bgutil (PO Token / JS challenge).
   Ambos passados a yt-dlp simultaneamente em check_duration e download_audio.
-  YTDLP_CACHE_DIR — path do Railway Volume com cookies.txt (identidade autenticada)
+  YTDLP_CACHE_DIR — path do cache local com cookies.txt (identidade autenticada)
   BGUTIL_BASE_URL — URL do serviço bgutil para JS challenge PO Token
   cookies.txt lido de Path(cache_dir)/"cookies.txt" se existir
   bgutil URL lida de os.environ.get("BGUTIL_BASE_URL", "") — sem mudança de assinatura (D-02)
@@ -57,6 +57,7 @@ if _system_ffmpeg is None:
         "ffmpeg not found in PATH. Install ffmpeg system package: apt-get install ffmpeg"
     )
 _YTDLP_FFMPEG_LOCATION = _system_ffmpeg
+_FFMPEG_DIR = str(Path(_YTDLP_FFMPEG_LOCATION).parent)
 _NODE_PATH = shutil.which("node")
 
 
@@ -103,7 +104,7 @@ def check_duration(url: str, cache_dir: str) -> dict[str, Any]:
 
     Args:
         url: YouTube URL to inspect.
-        cache_dir: Railway Volume path (de YTDLP_CACHE_DIR). Cookies serão lidos de
+        cache_dir: Cache local (YTDLP_CACHE_DIR). Cookies serão lidos de
                    Path(cache_dir)/"cookies.txt" se existir.
 
     Returns:
@@ -126,7 +127,7 @@ def check_duration(url: str, cache_dir: str) -> dict[str, Any]:
         "skip_download": True,
         "socket_timeout": 30,
         "noplaylist": True,
-        "no_cache_dir": True,           # D-04: prevent stale nsig between Railway deploys
+        "no_cache_dir": True,           # D-04: prevent stale nsig between deploys/restarts
         "ffmpeg_location": _YTDLP_FFMPEG_LOCATION,  # executable path — see _YTDLP_FFMPEG_LOCATION
         # yt-dlp Python API expects nested extractor args, unlike the CLI string format.
         "extractor_args": {"youtube": youtube_args},
@@ -137,7 +138,7 @@ def check_duration(url: str, cache_dir: str) -> dict[str, Any]:
         ",".join(player_clients),
     )
     _configure_youtube_js_runtime(ydl_opts)
-    # Cookies do Railway Volume — se existirem, yt-dlp usa autenticado (web_creator+mweb)
+    # Cookies do cache local — se existirem, yt-dlp usa autenticado (web_creator+mweb)
     # Híbrido: cookiefile E getpot_bgutil_baseurl coexistem nos ydl_opts
     tmp_cookies: Path | None = None
     if cache_dir:
@@ -197,7 +198,7 @@ def download_audio(url: str, cache_dir: str) -> Path:
 
     Args:
         url: YouTube URL.
-        cache_dir: Railway Volume path. Cookies lidos de Path(cache_dir)/"cookies.txt"
+        cache_dir: Cache local. Cookies lidos de Path(cache_dir)/"cookies.txt"
                    se existir. Se vazio, downloads sem autenticação (ios/mweb clients).
 
     Returns:
@@ -225,7 +226,7 @@ def download_audio(url: str, cache_dir: str) -> Path:
         ",".join(dl_players),
     )
 
-    # Cookies do Railway Volume — se existirem, yt-dlp usa autenticado (web_creator+mweb)
+    # Cookies do cache local — se existirem, yt-dlp usa autenticado (web_creator+mweb)
     cookies_file_path: str | None = None
     tmp_cookies_dl: Path | None = None
     if cache_dir:
@@ -255,7 +256,7 @@ def download_audio(url: str, cache_dir: str) -> Path:
             "key": "FFmpegExtractAudio",
             "preferredcodec": "wav",
         }],
-        "no_cache_dir": True,           # D-04: prevent stale nsig between Railway deploys
+        "no_cache_dir": True,           # D-04: prevent stale nsig between deploys/restarts
         "retries": 3,                   # D-05: tolerate transient connection failures
         "fragment_retries": 3,          # D-05: tolerate transient fragment failures
         "http_chunk_size": 10485760,  # 10MB — avoids YouTube throttling on long downloads
@@ -445,6 +446,11 @@ def detect_tuning(wav_path: Path) -> float | None:
     frame_size = 4096
     hop_size   = 4096           # sem sobreposição — cobertura máxima sem custo extra
     segment    = audio[: 44100 * 30]  # primeiros 30s representativos
+    spectrum = np.abs(np.fft.rfft(segment[: min(len(segment), 44100 * 2)])) + 1e-12
+    flatness = float(np.exp(np.mean(np.log(spectrum))) / np.mean(spectrum))
+    zero_crossing_rate = float(np.mean(np.diff(np.signbit(segment).astype(np.int8)) != 0))
+    if flatness > 0.35 or zero_crossing_rate > 0.20:
+        return None
 
     windowing    = es.Windowing(type="blackmanharris62")
     spectrum_algo = es.Spectrum()
@@ -557,7 +563,7 @@ def detect_key(wav_path: Path, tuning_hz: float | None) -> tuple[str, float]:
     freq = tuning_hz if tuning_hz is not None else 440.0
 
     results: list[tuple[str, float]] = []
-    for profile in ("temperley", "edma", "bgate", "krumhansl"):
+    for profile in ("temperley", "bgate", "krumhansl", "edma"):
         key, scale, strength = es.KeyExtractor(
             profileType=profile,
             tuningFrequency=freq,
@@ -670,18 +676,20 @@ def analyze_audio(wav_path: Path) -> dict[str, Any]:
     """
     wav_path = Path(wav_path)
     duration_sec = validate_wav(wav_path)
+    tuning_hz = detect_tuning(wav_path)
     bpm = detect_bpm(wav_path)
-    bpm_int = int(round(float(bpm)))
-    key, key_confidence = detect_key(wav_path, None)  # 440.0 fixo — compensação de tuning removida
+    bpm_value = float(round(float(bpm)))
+    key, key_confidence = detect_key(wav_path, tuning_hz)
     camelot = key_to_camelot(key)
 
     return {
-        "bpm":            bpm_int,
-        "bpm_half":       int(round(bpm_int / 2)),
-        "bpm_double":     bpm_int * 2,
+        "bpm":            bpm_value,
+        "bpm_half":       float(round(bpm_value / 2)),
+        "bpm_double":     float(bpm_value * 2),
         "key":            str(key),
         "camelot":        str(camelot),
         "key_confidence": float(key_confidence),
+        "tuning_hz":      round(float(tuning_hz), 2) if tuning_hz is not None else None,
         "duration_sec":   round(float(duration_sec), 1),
         "wav_path":       str(wav_path),
     }
@@ -699,10 +707,18 @@ def convert_uploaded_to_wav(input_path: Path) -> Path:
     Raises:
         ValueError: If FFmpeg fails to convert the file.
     """
+    validate_wav(input_path)
     wav_path = WAV_TMP_DIR / f"{TMP_PREFIX}{uuid.uuid4().hex[:12]}_analysis.wav"
     cmd = [
-        _YTDLP_FFMPEG_LOCATION, "-y",
+        _YTDLP_FFMPEG_LOCATION,
+        "-nostdin",
+        "-hide_banner",
+        "-loglevel", "error",
+        "-y",
         "-i", str(input_path),
+        "-vn",
+        "-threads", "1",
+        "-t", str(MAX_DURATION_SEC + 1),
         "-ar", "44100",
         "-ac", "2",
         "-sample_fmt", "s16",

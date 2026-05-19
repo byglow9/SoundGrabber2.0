@@ -28,7 +28,7 @@ import pytest
 def test_post_jobs_returns_job_id(api_client):
     """POST /jobs with valid YouTube URL returns job_id in < 300ms."""
     start = time.perf_counter()
-    response = api_client.post("/jobs", json={"youtube_url": "https://www.youtube.com/watch?v=abc123"})
+    response = api_client.post("/jobs", json={"youtube_url": "https://www.youtube.com/watch?v=abc123def45"})
     elapsed_ms = (time.perf_counter() - start) * 1000
     assert response.status_code == 202, f"expected 202, got {response.status_code}: {response.text}"
     body = response.json()
@@ -56,10 +56,10 @@ def test_invalid_url_rejected(api_client, url):
 
 
 @pytest.mark.parametrize("url", [
-    "https://www.youtube.com/watch?v=abc123",
-    "https://youtube.com/watch?v=abc123",
-    "https://youtu.be/abc123",
-    "https://m.youtube.com/watch?v=abc123",
+    "https://www.youtube.com/watch?v=abc123def45",
+    "https://youtube.com/watch?v=abc123def45",
+    "https://youtu.be/abc123def45",
+    "https://m.youtube.com/watch?v=abc123def45",
 ])
 def test_valid_youtube_url_accepted(api_client, url):
     """All four YouTube hosts are accepted by the validator."""
@@ -75,7 +75,7 @@ def test_failed_job_returns_sanitized_error(api_client):
     """When the worker raises ValueError (validation), GET /jobs/{id} returns
     status='failed' with sanitized error and error_type='validation_error'."""
     with patch("api.tasks.check_duration", side_effect=ValueError("Video too long: 1200s exceeds the 15-minute limit")):
-        r = api_client.post("/jobs", json={"youtube_url": "https://www.youtube.com/watch?v=long"})
+        r = api_client.post("/jobs", json={"youtube_url": "https://www.youtube.com/watch?v=long1234567"})
         job_id = r.json()["job_id"]
     status = api_client.get(f"/jobs/{job_id}").json()
     assert status["status"] == "failed"
@@ -94,7 +94,7 @@ def test_get_jobs_status_transitions(api_client):
     """GET /jobs/{id} returns one of the contract statuses: queued, downloading,
     converting, analyzing, done, failed."""
     valid = {"queued", "downloading", "converting", "analyzing", "done", "failed"}
-    r = api_client.post("/jobs", json={"youtube_url": "https://www.youtube.com/watch?v=abc123"})
+    r = api_client.post("/jobs", json={"youtube_url": "https://www.youtube.com/watch?v=abc123def45"})
     job_id = r.json()["job_id"]
     status = api_client.get(f"/jobs/{job_id}").json()
     assert status["status"] in valid, f"unexpected status {status['status']!r}"
@@ -225,7 +225,7 @@ def test_validation_error_format(api_client):
 
 def test_rate_limit_returns_429(api_client):
     """4a requisicao em 60s pelo mesmo IP retorna 429 com error_type rate_limit_error (D-01/D-03)."""
-    url = "https://www.youtube.com/watch?v=abc123"
+    url = "https://www.youtube.com/watch?v=abc123def45"
     for i in range(3):
         r = api_client.post("/jobs", json={"youtube_url": url})
         assert r.status_code == 202, f"requisicao {i+1}/3 esperada 202: {r.status_code} {r.text}"
@@ -238,7 +238,7 @@ def test_rate_limit_returns_429(api_client):
 
 def test_rate_limit_retry_after_header(api_client):
     """429 inclui header Retry-After com valor inteiro em segundos (D-04 / RFC 9110)."""
-    url = "https://www.youtube.com/watch?v=abc123"
+    url = "https://www.youtube.com/watch?v=abc123def45"
     for _ in range(3):
         api_client.post("/jobs", json={"youtube_url": url})
     r = api_client.post("/jobs", json={"youtube_url": url})

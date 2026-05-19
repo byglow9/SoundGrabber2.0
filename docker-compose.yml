@@ -24,11 +24,23 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    env_file: .env
+    command:
+      - sh
+      - -c
+      - >
+        : "$${REDIS_PASSWORD:?REDIS_PASSWORD is required}" &&
+        exec redis-server
+        --requirepass "$${REDIS_PASSWORD}"
+        --maxmemory 128mb
+        --maxmemory-policy allkeys-lru
+        --save ""
+        --appendonly no
     networks:
       - soundgrabber_net
     # Sem ports: — Redis apenas na rede interna (D-10, D-14)
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$${REDIS_PASSWORD}\" redis-cli ping | grep PONG"]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -47,7 +59,8 @@ services:
     image: soundgrabber:latest
     restart: unless-stopped
     ports:
-      - "8000:8000"
+      # Bind local only. Cloudflare Tunnel/reverse proxy should be the public entrypoint.
+      - "127.0.0.1:8000:8000"
     networks:
       - soundgrabber_net
     volumes:
