@@ -45,6 +45,7 @@ body {
   text-rendering: optimizeSpeed;
   scrollbar-width: none;
   -ms-overflow-style: none;
+  overflow-y: hidden;
 }
 
 body::-webkit-scrollbar {
@@ -658,6 +659,8 @@ td {
   font-size: 13px;
   line-height: 1.5;
   margin-bottom: 8px;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .featured-date {
