@@ -7,7 +7,7 @@ from typing import Any
 
 from celery import Celery
 
-from pipeline import check_duration, download_audio, analyze_audio
+from pipeline import check_duration, download_audio, analyze_audio, convert_uploaded_to_wav
 from api.config import settings
 
 logger = logging.getLogger(__name__)
@@ -140,3 +140,52 @@ def process_job(self, url: str) -> dict[str, Any]:
             error="An internal error occurred. Please try again.",
             error_type="internal_error",
         ) from e
+
+
+@celery_app.task(bind=True, name="soundgrabber.analyze_local_file")
+def analyze_local_file(self, uploaded_path_str: str) -> dict[str, Any]:
+    """Analyze an uploaded local audio file with Essentia (BPM, key, Camelot).
+
+    Converts to WAV if needed, then calls analyze_audio(). Cleans up all temp
+    files in the finally block — no WAV is kept after analysis (no download).
+    """
+    uploaded_path = Path(uploaded_path_str)
+    wav_path: Path | None = None
+    try:
+        self.update_state(state="ANALYZING", meta={"stage": "analyzing"})
+
+        if uploaded_path.suffix.lower() != ".wav":
+            wav_path = convert_uploaded_to_wav(uploaded_path)
+        else:
+            wav_path = uploaded_path
+
+        result = analyze_audio(wav_path)
+
+        return {
+            "status": "done",
+            "bpm": result["bpm"],
+            "bpm_half": result["bpm_half"],
+            "bpm_double": result["bpm_double"],
+            "key": result["key"],
+            "camelot": result["camelot"],
+            "duration_sec": result["duration_sec"],
+        }
+
+    except ValueError as e:
+        logger.info("analyze_local_file %s validation_error: %s", self.request.id, e)
+        raise JobFailure(
+            error="Não foi possível analisar o arquivo. Verifique se é um arquivo de áudio válido.",
+            error_type="validation_error",
+        ) from e
+
+    except Exception as e:  # noqa: BLE001
+        logger.exception("analyze_local_file %s internal_error", self.request.id)
+        raise JobFailure(
+            error="An internal error occurred. Please try again.",
+            error_type="internal_error",
+        ) from e
+
+    finally:
+        if wav_path is not None and wav_path != uploaded_path:
+            wav_path.unlink(missing_ok=True)
+        uploaded_path.unlink(missing_ok=True)

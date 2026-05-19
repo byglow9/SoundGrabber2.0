@@ -10,6 +10,7 @@ let pollTimer = null;
 let timeoutTimer = null;
 let countdownTimer = null;
 let isPolling = false;  // WR-03: flag de guarda contra chamadas concorrentes ao pollStatus
+let currentMode = 'baixar'; // 'baixar' | 'analisar'
 
 // =============================================================================
 // Section 2: DOM refs
@@ -39,6 +40,56 @@ function setState(newState, payload = {}) {
 // =============================================================================
 // Section 4: API functions
 // =============================================================================
+
+function switchMode(mode) {
+  currentMode = mode;
+  setState('IDLE');
+  $('mode-btn').textContent = mode === 'baixar' ? 'ANALISAR' : 'BAIXAR';
+}
+
+async function uploadFile(file) {
+  const ext = (file.name.split('.').pop() || '').toLowerCase();
+  if (!['wav', 'mp3', 'flac', 'm4a'].includes(ext)) {
+    setState('ERROR_VALIDATION', { message: 'Formato inválido. Use WAV, MP3, FLAC ou M4A.' });
+    return;
+  }
+  if (file.size > 50 * 1024 * 1024) {
+    setState('ERROR_VALIDATION', { message: 'Arquivo muito grande. Máximo 50 MB.' });
+    return;
+  }
+
+  $('selected-file').textContent = file.name;
+  clearAllTimers();
+  setState('SUBMITTING');
+
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await fetch('/analyze', { method: 'POST', body: formData });
+
+    if (response.status === 202) {
+      const data = await response.json();
+      if (!data.job_id) { setState('ERROR_JOB', { message: 'Algo deu errado. Tente novamente.' }); return; }
+      setState('POLLING', { label: 'Processando...' });
+      startPolling(data.job_id);
+      return;
+    }
+    if (response.status === 413) { setState('ERROR_VALIDATION', { message: 'Arquivo muito grande. Máximo 50 MB.' }); return; }
+    if (response.status === 422) {
+      const data = await response.json();
+      setState('ERROR_VALIDATION', { message: data.error || 'Formato inválido.' });
+      return;
+    }
+    if (response.status === 429) {
+      const retryAfter = parseInt(response.headers.get('retry-after') || '60', 10);
+      setState('ERROR_RATE_LIMIT', { retryAfter });
+      return;
+    }
+    setState('ERROR_JOB', { message: 'Algo deu errado. Tente novamente.' });
+  } catch (err) {
+    setState('ERROR_JOB', { message: 'Erro de conexão. Verifique sua internet e tente novamente.' });
+  }
+}
 
 // clearAllTimers() — called at start of submitJob() to prevent ghost timers (Pitfall 4)
 function clearAllTimers() {
@@ -174,12 +225,15 @@ function showIdle() {
   $('url-input').value = '';
   $('submit-btn').disabled = false;
   $('submit-btn').textContent = 'Baixar Beat';
-  $('submit-btn').hidden = false;
-  $('form-area').hidden = false;
+  $('submit-btn').hidden = currentMode === 'analisar';
+  $('form-area').hidden = currentMode === 'analisar';
+  $('dropzone-area').hidden = currentMode === 'baixar';
   $('progress-area').hidden = true;
   $('result-card').hidden = true;
   $('error-area').hidden = true;
   $('validation-error').hidden = true;
+  $('dropzone').classList.remove('sg-dropzone--active');
+  $('selected-file').textContent = '';
 }
 
 function showSubmitting() {
@@ -187,9 +241,13 @@ function showSubmitting() {
   $('url-input').disabled = true;
   $('submit-btn').disabled = true;
   $('submit-btn').textContent = 'Enviando...';
-  $('submit-btn').hidden = false;
-  // Ocultar todas as areas de conteudo durante o envio
-  $('progress-area').hidden = true;
+  $('submit-btn').hidden = currentMode === 'analisar';
+  if (currentMode === 'analisar') {
+    $('progress-area').hidden = false;
+    $('progress-label').textContent = 'Enviando arquivo...';
+  } else {
+    $('progress-area').hidden = true;
+  }
   $('result-card').hidden = true;
   $('error-area').hidden = true;
   $('validation-error').hidden = true;
@@ -208,10 +266,15 @@ function showPolling(label) {
 }
 
 function showDone(data) {
-  $('form-area').hidden = false;
-  $('submit-btn').hidden = false;
-  $('submit-btn').disabled = true;
-  $('submit-btn').textContent = 'Concluído';
+  $('form-area').hidden = currentMode === 'analisar';
+  $('dropzone-area').hidden = currentMode === 'baixar';
+  if (currentMode === 'baixar') {
+    $('submit-btn').hidden = false;
+    $('submit-btn').disabled = true;
+    $('submit-btn').textContent = 'Concluído';
+  } else {
+    $('submit-btn').hidden = true;
+  }
   $('progress-area').hidden = true;
   $('result-card').hidden = false;
   $('error-area').hidden = true;
@@ -225,13 +288,25 @@ function showDone(data) {
   $('camelot-value').textContent = data.camelot ?? '';
   $('size-value').textContent = formatSizeMB(estimateSizeMB(data.duration_sec ?? 0));
 
-  const downloadHref = (data.download_url && data.download_url.startsWith('/files/'))
-    ? data.download_url
-    : '/files/' + jobId;
-  $('download-link').href = downloadHref;
+  if (data.download_url) {
+    const downloadHref = data.download_url.startsWith('/files/') ? data.download_url : '/files/' + jobId;
+    $('download-link').href = downloadHref;
+    $('download-area').hidden = false;
+  } else {
+    $('download-area').hidden = true;
+  }
 }
 
 function showErrorValidation(msg) {
+  if (currentMode === 'analisar') {
+    $('error-area').hidden = false;
+    $('retry-btn').hidden = true;
+    $('error-message').textContent = msg;
+    $('progress-area').hidden = true;
+    $('result-card').hidden = true;
+    $('validation-error').hidden = true;
+    return;
+  }
   // D-04: highlight input field visually
   $('url-input').classList.add('sg-url-input--error');
   $('url-input').disabled = false;
@@ -282,7 +357,7 @@ function showErrorJob(msg) {
   $('url-input').classList.remove('sg-url-input--error');  // remover highlight de validacao
   $('url-input').disabled = false;
   $('submit-btn').hidden = true;
-  $('retry-btn').hidden = false;
+  $('retry-btn').hidden = currentMode === 'analisar'; // no analyze mode, just drop a new file
   $('error-area').hidden = false;
   $('error-message').textContent = msg;  // textContent — XSS mitigation (T-04-04)
   $('progress-area').hidden = true;
@@ -294,7 +369,7 @@ function showErrorTimeout() {
   $('url-input').disabled = false;
   $('submit-btn').disabled = false;
   $('submit-btn').textContent = 'Baixar Beat';
-  $('submit-btn').hidden = false;
+  $('submit-btn').hidden = currentMode === 'analisar';
   $('error-area').hidden = false;
   $('retry-btn').hidden = true;
   $('error-message').textContent = 'Processamento demorou mais que o esperado. Tente novamente.';
@@ -326,12 +401,11 @@ function formatFeaturedDate(value) {
 }
 
 function clearFeaturedSidebar() {
-  const shell = $('featured-shell');
-  const app = $('app');
-  const wrapper = $('wrapper');
-  if (!shell || !app || !wrapper) return;
-  wrapper.insertBefore(app, shell);
-  shell.remove();
+  ensureFeaturedSidebar();
+  const sidebar = $('featured-sidebar');
+  const separator = $('featured-separator');
+  if (sidebar) { sidebar.textContent = ''; sidebar.hidden = true; }
+  if (separator) separator.hidden = true;
 }
 
 function ensureFeaturedSidebar() {
@@ -402,6 +476,9 @@ function renderFeatured(data) {
 
   const sidebar = ensureFeaturedSidebar();
   if (!sidebar) return;
+  const separator = $('featured-separator');
+  if (separator) separator.hidden = false;
+  sidebar.hidden = false;
   sidebar.textContent = '';
 
   const card = document.createElement('div');
@@ -413,25 +490,29 @@ function renderFeatured(data) {
   kicker.textContent = 'SOM DA SEMANA';
   card.appendChild(kicker);
 
-  // titulo + artistas na mesma linha: "TITULO de artistas"
-  const titleRow = document.createElement('div');
-  titleRow.id = 'featured-title-row';
+  const titleBlock = document.createElement('div');
+  titleBlock.id = 'featured-title-block';
+  let titleLine = null;
 
   if (data.titulo) {
+    titleLine = document.createElement('div');
+    titleLine.id = 'featured-title-line';
+
     const tituloNode = document.createElement('span');
     tituloNode.id = 'featured-titulo';
     tituloNode.textContent = data.titulo;
-    titleRow.appendChild(tituloNode);
+    titleLine.appendChild(tituloNode);
+
+    titleBlock.appendChild(titleLine);
   }
 
   const artistas = Array.isArray(data.artistas)
     ? data.artistas
     : (data.artista ? [{ nome: data.artista, url: '' }] : []);
   if (artistas.length > 0) {
-    const sep = document.createElement('span');
-    sep.id = 'featured-title-sep';
-    sep.textContent = 'de';
-    titleRow.appendChild(sep);
+    const artistRow = document.createElement('span');
+    artistRow.id = 'featured-artist-row';
+    artistRow.appendChild(document.createTextNode('de '));
 
     const artistNode = document.createElement('span');
     artistNode.id = 'featured-artist';
@@ -452,10 +533,39 @@ function renderFeatured(data) {
         artistNode.appendChild(document.createTextNode(a.nome));
       }
     });
-    titleRow.appendChild(artistNode);
+    artistRow.appendChild(artistNode);
+    if (!titleLine) {
+      titleLine = document.createElement('div');
+      titleLine.id = 'featured-title-line';
+      titleBlock.appendChild(titleLine);
+    }
+    titleLine.appendChild(artistRow);
   }
 
-  card.appendChild(titleRow);
+  const produtores = Array.isArray(data.produtores) ? data.produtores.filter(p => p && p.nome) : [];
+  if (produtores.length > 0) {
+    const prodNode = document.createElement('div');
+    prodNode.id = 'featured-prod';
+    prodNode.appendChild(document.createTextNode('(prod. '));
+    produtores.forEach((p, i) => {
+      if (i > 0) prodNode.appendChild(document.createTextNode(i === produtores.length - 1 ? ' & ' : ', '));
+      if (p.url) {
+        const a = document.createElement('a');
+        a.href = p.url;
+        a.target = '_blank';
+        a.rel = 'noopener';
+        a.textContent = p.nome;
+        a.className = 'featured-artist-link';
+        prodNode.appendChild(a);
+      } else {
+        prodNode.appendChild(document.createTextNode(p.nome));
+      }
+    });
+    prodNode.appendChild(document.createTextNode(')'));
+    titleBlock.appendChild(prodNode);
+  }
+
+  card.appendChild(titleBlock);
 
   // player YouTube — entre artistas e gênero
   const ytLink = (data.links || []).find(l => l.label === 'Youtube');
@@ -584,20 +694,6 @@ function init() {
     setState('IDLE');
   });
 
-  // Wire info button — toggle speech bubble
-  function openInfoModal() {
-    $('info-modal').hidden = false;
-    $('info-overlay').hidden = false;
-  }
-  function closeInfoModal() {
-    $('info-modal').hidden = true;
-    $('info-overlay').hidden = true;
-  }
-
-  $('info-btn').addEventListener('click', openInfoModal);
-  $('info-close-btn').addEventListener('click', closeInfoModal);
-  $('info-overlay').addEventListener('click', closeInfoModal);
-
   // Wire retry button (ERROR_JOB state — D-06: reuse URL already in field, resubmit directly)
   $('retry-btn').addEventListener('click', () => {
     const url = $('url-input').value.trim();
@@ -609,6 +705,36 @@ function init() {
   // Enter key on input field triggers submit
   $('url-input').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') $('submit-btn').click();
+  });
+
+  // Mode toggle button
+  $('mode-btn').addEventListener('click', () => {
+    switchMode(currentMode === 'baixar' ? 'analisar' : 'baixar');
+  });
+
+  // Dropzone click → file picker
+  $('dropzone').addEventListener('click', () => $('file-input').click());
+
+  // Drag & drop
+  $('dropzone').addEventListener('dragover', (e) => {
+    e.preventDefault();
+    $('dropzone').classList.add('sg-dropzone--active');
+  });
+  $('dropzone').addEventListener('dragleave', () => {
+    $('dropzone').classList.remove('sg-dropzone--active');
+  });
+  $('dropzone').addEventListener('drop', (e) => {
+    e.preventDefault();
+    $('dropzone').classList.remove('sg-dropzone--active');
+    const file = e.dataTransfer.files[0];
+    if (file) uploadFile(file);
+  });
+
+  // File input change
+  $('file-input').addEventListener('change', () => {
+    const file = $('file-input').files[0];
+    if (file) uploadFile(file);
+    $('file-input').value = '';  // reset so same file can be re-selected
   });
 }
 

@@ -417,7 +417,7 @@ def test_yonkou_panel_requires_no_public_link(api_client):
     assert response.status_code == 200, (
         f"GET /yonkou deveria renderizar login, recebeu {response.status_code}: {response.text}"
     )
-    assert "Entrar no painel" in response.text
+    assert "yonkou-login" in response.text
     assert "Salvar Som" not in response.text
     assert "featured-title" not in response.text
     assert "current-release" not in response.text
@@ -455,7 +455,7 @@ def test_yonkou_login_sets_secure_session_cookie(api_client):
 
 def test_post_featured_requires_operator_session(api_client):
     """D-01b/D-03/D-06: POST /featured exige cookie operador valido."""
-    response = api_client.post("/featured", json=_featured_payload())
+    response = api_client.post("/yonkou/releases", json=_featured_payload())
 
     assert response.status_code == 401, (
         f"POST /featured sem sg_admin deveria ser 401, recebeu {response.status_code}: {response.text}"
@@ -495,16 +495,161 @@ def test_post_featured_rate_limit(api_client):
     _login_operator(api_client)
 
     for i in range(10):
-        response = api_client.post("/featured", json=_featured_payload())
+        response = api_client.post("/yonkou/releases", json=_featured_payload())
         assert response.status_code in (200, 204), (
             f"update autenticado {i + 1}/10 deveria salvar, "
             f"recebeu {response.status_code}: {response.text}"
         )
 
-    response = api_client.post("/featured", json=_featured_payload())
+    response = api_client.post("/yonkou/releases", json=_featured_payload())
     assert response.status_code == 429, (
         f"11o POST /featured deveria ser 429, recebeu {response.status_code}: {response.text}"
     )
+
+
+# ---------------------------------------------------------------------------
+# POST /analyze: rate limit, extensão, tamanho, campo obrigatório
+# ---------------------------------------------------------------------------
+
+def test_analyze_rate_limit(api_client):
+    """POST /analyze limita 3 uploads por minuto por IP."""
+    from unittest.mock import MagicMock
+    mock_result = MagicMock()
+    mock_result.id = "fake-analyze-id"
+    with patch("api.main.analyze_local_file") as mock_task:
+        mock_task.delay.return_value = mock_result
+        for i in range(3):
+            r = api_client.post(
+                "/analyze",
+                files={"file": ("beat.wav", b"RIFF\x00\x00\x00\x00WAVEfmt ", "audio/wav")},
+            )
+            assert r.status_code == 202, f"requisicao {i+1}/3 deveria ser 202, obtido {r.status_code}: {r.text}"
+        r = api_client.post(
+            "/analyze",
+            files={"file": ("beat.wav", b"RIFF\x00\x00\x00\x00WAVEfmt ", "audio/wav")},
+        )
+        assert r.status_code == 429, f"4a requisicao deveria ser 429, obtido {r.status_code}: {r.text}"
+
+
+def test_analyze_invalid_extension(api_client):
+    """POST /analyze com extensao invalida retorna 422 com error_type=validation_error."""
+    r = api_client.post(
+        "/analyze",
+        files={"file": ("malware.exe", b"\x00\x01\x02", "application/octet-stream")},
+    )
+    assert r.status_code == 422, f"esperado 422, obtido {r.status_code}: {r.text}"
+    body = r.json()
+    assert body.get("error_type") == "validation_error", f"error_type errado: {body}"
+
+
+def test_analyze_file_too_large(api_client, monkeypatch):
+    """POST /analyze com arquivo maior que o limite retorna 413 com error_type=request_error."""
+    import api.main as main_module
+    monkeypatch.setattr(main_module, "_ANALYZE_MAX_BYTES", 10)
+    r = api_client.post(
+        "/analyze",
+        files={"file": ("beat.wav", b"X" * 100, "audio/wav")},
+    )
+    assert r.status_code == 413, f"esperado 413, obtido {r.status_code}: {r.text}"
+    body = r.json()
+    assert body.get("error_type") == "request_error", f"error_type errado: {body}"
+
+
+def test_analyze_missing_file(api_client):
+    """POST /analyze sem campo file retorna 422."""
+    r = api_client.post("/analyze")
+    assert r.status_code == 422, f"esperado 422, obtido {r.status_code}: {r.text}"
+
+
+def _correct_payload(links=None):
+    """Payload com formato correto — artistas como lista (FeaturedReleaseRequest)."""
+    return {
+        "artistas": [{"nome": "DJ Subsolo", "url": ""}],
+        "produtores": [],
+        "titulo": "Noite Laranja",
+        "genero": "phonk",
+        "descricao": "Beat underground escolhido para a semana.",
+        "links": links if links is not None else [
+            {"label": "Spotify", "url": "https://open.spotify.com/track/test"},
+        ],
+    }
+
+
+# ---------------------------------------------------------------------------
+# PATCH /featured: autenticação e rate limit
+# ---------------------------------------------------------------------------
+
+def test_patch_featured_requires_operator_session(api_client):
+    """PATCH /featured sem cookie de operador retorna 401."""
+    response = api_client.patch("/yonkou/releases/current", json=_correct_payload())
+    assert response.status_code == 401, (
+        f"PATCH /featured sem sg_admin deveria ser 401, recebeu {response.status_code}: {response.text}"
+    )
+
+
+def test_patch_featured_rate_limit(api_client):
+    """PATCH /featured autenticado limita edições a 10/min."""
+    _login_operator(api_client)
+    for i in range(10):
+        response = api_client.patch("/yonkou/releases/current", json=_correct_payload())
+        assert response.status_code in (200, 204), (
+            f"PATCH autenticado {i + 1}/10 deveria salvar, recebeu {response.status_code}: {response.text}"
+        )
+    response = api_client.patch("/yonkou/releases/current", json=_correct_payload())
+    assert response.status_code == 429, (
+        f"11o PATCH /featured deveria ser 429, recebeu {response.status_code}: {response.text}"
+    )
+
+
+def test_patch_featured_preserves_data_adicao(api_client):
+    """PATCH /featured atualiza conteudo sem alterar a data original de publicacao."""
+    _login_operator(api_client)
+    from api.main import _redis
+
+    original = _correct_payload()
+    create_response = api_client.post("/yonkou/releases", json=original)
+    assert create_response.status_code == 200, create_response.text
+    original_date = create_response.json()["data_adicao"]
+
+    edited = _correct_payload()
+    edited["titulo"] = "Noite Laranja Editada"
+    patch_response = api_client.patch("/yonkou/releases/current", json=edited)
+    assert patch_response.status_code == 200, patch_response.text
+    body = patch_response.json()
+    assert body["titulo"] == "Noite Laranja Editada"
+    assert body["data_adicao"] == original_date
+
+    stored = _redis.get("featured:current")
+    assert stored is not None
+    assert original_date in stored
+
+
+# ---------------------------------------------------------------------------
+# GET /featured/history: autenticação e rate limit
+# ---------------------------------------------------------------------------
+
+def test_get_featured_history_requires_admin(api_client):
+    """GET /featured/history sem cookie de operador retorna 401."""
+    response = api_client.get("/yonkou/releases")
+    assert response.status_code == 401, (
+        f"GET /featured/history sem sg_admin deveria ser 401, recebeu {response.status_code}: {response.text}"
+    )
+
+
+def test_get_featured_history_rate_limit(api_client):
+    """GET /featured/history autenticado limita a 30/min."""
+    _login_operator(api_client)
+    from api.main import _redis
+    with patch.object(_redis, "lrange", return_value=[]):
+        for i in range(30):
+            response = api_client.get("/yonkou/releases")
+            assert response.status_code in (200, 204), (
+                f"GET /featured/history {i + 1}/30 deveria ser 200/204, recebeu {response.status_code}: {response.text}"
+            )
+        response = api_client.get("/yonkou/releases")
+        assert response.status_code == 429, (
+            f"31a requisicao de GET /featured/history deveria ser 429, recebeu {response.status_code}: {response.text}"
+        )
 
 
 def test_featured_redis_fallback(api_client, tmp_path, monkeypatch):

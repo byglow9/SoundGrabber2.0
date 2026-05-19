@@ -687,6 +687,38 @@ def analyze_audio(wav_path: Path) -> dict[str, Any]:
     }
 
 
+def convert_uploaded_to_wav(input_path: Path) -> Path:
+    """Convert an uploaded audio file (MP3, FLAC, M4A) to WAV for Essentia analysis.
+
+    Args:
+        input_path: Path to the uploaded file.
+
+    Returns:
+        Path to the converted WAV at /tmp/sg_{12hex}_analysis.wav with 0o600 permissions.
+
+    Raises:
+        ValueError: If FFmpeg fails to convert the file.
+    """
+    wav_path = WAV_TMP_DIR / f"{TMP_PREFIX}{uuid.uuid4().hex[:12]}_analysis.wav"
+    cmd = [
+        _YTDLP_FFMPEG_LOCATION, "-y",
+        "-i", str(input_path),
+        "-ar", "44100",
+        "-ac", "2",
+        "-sample_fmt", "s16",
+        str(wav_path),
+    ]
+    try:
+        result = subprocess.run(cmd, capture_output=True, timeout=120)
+    except subprocess.TimeoutExpired as e:
+        raise ValueError("Audio conversion timed out.") from e
+    if result.returncode != 0:
+        stderr_excerpt = result.stderr.decode(errors="replace")[:300]
+        raise ValueError(f"Audio conversion failed: {stderr_excerpt}") from None
+    os.chmod(wav_path, 0o600)
+    return wav_path
+
+
 # CLI entry point (D-04). JSON output per D-05.
 if __name__ == "__main__":
     import os

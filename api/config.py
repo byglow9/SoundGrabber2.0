@@ -42,6 +42,7 @@ class Settings:
     admin_password: str = field(default_factory=lambda: os.environ.get("ADMIN_PASSWORD", ""))
     admin_session_secret: str = field(default_factory=lambda: os.environ.get("ADMIN_SESSION_SECRET", ""))
     featured_fallback_path: str = field(default_factory=lambda: os.environ.get("FEATURED_FALLBACK_PATH", ".data/featured-current.json"))
+    featured_history_path: str = field(default_factory=lambda: os.environ.get("FEATURED_HISTORY_PATH", ".data/featured-history.json"))
 
 
 settings = Settings()

@@ -1,9 +1,10 @@
 'use strict';
 
 document.addEventListener('DOMContentLoaded', function () {
-  var sobreSections    = ['section-projeto', 'section-aviso-legal', 'section-contato'];
-  var privSections     = ['section-privacidade'];
-  var allSections      = sobreSections.concat(privSections);
+  var sobreSections      = ['section-projeto', 'section-aviso-legal', 'section-contato'];
+  var privSections       = ['section-privacidade'];
+  var participarSections = ['section-participar'];
+  var allSections        = sobreSections.concat(privSections).concat(participarSections);
 
   function setSections(visible) {
     allSections.forEach(function (id) {
@@ -15,22 +16,17 @@ document.addEventListener('DOMContentLoaded', function () {
   function sgNav(page) {
     var wrapper     = document.getElementById('wrapper');
     var pageContent = document.getElementById('page-content');
-    var sidebar     = document.getElementById('featured-sidebar');
-    var sep         = document.getElementById('featured-separator');
 
     if (page === 'home') {
       wrapper.hidden     = false;
       pageContent.hidden = true;
       document.documentElement.style.overflow = '';
       document.body.style.overflow            = '';
-      if (sidebar) sidebar.hidden = false;
-      if (sep)     sep.hidden     = false;
     } else {
       wrapper.hidden     = true;
-      if (sidebar) sidebar.hidden = true;
-      if (sep)     sep.hidden     = true;
       if (page === 'sobre')       setSections(sobreSections);
       if (page === 'privacidade') setSections(privSections);
+      if (page === 'participar')  setSections(participarSections);
       pageContent.hidden = false;
       pageContent.scrollTop = 0;
       document.documentElement.style.overflow = 'hidden';
@@ -45,4 +41,73 @@ document.addEventListener('DOMContentLoaded', function () {
     e.preventDefault();
     sgNav(link.getAttribute('data-page'));
   });
+
+  var copyBtn = document.getElementById('copy-template-btn');
+  var status = document.getElementById('copy-template-status');
+  var participarTemplate = [
+    'Assunto: Som da Semana',
+    '',
+    'Nome do artista/grupo:',
+    'Link do artista/grupo:',
+    '',
+    'Nome do produtor/beatmaker:',
+    'Link do produtor/beatmaker:',
+    '',
+    'Titulo da faixa:',
+    'Genero musical:',
+    '',
+    'Link do YouTube:',
+    '',
+    'Descricao da faixa/projeto:',
+    '',
+    'Links adicionais:',
+    '1.',
+    '2.',
+    '3.',
+    '4.'
+  ].join('\n');
+
+  function setCopyStatus(text) {
+    if (!status) return;
+    status.textContent = text;
+    if (text) {
+      window.setTimeout(function () {
+        status.textContent = '';
+      }, 1800);
+    }
+  }
+
+  function fallbackCopy(text) {
+    var temp = document.createElement('textarea');
+    temp.value = text;
+    temp.setAttribute('readonly', 'readonly');
+    temp.style.position = 'fixed';
+    temp.style.left = '-9999px';
+    document.body.appendChild(temp);
+    temp.focus();
+    temp.select();
+    var copied = false;
+    try {
+      copied = document.execCommand('copy');
+    } catch (err) {
+      copied = false;
+    }
+    document.body.removeChild(temp);
+    return copied;
+  }
+
+  if (copyBtn) {
+    copyBtn.addEventListener('click', function () {
+      var text = participarTemplate;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(function () {
+          setCopyStatus('copiado');
+        }).catch(function () {
+          setCopyStatus(fallbackCopy(text) ? 'copiado' : 'erro');
+        });
+        return;
+      }
+      setCopyStatus(fallbackCopy(text) ? 'copiado' : 'erro');
+    });
+  }
 });

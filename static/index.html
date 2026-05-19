@@ -31,6 +31,8 @@
   <a href="#" data-page="sobre">SOBRE</a>
   <span>/</span>
   <a href="#" data-page="privacidade">PRIVACIDADE</a>
+  <span>/</span>
+  <a href="#" data-page="participar">PARTICIPAR</a>
 </div>
 
 <div id="wrapper">
@@ -46,7 +48,7 @@
               <div id="site-tagline">by <a href="https://instagram.com/divineglowboy" target="_blank" rel="noopener" style="color:inherit;text-decoration:none">@divineglowboy</a></div>
             </td>
             <td align="right" valign="bottom" style="border:none;padding:0">
-              <button type="button" id="info-btn" title="Aviso legal">?</button>
+              <button type="button" id="mode-btn">ANALISAR</button>
               <button type="button" id="clear-btn" title="Limpar">&#x21BA;</button>
             </td>
           </tr>
@@ -82,6 +84,18 @@
           <!-- populated by JS -->
         </div>
 
+      </td>
+    </tr>
+
+    <!-- Dropzone row (ANALISAR mode) -->
+    <tr>
+      <td id="dropzone-area" hidden>
+        <div id="dropzone">
+          <div id="dropzone-label">Arraste o arquivo aqui<br>ou clique para selecionar</div>
+          <div id="dropzone-formats">WAV &middot; MP3 &middot; FLAC &middot; M4A</div>
+          <div id="selected-file"></div>
+        </div>
+        <input type="file" id="file-input" accept=".wav,.mp3,.flac,.m4a" hidden>
       </td>
     </tr>
 
@@ -150,22 +164,6 @@
   </table>
 </div>
 
-  <!-- Overlay escurecedor -->
-  <div id="info-overlay" hidden></div>
-
-  <!-- Balão de fala — aviso legal -->
-  <div id="info-modal" hidden>
-    <div id="info-modal-title">AVISO LEGAL</div>
-    <div id="info-modal-body">
-      <p>Esta ferramenta foi desenvolvida para uso legítimo por produtores, artistas e entusiastas de música. Não somos afiliados ao YouTube ou ao Google.</p>
-      <p>Por exigência legal, não nos responsabilizamos pelo conteúdo baixado por meio desta plataforma. Todo o uso é de inteira responsabilidade do usuário. Registros de acesso são mantidos conforme exigido por lei.</p>
-      <p>Se você é titular de algum direito e tiver uma solicitação, pode nos contatar. O aviso completo está na página <a href="/sobre#aviso-legal">Sobre</a>.</p>
-    </div>
-    <div id="info-modal-footer">
-      <button type="button" id="info-close-btn">FECHAR</button>
-    </div>
-  </div>
-
   <!-- Painel sobre/privacidade — exibido no lugar do app sem trocar de página -->
   <div id="page-content" hidden>
     <table id="page-table" width="700" align="center" cellpadding="0" cellspacing="0">
@@ -173,15 +171,16 @@
         <td class="about-section">
           <h1>O que é o SoundGrabber</h1>
           <p>O SoundGrabber é uma ferramenta gratuita para produtores, artistas e entusiastas de música que precisam transformar links públicos do YouTube em arquivos WAV para estudo, referência, análise de BPM, tonalidade e organização de ideias musicais.</p>
-          <p>O projeto existe para apoiar o fluxo criativo independente — beatmakers, produtores underground e pessoas que trabalham com música de forma prática. A proposta não é redistribuir obras de terceiros nem substituir plataformas oficiais.</p>
+          <p>O projeto existe para apoiar o fluxo criativo independente. Beatmakers, produtores, artistas underground e pessoas que trabalham com música de forma prática. A proposta não é redistribuir obras de terceiros nem substituir plataformas oficiais.</p>
           <h2>Som da Semana</h2>
-          <p>Toda semana o SoundGrabber destaca um beat ou faixa de um artista underground brasileiro. A ideia é simples: dar visibilidade a quem produz fora do mainstream, apresentar referências sonoras novas e manter viva a cena independente.</p>
-          <p>Se você é produtor e quer ter seu som destacado, entre em contato pelo canal abaixo.</p>
-          <h2>Uso esperado</h2>
-          <p>Use a ferramenta apenas com conteúdos que você tem direito de acessar, baixar, estudar ou transformar. Cada usuário é responsável por respeitar direitos autorais, termos das plataformas de origem e leis aplicáveis.</p>
-          <p>Criado por <a href="https://instagram.com/divineglowboy" target="_blank" rel="noopener">@divineglowboy</a>. Código aberto no <a href="https://github.com/byglow9/SoundGrabber" target="_blank" rel="noopener">GitHub</a>.</p>
-        </td>
-      </tr>
+          <p>Toda semana o SoundGrabber destaca uma faixa/projeto de um artista underground brasileiro. A ideia é simples: dar visibilidade a quem produz fora do mainstream, apresentar referências sonoras novas e manter viva a cena independente.</p>
+          <p>Se você quer ter seu som destacado, entre em contato pelo canal abaixo.</p>
+	          <h2>Uso esperado</h2>
+	          <p>Use a ferramenta apenas com conteúdos que você tem direito de acessar, baixar, estudar ou transformar. Cada usuário é responsável por respeitar direitos autorais, termos das plataformas de origem e leis aplicáveis.</p>
+	          <p>Se você já tem um arquivo de áudio no computador e só quer descobrir BPM e tonalidade, use o modo <strong>ANALISAR</strong> na tela inicial para enviar o áudio isolado.</p>
+	          <p>Criado por <a href="https://instagram.com/divineglowboy" target="_blank" rel="noopener">@divineglowboy</a>. Código aberto no <a href="https://github.com/byglow9/SoundGrabber" target="_blank" rel="noopener">GitHub</a>.</p>
+	        </td>
+	      </tr>
       <tr id="section-aviso-legal" class="page-section">
         <td class="about-section">
           <h2>Aviso legal</h2>
@@ -216,14 +215,35 @@
       <tr id="section-contato" class="page-section">
         <td class="about-section">
           <h2>Contato</h2>
-          <p>Dúvidas ou solicitações de privacidade: <a href="mailto:contato@soundgrabber.com.br">contato@soundgrabber.com.br</a></p>
+          <p>Dúvidas ou solicitações de privacidade: <a href="mailto:contato@soundgrabber.com.br" class="contact-link">contato@soundgrabber.com.br</a></p>
           <p style="font-size:10px;color:#804400">Última atualização: maio de 2026</p>
         </td>
       </tr>
+      <tr id="section-participar" class="page-section">
+        <td class="about-section">
+          <h1>Participe do Som da Semana</h1>
+          <p>Toda semana o SoundGrabber destaca um beat ou faixa de um artista underground brasileiro. Se você produz ou representa alguém que merece visibilidade, manda pra gente.</p>
+          <h2>O que enviar</h2>
+          <p>Nome do artista ou grupo + link do perfil (Instagram, SoundCloud, etc.) — obrigatório<br>
+          Nome do produtor / beatmaker + link do perfil — obrigatório se houver produtor<br>
+          Título da faixa<br>
+          Gênero musical<br>
+          Link do YouTube — obrigatório para o player funcionar<br>
+          Breve descrição: 2 a 3 frases sobre o projeto ou a faixa</p>
+          <h2>Links adicionais</h2>
+          <p>Você pode incluir até 4 links extras para divulgar o que quiser junto ao destaque. Pode ser qualquer coisa: SoundCloud, Spotify, Instagram, loja de merch, link de pré-save, site do artista, Bandcamp — o que fizer mais sentido para o projeto.</p>
+	          <h2>Como enviar</h2>
+	          <p>Mande tudo por e-mail para <a href="mailto:contato@soundgrabber.com.br" class="contact-link">contato@soundgrabber.com.br</a> com o assunto <strong>Som da Semana</strong>.</p>
+	          <h2>Template para copiar</h2>
+	          <p><button type="button" id="copy-template-btn">Copiar template de envio</button>
+	          <span id="copy-template-status" aria-live="polite"></span></p>
+	          <p>Avaliamos todos os envios. Priorizamos as faixas que chegarem com mais informações preenchidas. Não garantimos publicação, mas respondemos a todos.</p>
+	        </td>
+	      </tr>
     </table>
   </div>
 
-  <script src="/static/app.js?v=8"></script>
+  <script src="/static/app.js?v=9"></script>
   <script src="/static/nav.js"></script>
 <pre id="ascii-side">                                                                        ######mm
                                                                           ::MM++::

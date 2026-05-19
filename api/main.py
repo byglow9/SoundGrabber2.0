@@ -7,6 +7,7 @@ import os as _os
 import re
 import threading
 import time
+import uuid
 from html import escape
 from datetime import date
 from hmac import compare_digest
@@ -16,7 +17,7 @@ from urllib.parse import parse_qs, urlparse
 
 import redis as redis_lib
 from celery.result import AsyncResult
-from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi import FastAPI, File, HTTPException, Request, Response, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -27,13 +28,15 @@ from slowapi.middleware import SlowAPIMiddleware
 from pydantic import BaseModel, field_validator
 
 from api.config import settings
-from api.tasks import celery_app, process_job, JobFailure
+from api.tasks import celery_app, process_job, JobFailure, analyze_local_file
 
 logger = logging.getLogger(__name__)
 
 YOUTUBE_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be"}
 JOB_ID_PATTERN = re.compile(r"^[a-zA-Z0-9-]{1,64}$")
 FEATURED_KEY = "featured:current"
+FEATURED_HISTORY_KEY = "featured:history"
+FEATURED_HISTORY_MAX = 52
 ADMIN_COOKIE_NAME = "sg_admin"
 ADMIN_SESSION_MAX_AGE = 60 * 60 * 24 * 7
 
@@ -153,6 +156,7 @@ class FeaturedLink(BaseModel):
 
 class FeaturedReleaseRequest(BaseModel):
     artistas: list[FeaturedArtist]
+    produtores: list[FeaturedArtist] = []
     titulo: str
     genero: str
     descricao: str
@@ -175,6 +179,13 @@ class FeaturedReleaseRequest(BaseModel):
             raise ValueError("At least one artist is required")
         if len(value) > 10:
             raise ValueError("Featured release supports at most 10 artists")
+        return value
+
+    @field_validator("produtores")
+    @classmethod
+    def max_ten_produtores(cls, value: list) -> list:
+        if len(value) > 10:
+            raise ValueError("Featured release supports at most 10 producers")
         return value
 
     @field_validator("links")
@@ -208,7 +219,7 @@ def sweep_expired_wavs(directory: Path, ttl_seconds: int) -> int:
     """
     deleted = 0
     now = time.time()
-    for pattern in ("sg_*.wav", "sg_*.part", "sg_*.ytdl"):
+    for pattern in ("sg_*.wav", "sg_*.part", "sg_*.ytdl", "sg_*_upload.*"):
         for f in Path(directory).glob(pattern):
             try:
                 if now - f.stat().st_mtime > ttl_seconds:
@@ -283,6 +294,49 @@ def _write_featured_fallback(payload: dict) -> None:
     tmp_path.replace(fallback_path)
 
 
+def _history_fallback_path() -> Path:
+    return Path(_os.environ.get("FEATURED_HISTORY_PATH", settings.featured_history_path))
+
+
+def _read_history_fallback() -> list[dict]:
+    path = _history_fallback_path()
+    if not path.exists():
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    return data if isinstance(data, list) else []
+
+
+def _write_history_fallback(entries: list[dict]) -> None:
+    path = _history_fallback_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(f"{path.suffix}.tmp")
+    tmp.write_text(json.dumps(entries, ensure_ascii=False), encoding="utf-8")
+    tmp.replace(path)
+
+
+def _append_to_history(payload: dict) -> None:
+    raw = json.dumps(payload, ensure_ascii=False)
+    try:
+        _redis.lpush(FEATURED_HISTORY_KEY, raw)
+        _redis.ltrim(FEATURED_HISTORY_KEY, 0, FEATURED_HISTORY_MAX - 1)
+    except (redis_lib.exceptions.ConnectionError, redis_lib.exceptions.TimeoutError):
+        pass
+    existing = _read_history_fallback()
+    entries = ([payload] + existing)[:FEATURED_HISTORY_MAX]
+    _write_history_fallback(entries)
+
+
+def _get_history(limit: int = FEATURED_HISTORY_MAX) -> list[dict]:
+    try:
+        raw_list = _redis.lrange(FEATURED_HISTORY_KEY, 0, limit - 1)
+        return [json.loads(r) for r in raw_list if r]
+    except (redis_lib.exceptions.ConnectionError, redis_lib.exceptions.TimeoutError):
+        return _read_history_fallback()
+
+
 def _load_featured() -> dict | None:
     try:
         raw = _redis.get(FEATURED_KEY)
@@ -344,7 +398,9 @@ def _normalize_artistas(current: dict) -> list:
 
 def _featured_document(request_body: FeaturedReleaseRequest) -> dict:
     return {
+        "id": str(uuid.uuid4()),
         "artistas": [a.model_dump() for a in request_body.artistas],
+        "produtores": [p.model_dump() for p in request_body.produtores],
         "titulo": request_body.titulo,
         "genero": request_body.genero,
         "descricao": request_body.descricao,
@@ -373,15 +429,16 @@ def _link_label_html(link: dict, index: int) -> str:
     )
 
 
-def _operator_panel_html(authenticated: bool, featured: dict | None = None) -> str:
+def _operator_panel_html(authenticated: bool, featured: dict | None = None, history: list[dict] | None = None) -> str:
+    _css_v = int(_os.path.getmtime(_os.path.join(_os.path.dirname(__file__), "..", "static", "style.css")))
     if not authenticated:
-        return """<!DOCTYPE html>
+        return f"""<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
 <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
 <title>Yonkou - SoundGrabber</title>
 <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/style.css?v={_css_v}">
 </head>
 <body class="yonkou-page yonkou-login-page">
 <div id="yonkou-wrapper" class="yonkou-login-wrapper">
@@ -400,40 +457,120 @@ def _operator_panel_html(authenticated: bool, featured: dict | None = None) -> s
 </html>"""
 
     current = featured or {}
+    has_current = bool(current)
     links = current.get("links") if isinstance(current.get("links"), list) else []
     link_1 = links[0] if len(links) > 0 and isinstance(links[0], dict) else {}
     link_2 = links[1] if len(links) > 1 and isinstance(links[1], dict) else {}
     link_3 = links[2] if len(links) > 2 and isinstance(links[2], dict) else {}
     link_4 = links[3] if len(links) > 3 and isinstance(links[3], dict) else {}
     artistas_data = _normalize_artistas(current)
-    artistas_display = escape(", ".join(a.get("nome", "") for a in artistas_data) or "-")
-    current_title = escape(str(current.get("titulo", "")))
+    produtores_data = [p for p in current.get("produtores", []) if isinstance(p, dict)]
+    current_titulo = escape(str(current.get("titulo", "") or ""))
+    current_genero = escape(str(current.get("genero", "") or ""))
+    current_data_str = escape(str(current.get("data_adicao", "") or ""))
+    current_descricao = escape(str(current.get("descricao", "") or ""))
+    artistas_json_attr = escape(json.dumps(artistas_data, ensure_ascii=False), quote=True)
+    produtores_json_attr = escape(json.dumps(produtores_data, ensure_ascii=False), quote=True)
+
+    def _person_html(p: dict) -> str:
+        nome = escape(str(p.get("nome", "") or ""))
+        url = escape(str(p.get("url", "") or ""))
+        return f'<a href="{url}" target="_blank" rel="noopener">{nome}</a>' if url else nome
+
+    artistas_html = " &amp; ".join(_person_html(a) for a in artistas_data) if artistas_data else "-"
+    produtores_html = " &amp; ".join(_person_html(p) for p in produtores_data) if produtores_data else ""
+
+    links_html = "".join(
+        f'<a href="{escape(str(lk.get("url","") or ""))}" target="_blank" rel="noopener" class="dash-link">'
+        f'{escape(str(lk.get("label","") or lk.get("url","") or ""))}</a>'
+        for lk in links if isinstance(lk, dict) and lk.get("url")
+    )
+
+    # Card esquerdo — som atual
+    if has_current:
+        prod_row = f'<div class="dash-row"><span class="dash-label">prod.</span><span class="dash-value">{produtores_html}</span></div>' if produtores_html else ""
+        desc_row = f'<div class="dash-descricao">{current_descricao}</div>' if current_descricao else ""
+        links_row = f'<div class="dash-links">{links_html}</div>' if links_html else ""
+        dash_current_html = f"""<div class="yonkou-kicker">{current_genero}</div>
+<div id="dash-titulo">{current_titulo}</div>
+<div class="dash-row"><span class="dash-label">artista</span><span class="dash-value">{artistas_html}</span></div>
+{prod_row}
+<div class="dash-row dash-row-data"><span class="dash-label">publicado</span><span class="dash-value">{current_data_str}</span></div>
+{desc_row}
+{links_row}
+<div id="dash-edit-row"><button type="button" id="edit-btn" class="yonkou-secondary">Editar</button></div>"""
+    else:
+        dash_current_html = '<div class="yonkou-help" style="padding:10px 0">Nenhum som publicado ainda.</div>'
+
+    # Card direito — histórico
+    hist = history or []
+    if hist:
+        hist_items = "".join(
+            f'<div class="history-item">'
+            f'<span class="history-item-titulo">{escape(str(h.get("titulo", "") or ""))}</span>'
+            f'<span class="history-item-meta"> / {escape(", ".join(a.get("nome","") for a in _normalize_artistas(h)) or "-")}'
+            f' ({escape(str(h.get("data_adicao","") or ""))})</span></div>'
+            for h in hist
+        )
+    else:
+        hist_items = '<div class="yonkou-help">nenhum histórico ainda</div>'
+
     return f"""<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
 <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
 <title>Yonkou - SoundGrabber</title>
 <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/style.css?v={_css_v}">
 </head>
 <body class="yonkou-page">
 <div id="yonkou-wrapper">
 <table id="yonkou-panel" width="700" align="center" cellpadding="0" cellspacing="0">
 <tr><td id="yonkou-header">
-<div id="site-title">SoundGrabber</div>
 <div id="site-tagline">painel operador / yonkou</div>
 </td></tr>
-<tr><td id="yonkou-card">
-<div class="yonkou-kicker">SOM DA SEMANA</div>
-<h1>Painel Yonkou</h1>
-<div id="current-release">Atual: {artistas_display} - {current_title or "-"}</div>
-<form id="featured-editor" class="yonkou-form">
+<tr><td id="yonkou-card" style="border:none;padding-top:18px">
+<div id="yonkou-dashboard">
+<table width="100%" cellpadding="0" cellspacing="10" id="dashboard-table">
+<tr>
+<td width="58%" valign="top" style="height:1px">
+<div id="dash-current">{dash_current_html}</div>
+</td>
+<td width="42%" valign="top" style="height:1px">
+<div id="dash-history">
+<div id="history-header">Historico de sons</div>
+<div id="history-list">{hist_items}</div>
+</div>
+</td>
+</tr>
+<tr>
+<td colspan="2" id="dash-new-row" style="padding-top:18px">
+<button type="button" id="new-btn" class="yonkou-primary" style="width:100%">+ Cadastrar novo som da semana</button>
+</td>
+</tr>
+</table>
+</div>
+<div id="form-section" style="display:none">
+<table width="100%" cellpadding="0" cellspacing="0" id="form-header-table">
+<tr>
+<td><button type="button" id="voltar-btn" class="yonkou-secondary">&#x2190; voltar</button></td>
+<td align="right"><h2 id="form-title" style="margin:0">Novo Som da Semana</h2></td>
+</tr>
+</table>
+<form id="featured-editor" class="yonkou-form" data-artistas="{artistas_json_attr}" data-produtores="{produtores_json_attr}">
 <table id="yonkou-form-table" width="100%" cellpadding="0" cellspacing="0">
 <tr>
 <td class="yonkou-label-cell" style="vertical-align:top;padding-top:10px">Artistas</td>
 <td>
 <div id="artistas-list"></div>
 <button type="button" id="add-artista-btn" class="yonkou-secondary">+ artista</button>
+</td>
+</tr>
+<tr>
+<td class="yonkou-label-cell" style="vertical-align:top;padding-top:10px">Produtores</td>
+<td>
+<div id="produtores-list"></div>
+<button type="button" id="add-produtor-btn" class="yonkou-secondary">+ produtor</button>
 </td>
 </tr>
 <tr>
@@ -490,10 +627,10 @@ def _operator_panel_html(authenticated: bool, featured: dict | None = None) -> s
 </tr>
 </table>
 </fieldset>
-<button type="submit" class="yonkou-primary">Salvar Som</button>
+<button type="submit" class="yonkou-primary">Salvar</button>
 </form>
+</div>
 <div id="yonkou-message"></div>
-<script>var YONKOU_ARTISTAS = {json.dumps(artistas_data, ensure_ascii=False)};</script>
 <script src="/static/yonkou.js"></script>
 </td></tr>
 </table>
@@ -588,10 +725,15 @@ app = FastAPI(
 app.state.limiter = limiter
 
 _MAX_BODY_BYTES = 4 * 1024  # 4 KB — far exceeds any valid YouTube URL POST body
+_ANALYZE_MAX_BYTES = 50 * 1024 * 1024  # 50 MB — legitimate audio file upload (WAV ~5min, MP3 ~45min)
+_ALLOWED_AUDIO_EXTENSIONS = frozenset({".wav", ".mp3", ".flac", ".m4a"})
 
 
 @app.middleware("http")
 async def _limit_body_size(request: Request, call_next):
+    # /analyze has its own size validation (file upload — legitimate payloads up to 50 MB)
+    if request.url.path == "/analyze":
+        return await call_next(request)
     cl = request.headers.get("content-length")
     if cl is not None:
         try:
@@ -691,6 +833,47 @@ def submit_job(request: Request, request_body: JobRequest, response: Response) -
     # _redis.expire(JOB_REGISTRY_KEY, ...) resetava o TTL do set inteiro a cada
     # submit — jobs antigos podiam expirar prematuramente com alta carga, e jobs
     # em andamento ficavam sem registro se o set expirasse por inatividade.
+    _redis.set(f"sg:job:{task.id}", "1", ex=settings.wav_ttl)
+    return {"job_id": task.id}
+
+
+@app.post("/analyze", status_code=202)
+@limiter.limit("3/minute")
+def submit_analyze(
+    request: Request,
+    response: Response,
+    file: UploadFile = File(...),
+) -> dict:
+    suffix = Path(file.filename or "").suffix.lower()
+    if suffix not in _ALLOWED_AUDIO_EXTENSIONS:
+        return JSONResponse(
+            status_code=422,
+            content={"error": "Formato inválido. Use WAV, MP3, FLAC ou M4A.", "error_type": "validation_error"},
+        )
+
+    cl_header = request.headers.get("content-length")
+    if cl_header is not None:
+        try:
+            if int(cl_header) > _ANALYZE_MAX_BYTES:
+                return JSONResponse(
+                    status_code=413,
+                    content={"error": "Arquivo muito grande. Máximo 50 MB.", "error_type": "request_error"},
+                )
+        except ValueError:
+            pass
+
+    content = file.file.read()
+    if len(content) > _ANALYZE_MAX_BYTES:
+        return JSONResponse(
+            status_code=413,
+            content={"error": "Arquivo muito grande. Máximo 50 MB.", "error_type": "request_error"},
+        )
+
+    tmp_path = Path("/tmp") / f"sg_{uuid.uuid4().hex[:12]}_upload{suffix}"
+    tmp_path.write_bytes(content)
+    _os.chmod(tmp_path, 0o600)
+
+    task = analyze_local_file.delay(str(tmp_path))
     _redis.set(f"sg:job:{task.id}", "1", ex=settings.wav_ttl)
     return {"job_id": task.id}
 
@@ -822,7 +1005,7 @@ def yonkou_panel(request: Request, response: Response) -> HTMLResponse:
         _require_admin(request)
     except HTTPException:
         return HTMLResponse(_operator_panel_html(authenticated=False))
-    return HTMLResponse(_operator_panel_html(authenticated=True, featured=_load_featured()))
+    return HTMLResponse(_operator_panel_html(authenticated=True, featured=_load_featured(), history=_get_history(limit=5)))
 
 
 @app.post("/yonkou/login")
@@ -853,17 +1036,50 @@ def yonkou_login(
     return response
 
 
-@app.post("/featured")
+@app.post("/yonkou/releases")
 @limiter.limit("10/minute")
-def post_featured(
+def post_release(
     request: Request,
     request_body: FeaturedReleaseRequest,
     response: Response,
 ) -> dict:
     _require_admin(request)
+    current = _load_featured()
+    if current:
+        _append_to_history(current)
     payload = _featured_document(request_body)
     _save_featured(payload)
     return payload
+
+
+@app.patch("/yonkou/releases/current")
+@limiter.limit("10/minute")
+def patch_release(
+    request: Request,
+    request_body: FeaturedReleaseRequest,
+    response: Response,
+) -> dict:
+    _require_admin(request)
+    current = _load_featured()
+    existing_id = current.get("id") if current else None
+    existing_data_adicao = current.get("data_adicao") if current else None
+    payload = _featured_document(request_body)
+    if existing_id:
+        payload["id"] = existing_id
+    if existing_data_adicao:
+        payload["data_adicao"] = existing_data_adicao
+    _save_featured(payload)
+    return payload
+
+
+@app.get("/yonkou/releases")
+@limiter.limit("30/minute")
+def get_releases(request: Request, response: Response):
+    _require_admin(request)
+    entries = _get_history()
+    if not entries:
+        return Response(status_code=204)
+    return entries
 
 
 # ── Static files ──────────────────────────────────────────────────────────────
