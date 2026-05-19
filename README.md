@@ -25,7 +25,7 @@ Sem cadastro. Sem mensalidade. Sem enrolação.
 
 Para beatmakers, produtores e artistas underground que trabalham com música de forma prática.
 
-Você achou um som foda no YouTube. Quer saber o BPM exato antes de samplear, confirmar o tom antes de encaixar no projeto, ter o WAV direto no computador pra abrir na DAW sem precisar um monte de site horrivel cheio de anuncio travado que te redireciona pra 30 outras paginas. O SoundGrabber faz tudo isso em menos de um minuto, sem precisar instalar nada.
+Você achou um som foda no YouTube. Quer saber o BPM exato antes de samplear, confirmar o tom antes de encaixar no projeto, ter o WAV direto no computador pra abrir na DAW sem precisar de um monte de sites horriveis cheios de anuncio, travado, que te redireciona pra outras 30 paginas. O SoundGrabber faz tudo isso em menos de um minuto, sem precisar instalar nada.
 
 ## Como funciona
 
