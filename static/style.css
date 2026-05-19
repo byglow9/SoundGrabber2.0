@@ -688,18 +688,12 @@ td {
 }
 
 .featured-link-icon {
-  display: inline-block;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
-  background: #ff8800;
-  color: #000000;
-  font-size: 9px;
-  padding: 1px 3px;
-  margin-right: 2px;
-  font-weight: bold;
-  letter-spacing: 0.5px;
-}
-
-.featured-link:hover .featured-link-icon {
+  width: 18px;
+  height: 18px;
   background: #000000;
   color: #ff8800;
 }
