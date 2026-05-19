@@ -6,6 +6,19 @@ document.addEventListener('DOMContentLoaded', function () {
   var participarSections = ['section-participar'];
   var allSections        = sobreSections.concat(privSections).concat(participarSections);
 
+  var pageScroll = document.getElementById('page-scroll');
+  var scrollHint = document.getElementById('scroll-hint');
+
+  function updateScrollHint() {
+    if (!scrollHint || !pageScroll) return;
+    var atBottom = pageScroll.scrollTop + pageScroll.clientHeight >= pageScroll.scrollHeight - 4;
+    scrollHint.hidden = atBottom;
+  }
+
+  if (pageScroll) {
+    pageScroll.addEventListener('scroll', updateScrollHint);
+  }
+
   function setSections(visible) {
     allSections.forEach(function (id) {
       var el = document.getElementById(id);
@@ -28,9 +41,10 @@ document.addEventListener('DOMContentLoaded', function () {
       if (page === 'privacidade') setSections(privSections);
       if (page === 'participar')  setSections(participarSections);
       pageContent.hidden = false;
-      pageContent.scrollTop = 0;
+      if (pageScroll) pageScroll.scrollTop = 0;
       document.documentElement.style.overflow = 'hidden';
       document.body.style.overflow            = 'hidden';
+      window.setTimeout(updateScrollHint, 0);
     }
   }
 
