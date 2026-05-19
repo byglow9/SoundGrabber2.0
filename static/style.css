@@ -703,6 +703,11 @@ td {
   background: #ff8800;
 }
 
+.featured-link:hover .featured-link-icon {
+  background: #ff8800;
+  color: #000000;
+}
+
 /* ============================================================
    Painel Yonkou — operador
    Reusa a identidade visual do SoundGrabber sem estilos inline.
