@@ -117,7 +117,13 @@ ok ".env de producao validado."
 log "Validando docker-compose..."
 docker compose config --quiet
 
-redis_ports="$(docker compose config | awk '/redis:/{in_redis=1} in_redis && /ports:/{print; exit} /^  [a-zA-Z0-9_-]+:/{if ($1 != "redis:") in_redis=0}' || true)"
+redis_ports="$(python3 -c "
+import yaml, sys
+with open('docker-compose.yml') as f:
+    c = yaml.safe_load(f)
+ports = c.get('services', {}).get('redis', {}).get('ports', [])
+for p in ports: print(p)
+" 2>/dev/null || true)"
 [ -z "$redis_ports" ] || fail "Redis nao deve expor ports no docker-compose.yml"
 
 api_loopback="$(docker compose config | rg -n '127\.0\.0\.1:8000:8000|host_ip: 127\.0\.0\.1' || true)"
