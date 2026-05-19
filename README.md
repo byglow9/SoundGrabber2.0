@@ -17,16 +17,7 @@ Sem cadastro. Sem mensalidade. Sem enrolação.
 
 ---
 
-<!-- DEMO VIDEO
-     Para gerar o player inline no GitHub:
-     1. Abra esta issue: https://github.com/byglow9/SoundGrabber/issues/new
-     2. Arraste o arquivo "Video Project.mp4" na caixa de texto
-     3. Aguarde o upload — o GitHub vai gerar uma URL do tipo:
-        https://github.com/user-attachments/assets/xxxx/demo.mp4
-     4. Substitua este bloco pelo código abaixo com a URL gerada:
-
-     <video src="https://github.com/user-attachments/assets/XXXX/demo.mp4" controls width="700"></video>
--->
+<video src="https://github.com/user-attachments/assets/1611d0d4-da5a-426e-8fd3-2416de678e57" controls width="700"></video>
 
 ---
 
