@@ -1318,22 +1318,37 @@ body.yonkou-login-page {
 }
 
 /* ============================================================
-   Responsividade — zoom uniforme para telas menores
-   Layout base ocupa ~1450px; breakpoints escalam com zoom.
+   Responsividade — zoom uniforme + redução do gap esquerdo
+   Layout natural ocupa ~1635px. Cada breakpoint garante que
+   o conteúdo caiba dentro da viewport com margem.
+   Cálculo: layout_width * zoom ≤ viewport_width
    ============================================================ */
 
-@media screen and (max-width: 1500px) {
-  html { zoom: 0.92; }
+@media screen and (max-width: 1640px) {
+  html { zoom: 0.94; }
+}
+
+@media screen and (max-width: 1540px) {
+  html { zoom: 0.88; }
+  #featured-main-cell { padding-left: 180px; }
+}
+
+@media screen and (max-width: 1440px) {
+  html { zoom: 0.82; }
+  #featured-main-cell { padding-left: 140px; }
 }
 
 @media screen and (max-width: 1366px) {
-  html { zoom: 0.84; }
+  html { zoom: 0.76; }
+  #featured-main-cell { padding-left: 100px; }
 }
 
 @media screen and (max-width: 1280px) {
-  html { zoom: 0.78; }
+  html { zoom: 0.70; }
+  #featured-main-cell { padding-left: 60px; }
 }
 
 @media screen and (max-width: 1100px) {
-  html { zoom: 0.68; }
+  html { zoom: 0.62; }
+  #featured-main-cell { padding-left: 40px; }
 }
