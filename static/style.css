@@ -475,6 +475,14 @@ td {
   padding: 16px;
 }
 
+#uso {
+  padding-bottom: 0;
+}
+
+#uso p:last-child {
+  margin-bottom: 0;
+}
+
 .about-section h1,
 #privacy-wrap h1 {
   font-family: 'Dela Gothic One', sans-serif;
