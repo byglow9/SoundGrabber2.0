@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(rm -rf .git/worktrees/agent-a09236570ab2d84c1 .git/worktrees/agent-acc190e5bb996c244 .git/worktrees/agent-ae8def2021453890b)",
-      "Bash(git worktree *)"
+      "Bash(git worktree *)",
+      "PowerShell(Set-Location \"E:\\\\projetos git\\\\SoundGrabber\"; $env:PATH += \";C:\\\\Program Files\\\\Git\\\\cmd\"; git log --oneline --grep=\"12-01\" -5; git log --oneline -3)",
+      "PowerShell(Test-Path *)"
     ]
   }
 }

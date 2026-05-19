@@ -1,4 +1,6 @@
-# SoundGrabber — Project Guide
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## What This Is
 
@@ -10,8 +12,90 @@ Ferramenta web para produtores e artistas underground colarem um link do YouTube
 - **Task queue:** Celery + Redis
 - **Download:** yt-dlp (com cookies + PO Token — obrigatório para YouTube)
 - **Conversão:** FFmpeg
-- **Análise:** librosa (BPM + key detection)
+- **Análise:** Essentia (BPM via RhythmExtractor2013, key via KeyExtractor, tuning via TuningFrequency)
 - **Frontend:** Vanilla HTML + CSS + JS — zero frameworks
+
+## Dev Commands
+
+```bash
+# Ambiente local (inicia Redis + Celery + Uvicorn com --reload)
+./start.sh
+
+# Testes unitários (~5s, sem rede, sem FFmpeg)
+pytest
+
+# Testes de integração (requer FFmpeg e fixture WAV — sem rede)
+pytest -m integration
+
+# Testes de segurança (DEVE estar verde antes de qualquer commit em main)
+pytest tests/test_security.py
+
+# Testes e2e (requer YouTube ao vivo + cookies.txt + PO Token — manual)
+pytest -m e2e
+
+# Pipeline direto (saída JSON para stdout)
+python pipeline.py <youtube_url>
+
+# Docker (produção)
+docker build -t soundgrabber .
+docker run -p 8000:8000 --env-file .env soundgrabber
+```
+
+## Arquitetura
+
+### Módulos principais
+
+| Arquivo | Responsabilidade |
+|---------|-----------------|
+| `pipeline.py` | Pipeline completo: download → conversão → análise. Sem dependência de API. |
+| `api/config.py` | `Settings` (dataclass frozen) — lê env vars via `os.environ` no momento de instanciação |
+| `api/tasks.py` | Celery app + tarefa `process_job` — orquestra o pipeline com estados customizados |
+| `api/main.py` | FastAPI app — endpoints HTTP, rate limiting, middlewares de segurança, sweeper de WAV |
+| `static/` | Frontend: `index.html`, `app.js`, `style.css`, `yonkou.js`, fontes bitmap, bordas PNG |
+
+### Fluxo de dados de uma requisição
+
+1. `POST /jobs` — valida URL YouTube (Pydantic), enfileira `process_job` via Celery, grava `sg:job:{id}` no Redis (TTL = `WAV_TTL_SECONDS`)
+2. Celery worker executa `process_job`:
+   - `DOWNLOADING/checking_duration` → `check_duration()` (yt-dlp, sem download)
+   - `DOWNLOADING/downloading` → `download_audio()` → `/tmp/sg_{12hex}.wav`
+   - `CONVERTING` (marcador de estado, WAV já produzido pelo postprocessor do yt-dlp)
+   - `ANALYZING` → `analyze_audio()` → BPM + key + Camelot + tuning + duração
+3. `GET /jobs/{id}` — consulta `AsyncResult`; retorna estado customizado ou resultado final
+4. `GET /files/{id}` — serve o WAV via `FileResponse` após validação de path traversal
+5. Daemon thread `wav-sweeper` limpa `/tmp/sg_*.{wav,part,ytdl}` a cada 60s
+
+### Estados Celery customizados
+
+`PENDING` → `DOWNLOADING` → `CONVERTING` → `ANALYZING` → `SUCCESS` / `FAILURE`
+
+O estado `FAILURE` usa `JobFailure(error, error_type)` — exceção serializável que chega como `result.result` no `AsyncResult`.
+
+### Autenticação YouTube (híbrida)
+
+- **cookies.txt** em `/data/yt-dlp-cache/cookies.txt` no host (bind mount `:ro` no notebook) — identidade autenticada; chmod 700 no diretório, 600 no arquivo
+- **bgutil** (`BGUTIL_BASE_URL`) — PO Token para desafio JS; **inativo em IP residencial** (`BGUTIL_BASE_URL=` vazio no .env do notebook); Plano B se `LOGIN_REQUIRED` aparecer mesmo com cookies frescos
+- Quando bgutil presente: `player_client=["web_safari", "web"]`; ausente: `["android"]` (default atual no notebook)
+- `_writable_cookies()` copia o arquivo readonly para `/tmp/sg_cookies_*.txt` antes de passar ao yt-dlp (bind mount `:ro` — yt-dlp tenta `save_cookies()` no exit e quebraria sem a cópia)
+
+### "Som da Semana" (Yonkou)
+
+Painel operador em `/yonkou` — autenticado via cookie HMAC (`itsdangerous`). Dados do release em destaque gravados no Redis (`featured:current`) com fallback em `.data/featured-current.json`. `ADMIN_PASSWORD` e `ADMIN_SESSION_SECRET` são obrigatórios em produção.
+
+## Variáveis de Ambiente
+
+| Variável | Default local | Obrigatória em prod |
+|----------|--------------|---------------------|
+| `REDIS_URL` | `redis://localhost:6379/0` | sim (com credenciais) |
+| `DEV_MODE` | `true` | não (ausência = `false`) |
+| `YTDLP_CACHE_DIR` | `""` | sim |
+| `BGUTIL_BASE_URL` | `""` | recomendado |
+| `ADMIN_PASSWORD` | `correct horse` | sim |
+| `ADMIN_SESSION_SECRET` | (string local) | sim |
+| `WAV_TTL_SECONDS` | `900` | opcional |
+| `RATE_LIMIT_PER_MINUTE` | `3` | opcional |
+
+Copie `.env.example` → `.env` para desenvolvimento local.
 
 ## GSD Workflow
 
@@ -48,7 +132,7 @@ Este projeto usa GSD para planejamento e execução.
 
 - **Sem contas de usuário** — ferramenta stateless, sem auth
 - **WAV apenas** — formato lossless, qualidade para produtores
-- **Limite de 15 minutos** — vídeos mais longos são recusados
+- **Limite de 15 minutos** — vídeos mais longos são recusados (`MAX_DURATION_SEC = 900`)
 - **Estética Y2K autêntica** — construído COMO sites de 2000-2005, não releitura moderna. Tabelas para layout, sem flexbox/grid, fontes bitmap, hex colors brutas, sem CSS variables
 - **YouTube bot detection** — yt-dlp DEVE usar cookies + PO Token desde o primeiro deploy
 
@@ -89,9 +173,3 @@ Este projeto usa GSD para planejamento e execução.
 ### Quando esta regra pode ser flexibilizada
 
 Nunca silenciosamente. Apenas com decisao explicita registrada em `STATE.md` (Key Decisions) e justificativa que sobreviva a revisao 6 meses depois. Default eh: aplicar o controle.
-
-## Próximo passo
-
-```
-/gsd-discuss-phase 1
-```

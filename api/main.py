@@ -874,6 +874,11 @@ def post_featured(
 STATIC_DIR = Path(__file__).parent.parent / "static"
 
 
+@app.get("/robots.txt", include_in_schema=False)
+def serve_robots():
+    return FileResponse(str(STATIC_DIR / "robots.txt"), media_type="text/plain")
+
+
 @app.get("/")
 def serve_index():
     """Serve index.html — browser entry point for Phase 4 frontend."""
