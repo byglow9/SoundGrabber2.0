@@ -42,22 +42,19 @@ import yt_dlp
 
 logger = logging.getLogger(__name__)
 
-_system_ffprobe = shutil.which("ffprobe")
-if _system_ffprobe is None:
-    raise RuntimeError(
-        "ffprobe not found in PATH. Install ffmpeg system package: apt-get install ffmpeg"
-    )
-_FFPROBE_PATH = _system_ffprobe
+_FFPROBE_PATH: str | None = shutil.which("ffprobe")
+# DEPLOY-04: ffmpeg/ffprobe resolvidos via PATH do sistema (apt no Dockerfile).
+# Check lazy — falha na primeira chamada, não no import, para permitir testes sem ffmpeg no host.
+_YTDLP_FFMPEG_LOCATION: str | None = shutil.which("ffmpeg")
+_FFMPEG_DIR: str = str(Path(_YTDLP_FFMPEG_LOCATION).parent) if _YTDLP_FFMPEG_LOCATION else ""
 
-# DEPLOY-04 fix: ffmpeg/ffprobe resolvidos via PATH do sistema (apt no Dockerfile).
-# Sem fallback — startup falha rápido se ffmpeg não estiver instalado (D-02).
-_system_ffmpeg = shutil.which("ffmpeg")
-if _system_ffmpeg is None:
-    raise RuntimeError(
-        "ffmpeg not found in PATH. Install ffmpeg system package: apt-get install ffmpeg"
-    )
-_YTDLP_FFMPEG_LOCATION = _system_ffmpeg
-_FFMPEG_DIR = str(Path(_YTDLP_FFMPEG_LOCATION).parent)
+
+def _require_ffmpeg() -> None:
+    """Falha rápido se ffprobe/ffmpeg ausentes — checado na primeira chamada real, não no import."""
+    if _FFPROBE_PATH is None or _YTDLP_FFMPEG_LOCATION is None:
+        raise RuntimeError(
+            "ffprobe/ffmpeg not found in PATH. Install ffmpeg: apt-get install ffmpeg"
+        )
 _NODE_PATH = shutil.which("node")
 
 
@@ -114,6 +111,7 @@ def check_duration(url: str, cache_dir: str) -> dict[str, Any]:
         ValueError: If the video duration exceeds MAX_DURATION_SEC (15 minutes),
                     or if duration metadata is missing.
     """
+    _require_ffmpeg()
     # Phase 10.1 gap closure (plan 06): hybrid auth — bgutil URL lida do env (sem signature change D-02)
     bgutil_base_url = os.environ.get("BGUTIL_BASE_URL", "")
     # Clientes web requerem PO Token; bgutil 0.8.x suporta web_safari e web.
@@ -208,6 +206,7 @@ def download_audio(url: str, cache_dir: str) -> Path:
         RuntimeError: If yt-dlp fails (network error, bot detection, expired cookies).
         FileNotFoundError: If the WAV file is not present after a successful download.
     """
+    _require_ffmpeg()
     wav_id = uuid.uuid4().hex[:12]
     outtmpl_base = str(WAV_TMP_DIR / f"{TMP_PREFIX}{wav_id}")
     wav_path = Path(f"{outtmpl_base}.wav")
@@ -347,6 +346,7 @@ def validate_wav(wav_path: Path) -> float:
         ValueError: If ffprobe exits non-zero, the file is missing, the duration is missing
                     from ffprobe output, or the duration is below 1 second (corrupt audio).
     """
+    _require_ffmpeg()
     wav_path = Path(wav_path)
     if not wav_path.exists():
         raise ValueError(f"WAV file does not exist: {wav_path}")
@@ -707,6 +707,7 @@ def convert_uploaded_to_wav(input_path: Path) -> Path:
     Raises:
         ValueError: If FFmpeg fails to convert the file.
     """
+    _require_ffmpeg()
     validate_wav(input_path)
     wav_path = WAV_TMP_DIR / f"{TMP_PREFIX}{uuid.uuid4().hex[:12]}_analysis.wav"
     cmd = [
