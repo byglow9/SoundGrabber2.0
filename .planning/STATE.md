@@ -107,6 +107,10 @@ Last activity: 2026-05-15
 - [ ] Validar pipeline E2E com 3 URLs de beats (Task 2 do plano 10.1-06)
 - [ ] Cleanup YTDLP_COOKIES_B64 após E2E aprovado (Task 3 do plano 10.1-06)
 
+### Pending Todos
+
+- [ ] Benchmark enhanced audio against y2meta — validate clipping, cutoff, and stereo differences across more beats before planning enhanced export mode.
+
 ### Blockers
 
 **CRÍTICO (2026-05-13):** YouTube retorna `LOGIN_REQUIRED` mesmo com GetPOT funcionando e PO Token gerado com sucesso. Stack técnico completo e correto: cookies chegam, Node ativo, bgutil gera PO Token (HTTP 200), extractor_args no formato certo, player_clients `web_safari,web`. YouTube rejeita na camada de autenticação. Diagnóstico aponta para **cookies expirados no Volume** — bytes caíram de 2987 para ~1600 durante tentativas (yt-dlp sobrescreve jar ao detectar sessão inválida). Próximo passo: exportar cookies frescos de conta Google autenticada e atualizar `YTDLP_COOKIES_B64`.
