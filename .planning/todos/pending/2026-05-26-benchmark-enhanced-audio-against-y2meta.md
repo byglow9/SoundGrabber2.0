@@ -30,7 +30,15 @@ Second measured beat, y2meta comparison:
 
 Before changing production behavior, test at least one more identical beat across SoundGrabber and y2meta and record the same metrics. If the pattern repeats, plan an optional enhanced export mode that can:
 
-- reduce clipping to roughly the y2meta range;
-- apply a controlled low-pass or high-frequency shaping near the competitor's measured cutoff;
-- optionally adjust stereo width toward the measured y2meta profile;
+- apply anti-clipping/limiting only when clipping is detected;
+- apply optional high-cut/high-frequency smoothing only when the source has excessive or harsh high-frequency content;
+- leave already clean/cut sources untouched;
+- avoid global stereo widening/narrowing unless repeated measurements show a consistent need;
 - preserve the current unprocessed WAV path as the clean/default workflow.
+
+Target enhancement policy:
+
+- If clipping is present, apply an anti-clipping/limiter stage with conservative headroom.
+- If high-frequency content is excessive or harsh, offer/apply a controlled high-cut stage.
+- If the source is already clean, dynamically limited, or spectrally cut, do not process it further.
+- Treat enhancement as source-aware polish, not as a claim of restoring lost quality.
