@@ -21,6 +21,11 @@ Second measured beat, SoundGrabber only so far:
 - SoundGrabber WAV: 44.1 kHz, 16-bit PCM, 1411 kbps, 21.52 MB, duration 2:07, cutoff 15.2 kHz, bandwidth usage 68.8%, RMS -14.93 dBFS, peak 0.00 dBFS, crest 14.9 dB, clipping none, noise floor -120.0 dB, spectral rolloff 388 Hz, stereo correlation 0.8124, stereo width narrow, mid energy 76.5193, side energy 24.6229, M/S ratio 3.11.
 - This sample already has a lossy-source cutoff around 15.2 kHz and no clipping in SoundGrabber output, so any future enhanced mode must be conditional/source-aware rather than applying the first sample's fixes globally.
 
+Second measured beat, y2meta comparison:
+
+- y2meta MP3: 44.1 kHz, 320 kbps MP3, 4.88 MB, duration 2:08, cutoff 16.1 kHz, bandwidth usage 72.8%, RMS -14.93 dBFS, peak 0.00 dBFS, crest 14.9 dB, clipping none, noise floor -120.0 dB, spectral rolloff 388 Hz, stereo correlation 0.8132, stereo width narrow, mid energy 76.7423, side energy 24.6364, M/S ratio 3.11.
+- Beat 2 conclusion: SoundGrabber and y2meta are effectively identical on loudness, dynamics, clipping, noise floor, rolloff, and stereo. The only material measured differences are container/size/codec and frequency cutoff (SoundGrabber 15.2 kHz vs y2meta 16.1 kHz). This weakens any global rule to reduce clipping, low-pass, or alter stereo width for every download.
+
 ## Solution
 
 Before changing production behavior, test at least one more identical beat across SoundGrabber and y2meta and record the same metrics. If the pattern repeats, plan an optional enhanced export mode that can:
