@@ -656,7 +656,7 @@ function renderFeatured(data) {
       const iconKey = Object.keys(LINK_ICONS).find(k => k.toLowerCase() === item.label.toLowerCase()) || 'Outros';
       const iconWrap = document.createElement('span');
       iconWrap.className = 'featured-link-icon';
-      iconWrap.innerHTML = LINK_ICONS[iconKey];
+      iconWrap.textContent = iconKey === 'Outros' ? '↗' : item.label.charAt(0).toUpperCase();
       link.appendChild(iconWrap);
       link.appendChild(document.createTextNode(item.label));
 
@@ -683,6 +683,34 @@ async function loadFeatured() {
   }
 }
 
+function renderLatestUpdate(entries) {
+  const shell = $('updates-teaser-shell');
+  if (!shell) return;
+  if (!Array.isArray(entries) || entries.length === 0) {
+    shell.hidden = true;
+    return;
+  }
+  const latest = entries[0];
+  $('updates-teaser-title').textContent = latest.titulo || '';
+  $('updates-teaser-summary').textContent = latest.resumo || '';
+  shell.hidden = false;
+}
+
+async function loadLatestUpdate() {
+  try {
+    const response = await fetch('/updates?limit=1');
+    if (response.status === 204) {
+      renderLatestUpdate([]);
+      return;
+    }
+    if (!response.ok) return;
+    const data = await response.json();
+    renderLatestUpdate(data);
+  } catch (err) {
+    renderLatestUpdate([]);
+  }
+}
+
 // Stage labels per UI-SPEC.md Copywriting Contract (Progress Stage Labels)
 function stageLabel(status, stage) {
   if (status === 'queued') return 'Na fila...';
@@ -702,6 +730,7 @@ function stageLabel(status, stage) {
 
 function init() {
   loadFeatured();
+  loadLatestUpdate();
 
   // Wire submit button
   $('submit-btn').addEventListener('click', () => {

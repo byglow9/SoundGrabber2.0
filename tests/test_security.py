@@ -25,6 +25,7 @@ Run: pytest tests/test_security.py -x -q
 from __future__ import annotations
 
 import os
+import json
 import re
 import stat
 from pathlib import Path
@@ -384,6 +385,18 @@ def _login_operator(api_client):
 
 def _csrf_headers(token: str) -> dict[str, str]:
     return {"X-CSRF-Token": token}
+
+
+def _update_payload(bullets=None):
+    return {
+        "titulo": "Exportação WAV melhorada",
+        "resumo": "Limiter automático agora remove clipping quando necessário.",
+        "categoria": "audio",
+        "bullets": bullets if bullets is not None else [
+            "Limiter aplicado somente quando o WAV tem clipping detectável.",
+            "Arquivos limpos continuam sem processamento extra.",
+        ],
+    }
 
 
 def test_featured_get_rate_limit(api_client):
@@ -755,3 +768,111 @@ def test_featured_redis_fallback(api_client, tmp_path, monkeypatch):
         assert body["artistas"][0]["nome"] == payload["artistas"][0]["nome"]
         assert body["links"][0]["url"].startswith("https://")
         assert fallback_path.exists(), "FEATURED_FALLBACK_PATH deveria conter fallback JSON"
+
+
+# ---------------------------------------------------------------------------
+# System updates: public changelog and /yonkou publisher
+# ---------------------------------------------------------------------------
+
+def test_updates_empty_returns_204(api_client, tmp_path, monkeypatch):
+    """GET /updates retorna 204 quando nao ha atualizacoes publicadas."""
+    from api.main import _redis
+
+    monkeypatch.setenv("SYSTEM_UPDATES_PATH", str(tmp_path / "empty-updates.json"))
+    with patch.object(_redis, "lrange", return_value=[]):
+        response = api_client.get("/updates")
+
+    assert response.status_code == 204, response.text
+
+
+def test_post_update_requires_operator_session(api_client):
+    """POST /yonkou/updates exige sessao operador."""
+    response = api_client.post("/yonkou/updates", json=_update_payload())
+
+    assert response.status_code == 401, response.text
+
+
+def test_yonkou_updates_form_is_hidden_behind_button(api_client):
+    """Painel mostra botao de updates; formulario fica em secao separada escondida."""
+    _login_operator(api_client)
+
+    response = api_client.get("/yonkou")
+
+    assert response.status_code == 200, response.text
+    assert 'id="yonkou-tabs"' in response.text
+    assert 'id="tab-som-btn"' in response.text
+    assert 'id="tab-updates-btn"' in response.text
+    assert 'id="tab-updates-panel" style="display:none"' in response.text
+    assert 'id="dash-update-current"' in response.text
+    assert 'id="dash-update-history"' in response.text
+    assert 'id="new-update-btn"' in response.text
+    assert 'id="updates-form-section" style="display:none"' in response.text
+    assert 'id="system-update-editor"' in response.text
+
+
+def test_post_update_validates_payload(api_client):
+    """Atualizacoes exigem titulo, resumo, categoria conhecida e ao menos um bullet."""
+    csrf_token = _login_operator(api_client)
+
+    bad = _update_payload(bullets=[])
+    bad["categoria"] = "marketing"
+    response = api_client.post(
+        "/yonkou/updates",
+        json=bad,
+        headers=_csrf_headers(csrf_token),
+    )
+
+    assert response.status_code == 422, response.text
+
+
+def test_post_update_publishes_to_public_feed(api_client):
+    """Admin publica update e GET /updates lista newest-first."""
+    csrf_token = _login_operator(api_client)
+
+    post_response = api_client.post(
+        "/yonkou/updates",
+        json=_update_payload(),
+        headers=_csrf_headers(csrf_token),
+    )
+    assert post_response.status_code == 200, post_response.text
+
+    get_response = api_client.get("/updates?limit=1")
+    assert get_response.status_code == 200, get_response.text
+    body = get_response.json()
+    assert body[0]["titulo"] == "Exportação WAV melhorada"
+    assert body[0]["categoria"] == "audio"
+    assert body[0]["bullets"][0].startswith("Limiter")
+
+
+def test_updates_redis_fallback(api_client, tmp_path, monkeypatch):
+    """Falha Redis usa SYSTEM_UPDATES_PATH como fallback JSON."""
+    import redis as redis_lib
+    from api.main import _redis
+
+    fallback_path = tmp_path / "system-updates.json"
+    monkeypatch.setenv("SYSTEM_UPDATES_PATH", str(fallback_path))
+    csrf_token = _login_operator(api_client)
+
+    with patch.object(
+        _redis,
+        "lpush",
+        side_effect=redis_lib.exceptions.ConnectionError("mock redis down"),
+    ), patch.object(
+        _redis,
+        "lrange",
+        side_effect=redis_lib.exceptions.TimeoutError("mock redis timeout"),
+    ):
+        post_response = api_client.post(
+            "/yonkou/updates",
+            json=_update_payload(),
+            headers=_csrf_headers(csrf_token),
+        )
+        assert post_response.status_code == 200, post_response.text
+
+        get_response = api_client.get("/updates")
+        assert get_response.status_code == 200, get_response.text
+        assert get_response.json()[0]["titulo"] == "Exportação WAV melhorada"
+
+    assert fallback_path.exists()
+    stored = json.loads(fallback_path.read_text(encoding="utf-8"))
+    assert stored[0]["categoria"] == "audio"

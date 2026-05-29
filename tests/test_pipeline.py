@@ -101,6 +101,94 @@ def test_download_opts_include_auth(monkeypatch, tmp_path):
         f"getpot_bgutil_baseurl not in extractor_args.youtube: {yt_args}"
 
 
+def test_download_opts_preserve_audio_quality_contract(monkeypatch, tmp_path):
+    """download_audio() must select the best available audio and convert once to WAV."""
+    pipeline = pytest.importorskip("pipeline", reason="pipeline.py not yet implemented (Plan 02)")
+    captured_opts: dict = {}
+    monkeypatch.delenv("BGUTIL_BASE_URL", raising=False)
+
+    class FakeYDL:
+        def __init__(self, opts):
+            captured_opts.update(opts)
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            return False
+        def download(self, urls):
+            Path(f"{captured_opts['outtmpl']}.wav").write_bytes(b"RIFF\x00\x00\x00\x00WAVEfmt ")
+            return 0
+
+    with patch("yt_dlp.YoutubeDL", FakeYDL):
+        pipeline.download_audio(
+            "https://www.youtube.com/watch?v=abc123",
+            str(tmp_path),
+        )
+
+    assert captured_opts["format"] == pipeline.YTDLP_BEST_AUDIO_FORMAT
+    assert captured_opts["format_sort"] == pipeline.YTDLP_AUDIO_FORMAT_SORT
+
+    postprocessors = captured_opts.get("postprocessors")
+    assert postprocessors == [{
+        "key": "FFmpegExtractAudio",
+        "preferredcodec": "wav",
+    }]
+
+
+def test_download_audio_runs_conditional_limiter(monkeypatch, tmp_path):
+    """download_audio() must run the post-export quality gate before returning the WAV."""
+    pipeline = pytest.importorskip("pipeline", reason="pipeline.py not yet implemented (Plan 02)")
+    captured_opts: dict = {}
+    limiter_paths: list[Path] = []
+    monkeypatch.delenv("BGUTIL_BASE_URL", raising=False)
+    monkeypatch.setattr(
+        pipeline,
+        "_apply_conditional_limiter",
+        lambda wav_path: limiter_paths.append(Path(wav_path)) or False,
+    )
+
+    class FakeYDL:
+        def __init__(self, opts):
+            captured_opts.update(opts)
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            return False
+        def download(self, urls):
+            Path(f"{captured_opts['outtmpl']}.wav").write_bytes(b"RIFF\x00\x00\x00\x00WAVEfmt ")
+            return 0
+
+    with patch("yt_dlp.YoutubeDL", FakeYDL):
+        wav_path = pipeline.download_audio(
+            "https://www.youtube.com/watch?v=abc123",
+            str(tmp_path),
+        )
+
+    assert limiter_paths == [wav_path]
+
+
+def test_conditional_limiter_only_runs_when_clipping_detected(monkeypatch, tmp_path):
+    """The limiter policy should leave clean WAVs untouched and process clipped WAVs."""
+    import numpy as np
+    import soundfile as sf
+
+    pipeline = pytest.importorskip("pipeline", reason="pipeline.py not yet implemented (Plan 02)")
+    clean = tmp_path / "clean.wav"
+    clipped = tmp_path / "clipped.wav"
+    sf.write(str(clean), np.full((1000, 2), 0.5, dtype=np.float32), 44100, subtype="FLOAT")
+    clipped_audio = np.full((1000, 2), 0.5, dtype=np.float32)
+    clipped_audio[:10, :] = 1.0
+    sf.write(str(clipped), clipped_audio, 44100, subtype="FLOAT")
+
+    limited: list[Path] = []
+    monkeypatch.setattr(pipeline, "_apply_limiter_to_wav", lambda wav_path: limited.append(Path(wav_path)))
+
+    assert pipeline._apply_conditional_limiter(clean) is False
+    assert limited == []
+
+    assert pipeline._apply_conditional_limiter(clipped) is True
+    assert limited == [clipped]
+
+
 # ---------------------------------------------------------------------------
 # CORE-04: WAV conversion (Plan 02, Wave 1)
 # ---------------------------------------------------------------------------

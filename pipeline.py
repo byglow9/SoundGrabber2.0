@@ -37,6 +37,7 @@ from typing import Any
 
 import numpy as np
 import essentia.standard as es
+import soundfile as sf
 import yt_dlp
 
 
@@ -77,6 +78,15 @@ MAX_DURATION_SEC = 900  # 15 minutes — locked by CORE-05 and D-10
 TMP_PREFIX = "sg_"      # /tmp/sg_{12hex}.wav per D-08
 WAV_TMP_DIR = Path("/tmp")
 
+# Quality contract for YouTube downloads:
+# 1. request audio-first formats only;
+# 2. let yt-dlp prefer the best non-damaged source, codec, bitrate, and sample rate;
+# 3. decode to WAV once, as the final DAW-friendly output.
+YTDLP_BEST_AUDIO_FORMAT = "bestaudio[acodec!=none]/best[acodec!=none]/best"
+YTDLP_AUDIO_FORMAT_SORT = ["quality", "source", "acodec", "abr", "asr", "channels"]
+CLIPPING_THRESHOLD_PERCENT = 0.02
+LIMITER_FILTER = "alimiter=limit=0.98:level=false"
+
 
 def _writable_cookies(cookies_file: Path) -> Path:
     """Copy read-only cookies.txt to a writable /tmp path so yt-dlp can save back without OSError.
@@ -93,6 +103,77 @@ def _writable_cookies(cookies_file: Path) -> Path:
     os.chmod(tmp.name, 0o600)
     tmp.close()
     return Path(tmp.name)
+
+
+def _wav_clipping_percent(wav_path: Path) -> float:
+    """Measure hard-clipped samples in a WAV without loading the whole file into RAM."""
+    clipped = 0
+    total = 0
+    for block in sf.blocks(str(wav_path), blocksize=65536, dtype="float32", always_2d=True):
+        clipped += int(np.count_nonzero(np.abs(block) >= 0.999999))
+        total += int(block.size)
+    if total == 0:
+        return 0.0
+    return (clipped / total) * 100.0
+
+
+def _apply_limiter_to_wav(wav_path: Path) -> None:
+    """Apply conservative peak limiting in-place via a temporary WAV."""
+    _require_ffmpeg()
+    assert _YTDLP_FFMPEG_LOCATION is not None
+    tmp_path = wav_path.with_name(f"{wav_path.stem}_limited_{uuid.uuid4().hex[:8]}.wav")
+    cmd = [
+        _YTDLP_FFMPEG_LOCATION,
+        "-nostdin",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-i",
+        str(wav_path),
+        "-vn",
+        "-af",
+        LIMITER_FILTER,
+        "-ar",
+        "44100",
+        "-ac",
+        "2",
+        "-sample_fmt",
+        "s16",
+        str(tmp_path),
+    ]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+        if result.returncode != 0:
+            raise RuntimeError(result.stderr.strip() or "ffmpeg limiter failed")
+        os.replace(tmp_path, wav_path)
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+
+def _apply_conditional_limiter(wav_path: Path) -> bool:
+    """Apply limiter only when the exported WAV has measurable hard clipping."""
+    try:
+        clipping_percent = _wav_clipping_percent(wav_path)
+    except Exception as exc:  # pragma: no cover - defensive path for corrupt external outputs
+        logger.warning("QUALITY: clipping check skipped for %s: %s", wav_path, exc)
+        return False
+
+    if clipping_percent <= CLIPPING_THRESHOLD_PERCENT:
+        logger.info(
+            "QUALITY: limiter skipped clipping=%.5f%% threshold=%.5f%%",
+            clipping_percent,
+            CLIPPING_THRESHOLD_PERCENT,
+        )
+        return False
+
+    logger.warning(
+        "QUALITY: applying limiter clipping=%.5f%% threshold=%.5f%%",
+        clipping_percent,
+        CLIPPING_THRESHOLD_PERCENT,
+    )
+    _apply_limiter_to_wav(wav_path)
+    return True
 
 
 # Stage 0: Duration check (CORE-05, D-10)
@@ -244,7 +325,8 @@ def download_audio(url: str, cache_dir: str) -> Path:
         logger.warning("AUTH: download_audio sem YTDLP_CACHE_DIR/cache_dir")
 
     ydl_opts: dict[str, Any] = {
-        "format": "bestaudio/best",
+        "format": YTDLP_BEST_AUDIO_FORMAT,
+        "format_sort": YTDLP_AUDIO_FORMAT_SORT,
         "outtmpl": outtmpl_base,  # NO %(ext)s — yt-dlp appends .wav after postprocessor (Pitfall 2)
         "quiet": True,
         "no_warnings": True,
@@ -296,6 +378,8 @@ def download_audio(url: str, cache_dir: str) -> Path:
             raise FileNotFoundError(
                 f"WAV not generated at {wav_path}. yt-dlp may have changed outtmpl behavior."
             )
+
+    _apply_conditional_limiter(wav_path)
 
     # SEC-FILE-01: bloqueia leitura por outros usuários do sistema.
     os.chmod(wav_path, 0o600)

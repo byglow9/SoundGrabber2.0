@@ -44,6 +44,7 @@ class Settings:
     admin_session_secret: str = field(default_factory=lambda: os.environ.get("ADMIN_SESSION_SECRET", ""))
     featured_fallback_path: str = field(default_factory=lambda: os.environ.get("FEATURED_FALLBACK_PATH", ".data/featured-current.json"))
     featured_history_path: str = field(default_factory=lambda: os.environ.get("FEATURED_HISTORY_PATH", ".data/featured-history.json"))
+    system_updates_path: str = field(default_factory=lambda: os.environ.get("SYSTEM_UPDATES_PATH", ".data/system-updates.json"))
     trusted_proxy_ips: str = field(default_factory=lambda: os.environ.get("TRUSTED_PROXY_IPS", ""))
 
 

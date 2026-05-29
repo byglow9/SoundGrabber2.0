@@ -322,3 +322,40 @@ def test_featured_sidebar_css_contract():
         f"Propriedades CSS modernas encontradas em style.css: {found}. "
         "A sidebar deve preservar a estetica Y2K/CSS2."
     )
+
+
+# ---------------------------------------------------------------------------
+# System updates public surface
+# ---------------------------------------------------------------------------
+
+def test_updates_nav_and_teaser_present(api_client):
+    """Home publica linka /atualizacoes e tem teaser da ultima atualizacao."""
+    response = api_client.get("/")
+
+    assert response.status_code == 200
+    assert 'href="/atualizacoes"' in response.text
+    assert 'id="updates-teaser-shell"' in response.text
+    assert 'id="updates-teaser-title"' in response.text
+    assert "/yonkou/updates" not in response.text
+
+
+def test_updates_page_served(api_client):
+    """GET /atualizacoes serve pagina publica com table layout."""
+    response = api_client.get("/atualizacoes")
+
+    assert response.status_code == 200
+    assert response.headers.get("content-type", "").startswith("text/html")
+    assert "Atualizações" in response.text
+    assert 'id="updates-list"' in response.text
+    assert "<table" in response.text
+
+
+def test_updates_static_js_contract():
+    """updates.js busca /updates e renderiza conteudo com textContent."""
+    updates_js = (PROJECT_ROOT / "static" / "updates.js").read_text(encoding="utf-8")
+    app_js = (PROJECT_ROOT / "static" / "app.js").read_text(encoding="utf-8")
+
+    assert "fetch('/updates?limit=50')" in updates_js
+    assert "fetch('/updates?limit=1')" in app_js
+    assert "textContent" in updates_js
+    assert "innerHTML" not in updates_js

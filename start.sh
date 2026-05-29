@@ -32,7 +32,14 @@ fi
 
 # Defaults locais de desenvolvimento. Produção no notebook deve definir valores próprios no .env.
 export DEV_MODE="${DEV_MODE:-true}"
-export REDIS_URL="${REDIS_URL:-redis://localhost:6379/0}"
+export REDIS_URL="${REDIS_URL:-redis://localhost:6380/0}"
+if [ -z "${REDIS_PORT:-}" ]; then
+    if [[ "$REDIS_URL" =~ ^redis://([^@/]+@)?(localhost|127\.0\.0\.1):([0-9]+) ]]; then
+        export REDIS_PORT="${BASH_REMATCH[3]}"
+    else
+        export REDIS_PORT="6380"
+    fi
+fi
 export ADMIN_PASSWORD="${ADMIN_PASSWORD:-correct horse}"
 export ADMIN_SESSION_SECRET="${ADMIN_SESSION_SECRET:-local-dev-admin-session-secret}"
 export FEATURED_FALLBACK_PATH="${FEATURED_FALLBACK_PATH:-$PROJECT_DIR/.data/featured-current.json}"
@@ -82,7 +89,7 @@ fi
 if ! redis-cli "${REDIS_CLI_ARGS[@]}" ping &>/dev/null; then
     log "Iniciando Redis..."
     if command -v redis-server &>/dev/null; then
-        redis-server --daemonize yes --save '' --appendonly no --dir /tmp
+        redis-server --daemonize yes --port "$REDIS_PORT" --save '' --appendonly no --dir /tmp
     fi
     if ! redis-cli "${REDIS_CLI_ARGS[@]}" ping &>/dev/null; then
         echo "[start] Redis nao iniciou automaticamente."

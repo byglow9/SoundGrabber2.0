@@ -19,7 +19,7 @@ from urllib.parse import parse_qs, urlparse
 
 import redis as redis_lib
 from celery.result import AsyncResult
-from fastapi import Depends, FastAPI, File, HTTPException, Request, Response, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, Response, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -39,6 +39,9 @@ JOB_ID_PATTERN = re.compile(r"^[a-zA-Z0-9-]{1,64}$")
 FEATURED_KEY = "featured:current"
 FEATURED_HISTORY_KEY = "featured:history"
 FEATURED_HISTORY_MAX = 52
+UPDATES_HISTORY_KEY = "updates:history"
+UPDATES_HISTORY_MAX = 50
+UPDATE_CATEGORIES = {"audio", "analise", "sistema", "em_breve"}
 ADMIN_COOKIE_NAME = "sg_admin"
 ADMIN_SESSION_MAX_AGE = 60 * 60 * 24 * 7
 
@@ -231,6 +234,44 @@ class FeaturedReleaseRequest(BaseModel):
         return value
 
 
+class SystemUpdateRequest(BaseModel):
+    titulo: str
+    resumo: str
+    categoria: str
+    bullets: list[str]
+
+    @field_validator("titulo", "resumo")
+    @classmethod
+    def update_text_required(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Update fields cannot be empty")
+        if len(value) > 300:
+            raise ValueError("Update fields must be 300 characters or less")
+        return value
+
+    @field_validator("categoria")
+    @classmethod
+    def category_allowed(cls, value: str) -> str:
+        value = value.strip()
+        if value not in UPDATE_CATEGORIES:
+            raise ValueError("Invalid update category")
+        return value
+
+    @field_validator("bullets")
+    @classmethod
+    def bullets_required(cls, value: list[str]) -> list[str]:
+        cleaned = [str(item).strip() for item in value if str(item).strip()]
+        if not cleaned:
+            raise ValueError("At least one update bullet is required")
+        if len(cleaned) > 8:
+            raise ValueError("System updates support at most eight bullets")
+        for item in cleaned:
+            if len(item) > 220:
+                raise ValueError("Update bullets must be 220 characters or less")
+        return cleaned
+
+
 class AdminLoginRequest(BaseModel):
     password: str
 
@@ -366,6 +407,26 @@ def _write_history_fallback(entries: list[dict]) -> None:
     _write_json_private(path, entries)
 
 
+def _updates_fallback_path() -> Path:
+    return Path(_os.environ.get("SYSTEM_UPDATES_PATH", settings.system_updates_path))
+
+
+def _read_updates_fallback() -> list[dict]:
+    path = _updates_fallback_path()
+    if not path.exists():
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        logger.exception("system updates fallback read failed")
+        return []
+    return data if isinstance(data, list) else []
+
+
+def _write_updates_fallback(entries: list[dict]) -> None:
+    _write_json_private(_updates_fallback_path(), entries[:UPDATES_HISTORY_MAX])
+
+
 def _append_to_history(payload: dict) -> None:
     raw = json.dumps(payload, ensure_ascii=False)
     try:
@@ -384,6 +445,31 @@ def _get_history(limit: int = FEATURED_HISTORY_MAX) -> list[dict]:
         return [json.loads(r) for r in raw_list if r]
     except (redis_lib.exceptions.ConnectionError, redis_lib.exceptions.TimeoutError):
         return _read_history_fallback()
+
+
+def _append_system_update(payload: dict) -> None:
+    raw = json.dumps(payload, ensure_ascii=False)
+    try:
+        _redis.lpush(UPDATES_HISTORY_KEY, raw)
+        _redis.ltrim(UPDATES_HISTORY_KEY, 0, UPDATES_HISTORY_MAX - 1)
+    except (redis_lib.exceptions.ConnectionError, redis_lib.exceptions.TimeoutError):
+        pass
+    existing = _read_updates_fallback()
+    _write_updates_fallback(([payload] + existing)[:UPDATES_HISTORY_MAX])
+
+
+def _get_system_updates(limit: int = 20) -> list[dict]:
+    limit = max(1, min(limit, UPDATES_HISTORY_MAX))
+    try:
+        raw_list = _redis.lrange(UPDATES_HISTORY_KEY, 0, limit - 1)
+        entries = [json.loads(r) for r in raw_list if r]
+        if entries:
+            return entries
+    except (redis_lib.exceptions.ConnectionError, redis_lib.exceptions.TimeoutError):
+        pass
+    except json.JSONDecodeError:
+        logger.exception("system updates redis payload is invalid JSON")
+    return _read_updates_fallback()[:limit]
 
 
 def _load_featured() -> dict | None:
@@ -474,6 +560,17 @@ def _featured_document(request_body: FeaturedReleaseRequest) -> dict:
         "descricao": request_body.descricao,
         "data_adicao": date.today().isoformat(),
         "links": [link.model_dump() for link in request_body.links],
+    }
+
+
+def _system_update_document(request_body: SystemUpdateRequest) -> dict:
+    return {
+        "id": str(uuid.uuid4()),
+        "titulo": request_body.titulo,
+        "resumo": request_body.resumo,
+        "categoria": request_body.categoria,
+        "bullets": request_body.bullets,
+        "data_publicacao": date.today().isoformat(),
     }
 
 
@@ -597,6 +694,30 @@ def _operator_panel_html(
     else:
         hist_items = '<div class="yonkou-help">nenhum histórico ainda</div>'
 
+    update_entries = _get_system_updates(limit=5)
+    if update_entries:
+        latest_update = update_entries[0]
+        update_bullets = latest_update.get("bullets") if isinstance(latest_update.get("bullets"), list) else []
+        update_bullets_html = "".join(
+            f'<div class="update-bullet">- {escape(str(item))}</div>'
+            for item in update_bullets[:4]
+        )
+        update_current_html = f"""<div class="yonkou-kicker">{escape(str(latest_update.get("categoria", "") or ""))}</div>
+<div id="dash-update-title">{escape(str(latest_update.get("titulo", "") or ""))}</div>
+<div class="dash-row dash-row-data"><span class="dash-label">publicado</span><span class="dash-value">{escape(str(latest_update.get("data_publicacao", "") or ""))}</span></div>
+<div class="dash-descricao">{escape(str(latest_update.get("resumo", "") or ""))}</div>
+<div id="dash-update-bullets">{update_bullets_html}</div>"""
+        update_items = "".join(
+            f'<div class="history-item">'
+            f'<span class="history-item-titulo">{escape(str(item.get("titulo", "") or ""))}</span>'
+            f'<span class="history-item-meta"> / {escape(str(item.get("categoria", "") or ""))}'
+            f' ({escape(str(item.get("data_publicacao", "") or ""))})</span></div>'
+            for item in update_entries
+        )
+    else:
+        update_current_html = '<div class="yonkou-help" style="padding:10px 0">Nenhuma atualização publicada ainda.</div>'
+        update_items = '<div class="yonkou-help">nenhuma atualização ainda</div>'
+
     return f"""<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -618,6 +739,11 @@ def _operator_panel_html(
 </td></tr>
 <tr><td id="yonkou-card" style="border:none;padding-top:18px">
 <div id="yonkou-dashboard">
+<div id="yonkou-tabs">
+<button type="button" id="tab-som-btn" class="yonkou-tab yonkou-tab-active">Som da Semana</button>
+<button type="button" id="tab-updates-btn" class="yonkou-tab">Notas de Atualização</button>
+</div>
+<div id="tab-som-panel">
 <table width="100%" cellpadding="0" cellspacing="10" id="dashboard-table">
 <tr>
 <td width="58%" valign="top" style="height:1px">
@@ -636,6 +762,27 @@ def _operator_panel_html(
 </td>
 </tr>
 </table>
+</div>
+<div id="tab-updates-panel" style="display:none">
+<table width="100%" cellpadding="0" cellspacing="10" id="updates-dashboard-table">
+<tr>
+<td width="58%" valign="top" style="height:1px">
+<div id="dash-update-current">{update_current_html}</div>
+</td>
+<td width="42%" valign="top" style="height:1px">
+<div id="dash-update-history">
+<div id="history-header">Ultimas atualizacoes</div>
+<div id="updates-history-list">{update_items}</div>
+</div>
+</td>
+</tr>
+<tr>
+<td colspan="2" id="updates-admin-cell" style="padding-top:18px">
+<button type="button" id="new-update-btn" class="yonkou-primary" style="width:100%">+ Publicar atualização do sistema</button>
+</td>
+</tr>
+</table>
+</div>
 </div>
 <div id="form-section" style="display:none">
 <table width="100%" cellpadding="0" cellspacing="0" id="form-header-table">
@@ -715,6 +862,40 @@ def _operator_panel_html(
 </table>
 </fieldset>
 <button type="submit" class="yonkou-primary">Salvar</button>
+</form>
+</div>
+<div id="updates-form-section" style="display:none">
+<table width="100%" cellpadding="0" cellspacing="0" id="updates-form-header-table">
+<tr>
+<td><button type="button" id="updates-voltar-btn" class="yonkou-secondary">&#x2190; voltar</button></td>
+<td align="right"><h2 style="margin:0">Nova Atualização</h2></td>
+</tr>
+</table>
+<form id="system-update-editor" class="yonkou-form">
+<table id="updates-form-table" width="100%" cellpadding="0" cellspacing="0">
+<tr>
+<td class="yonkou-label-cell"><label for="update-titulo">Titulo</label></td>
+<td><input id="update-titulo" class="yonkou-input"></td>
+</tr>
+<tr>
+<td class="yonkou-label-cell"><label for="update-resumo">Resumo</label></td>
+<td><input id="update-resumo" class="yonkou-input"></td>
+</tr>
+<tr>
+<td class="yonkou-label-cell"><label for="update-categoria">Categoria</label></td>
+<td><select id="update-categoria" class="yonkou-input yonkou-select">
+<option value="audio">audio</option>
+<option value="analise">analise</option>
+<option value="sistema">sistema</option>
+<option value="em_breve">em breve</option>
+</select></td>
+</tr>
+<tr>
+<td class="yonkou-label-cell"><label for="update-bullets">Bullets</label></td>
+<td><textarea id="update-bullets" rows="5" class="yonkou-input yonkou-textarea" placeholder="uma melhoria por linha"></textarea></td>
+</tr>
+</table>
+<button type="submit" class="yonkou-primary">Publicar atualização</button>
 </form>
 </div>
 <div id="yonkou-message"></div>
@@ -1117,6 +1298,19 @@ def get_featured(request: Request, response: Response):
     return featured
 
 
+@app.get("/updates")
+@limiter.limit("60/minute")
+def get_updates(
+    request: Request,
+    response: Response,
+    limit: int = Query(default=20, ge=1, le=UPDATES_HISTORY_MAX),
+):
+    entries = _get_system_updates(limit=limit)
+    if not entries:
+        return Response(status_code=204)
+    return entries
+
+
 @app.get("/yonkou")
 @limiter.limit("60/minute")
 def yonkou_panel(request: Request, response: Response) -> HTMLResponse:
@@ -1219,6 +1413,27 @@ def get_releases(request: Request, response: Response):
     return entries
 
 
+@app.post("/yonkou/updates", dependencies=[Depends(_admin_csrf_dependency)])
+@limiter.limit("10/minute")
+def post_system_update(
+    request: Request,
+    request_body: SystemUpdateRequest,
+    response: Response,
+) -> dict:
+    payload = _system_update_document(request_body)
+    _append_system_update(payload)
+    return payload
+
+
+@app.get("/yonkou/updates", dependencies=[Depends(_admin_required_dependency)])
+@limiter.limit("30/minute")
+def get_yonkou_updates(request: Request, response: Response):
+    entries = _get_system_updates(limit=UPDATES_HISTORY_MAX)
+    if not entries:
+        return Response(status_code=204)
+    return entries
+
+
 # ── Static files ──────────────────────────────────────────────────────────────
 # Phase 4: serve index.html and app.js.
 # CRITICAL: define AFTER all API routes so GET /, GET /jobs/*, GET /files/*
@@ -1242,6 +1457,12 @@ def serve_index():
 def serve_about():
     """Serve the public about, legal notice, and privacy page."""
     return FileResponse(str(STATIC_DIR / "about.html"))
+
+
+@app.get("/atualizacoes")
+def serve_updates_page():
+    """Serve the public system updates page."""
+    return FileResponse(str(STATIC_DIR / "updates.html"))
 
 
 # Mount after serve_index to avoid shadowing GET /.

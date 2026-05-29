@@ -20,6 +20,35 @@ function csrfHeaders() {
   };
 }
 
+function showYonkouTab(tabName) {
+  var somPanel = document.getElementById('tab-som-panel');
+  var updatesPanel = document.getElementById('tab-updates-panel');
+  var somBtn = document.getElementById('tab-som-btn');
+  var updatesBtn = document.getElementById('tab-updates-btn');
+  if (!somPanel || !updatesPanel || !somBtn || !updatesBtn) return;
+
+  var showUpdates = tabName === 'updates';
+  somPanel.style.display = showUpdates ? 'none' : '';
+  updatesPanel.style.display = showUpdates ? '' : 'none';
+  somBtn.className = showUpdates ? 'yonkou-tab' : 'yonkou-tab yonkou-tab-active';
+  updatesBtn.className = showUpdates ? 'yonkou-tab yonkou-tab-active' : 'yonkou-tab';
+}
+
+function wireYonkouTabs() {
+  var somBtn = document.getElementById('tab-som-btn');
+  var updatesBtn = document.getElementById('tab-updates-btn');
+  if (somBtn) {
+    somBtn.addEventListener('click', function() {
+      showYonkouTab('som');
+    });
+  }
+  if (updatesBtn) {
+    updatesBtn.addEventListener('click', function() {
+      showYonkouTab('updates');
+    });
+  }
+}
+
 function initialFeaturedList(key) {
   var form = document.getElementById('featured-editor');
   if (!form || !form.dataset || !form.dataset[key]) return [];
@@ -246,10 +275,34 @@ function hideFormSection() {
   yonkouMessage('');
 }
 
+function showUpdatesFormSection() {
+  var dashboard = document.getElementById('yonkou-dashboard');
+  var section = document.getElementById('updates-form-section');
+  if (dashboard) dashboard.style.display = 'none';
+  if (section) section.style.display = '';
+  showYonkouTab('updates');
+  yonkouMessage('');
+}
+
+function hideUpdatesFormSection() {
+  var dashboard = document.getElementById('yonkou-dashboard');
+  var section = document.getElementById('updates-form-section');
+  if (section) section.style.display = 'none';
+  if (dashboard) dashboard.style.display = '';
+  showYonkouTab('updates');
+  yonkouMessage('');
+}
+
 function wireVoltarButton() {
   var btn = document.getElementById('voltar-btn');
   if (!btn) return;
   btn.addEventListener('click', hideFormSection);
+}
+
+function wireUpdatesVoltarButton() {
+  var btn = document.getElementById('updates-voltar-btn');
+  if (!btn) return;
+  btn.addEventListener('click', hideUpdatesFormSection);
 }
 
 function wireLogoutButton() {
@@ -261,9 +314,9 @@ function wireLogoutButton() {
       headers: csrfHeaders(),
       body: JSON.stringify({ logout: true })
     }).then(function() {
-      window.location.href = '/yonkou';
+      window.location.href = '/';
     }).catch(function() {
-      window.location.href = '/yonkou';
+      window.location.href = '/';
     });
   });
 }
@@ -300,6 +353,22 @@ function wireNewButton() {
     clearProdutoresList();
     showFormSection();
     yonkouMessage('');
+  });
+}
+
+function wireNewUpdateButton() {
+  var btn = document.getElementById('new-update-btn');
+  if (!btn) return;
+  btn.addEventListener('click', function() {
+    var titulo = document.getElementById('update-titulo');
+    var resumo = document.getElementById('update-resumo');
+    var categoria = document.getElementById('update-categoria');
+    var bullets = document.getElementById('update-bullets');
+    if (titulo) titulo.value = '';
+    if (resumo) resumo.value = '';
+    if (categoria) categoria.value = 'audio';
+    if (bullets) bullets.value = '';
+    showUpdatesFormSection();
   });
 }
 
@@ -368,18 +437,62 @@ function wireFeaturedEditor() {
   });
 }
 
+// ── System updates editor ────────────────────────────────────────────────────
+
+function wireSystemUpdateEditor() {
+  var form = document.getElementById('system-update-editor');
+  if (!form) return;
+
+  form.addEventListener('submit', function(event) {
+    event.preventDefault();
+    var bulletsRaw = document.getElementById('update-bullets').value.split('\n');
+    var bullets = bulletsRaw.map(function(item) {
+      return item.trim();
+    }).filter(function(item) {
+      return item.length > 0;
+    });
+
+    var payload = {
+      titulo: document.getElementById('update-titulo').value.trim(),
+      resumo: document.getElementById('update-resumo').value.trim(),
+      categoria: document.getElementById('update-categoria').value,
+      bullets: bullets
+    };
+
+    fetch('/yonkou/updates', {
+      method: 'POST',
+      headers: csrfHeaders(),
+      body: JSON.stringify(payload)
+    }).then(function(response) {
+      if (response.ok) {
+        window.location.reload();
+        return;
+      }
+      return response.json().catch(function() { return {}; }).then(function(data) {
+        yonkouMessage(data.error || data.detail || 'Nao foi possivel publicar a atualizacao.');
+      });
+    }).catch(function(err) {
+      yonkouMessage('Erro de rede: ' + err.message);
+    });
+  });
+}
+
 // ── Init ──────────────────────────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', function() {
   wireLoginForm();
+  wireYonkouTabs();
   initArtistasList();
   wireArtistasList();
   initProdutoresList();
   wireProdutoresList();
   wireEditButton();
   wireNewButton();
+  wireNewUpdateButton();
   wireVoltarButton();
+  wireUpdatesVoltarButton();
   wireLogoutButton();
   wireFeaturedEditor();
+  wireSystemUpdateEditor();
   wireSelectLabels();
 });

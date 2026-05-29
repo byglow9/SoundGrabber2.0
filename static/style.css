@@ -270,6 +270,62 @@ td {
   color: #804400;
 }
 
+#updates-teaser-shell {
+  position: fixed;
+  left: 18px;
+  bottom: 18px;
+  width: 260px;
+  z-index: 20;
+}
+
+#updates-teaser {
+  background-color: #000000;
+  border: 1px solid #ff8800;
+  padding: 8px 10px;
+  max-height: 130px;
+  overflow: hidden;
+}
+
+#updates-teaser-kicker,
+.system-update-meta {
+  font-family: 'Courier New', monospace;
+  font-size: 9px;
+  color: #804400;
+  text-transform: uppercase;
+}
+
+#updates-teaser-title {
+  font-family: 'Dela Gothic One', sans-serif;
+  font-size: 13px;
+  color: #ff8800;
+  margin-top: 4px;
+  line-height: 1.1;
+}
+
+#updates-teaser-summary {
+  font-family: 'Courier New', monospace;
+  font-size: 11px;
+  color: #ff8800;
+  line-height: 1.35;
+  margin-top: 4px;
+  max-height: 42px;
+  overflow: hidden;
+}
+
+#updates-teaser-link,
+#updates-teaser-link:visited {
+  display: inline-block;
+  margin-top: 4px;
+  color: #ff8800;
+  font-family: 'Courier New', monospace;
+  font-size: 11px;
+  text-decoration: none;
+}
+
+#updates-teaser-link:hover {
+  text-decoration: underline;
+}
+
 #submit-btn {
   display: inline-block;
   margin-top: 6px;
@@ -725,8 +781,8 @@ body.yonkou-page {
 
 #yonkou-wrapper {
   display: table-cell;
-  vertical-align: middle;
-  padding: 24px 0;
+  vertical-align: top;
+  padding: 250px 0 24px 0;
 }
 
 #yonkou-wrapper td {
@@ -831,21 +887,30 @@ body.yonkou-login-page {
 
 /* ── Dashboard ─────────────────────────────────────────────────────── */
 
-#dashboard-table {
+#dashboard-table,
+#updates-dashboard-table {
   border-collapse: separate;
   border-spacing: 10px 0;
+  table-layout: fixed;
 }
 
-#dash-current {
+#dash-current,
+#dash-history,
+#dash-update-current,
+#dash-update-history {
   border: 1px solid #3d2200;
-  padding: 14px;
-  height: 100%;
+  padding: 18px;
+  height: 240px;
   box-sizing: border-box;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: #804400 #000000;
 }
 
 #dash-titulo {
   font-family: 'Sligoil', 'Courier New', monospace;
-  font-size: 22px;
+  font-size: 26px;
   color: #ff8800;
   margin: 6px 0 10px 0;
   line-height: 1.1;
@@ -853,7 +918,7 @@ body.yonkou-login-page {
 
 .dash-row {
   font-family: 'Sligoil', 'Courier New', monospace;
-  font-size: 12px;
+  font-size: 14px;
   margin-bottom: 5px;
   display: table;
   width: 100%;
@@ -864,7 +929,7 @@ body.yonkou-login-page {
   color: #804400;
   text-transform: uppercase;
   letter-spacing: 1px;
-  font-size: 10px;
+  font-size: 11px;
   width: 60px;
   vertical-align: top;
   padding-top: 1px;
@@ -890,7 +955,7 @@ body.yonkou-login-page {
 
 .dash-descricao {
   font-family: 'Sligoil', 'Courier New', monospace;
-  font-size: 11px;
+  font-size: 13px;
   color: #804400;
   margin: 10px 0 10px 0;
   line-height: 1.5;
@@ -924,16 +989,9 @@ body.yonkou-login-page {
   margin-top: 6px;
 }
 
-#dash-history {
-  border: 1px solid #3d2200;
-  padding: 14px;
-  height: 100%;
-  box-sizing: border-box;
-}
-
 #history-header {
   font-family: 'Sligoil', 'Courier New', monospace;
-  font-size: 11px;
+  font-size: 12px;
   color: #804400;
   text-transform: uppercase;
   letter-spacing: 2px;
@@ -944,7 +1002,7 @@ body.yonkou-login-page {
 
 .history-item {
   font-family: 'Sligoil', 'Courier New', monospace;
-  font-size: 12px;
+  font-size: 13px;
   margin-bottom: 8px;
   line-height: 1.3;
 }
@@ -957,7 +1015,8 @@ body.yonkou-login-page {
   color: #804400;
 }
 
-#dash-new-row {
+#dash-new-row,
+#updates-admin-cell {
   padding-top: 20px;
 }
 
@@ -1003,7 +1062,7 @@ body.yonkou-login-page {
   color: #ff8800;
   border: 1px solid #ff8800;
   font-family: 'Sligoil', 'Courier New', monospace;
-  font-size: 13px;
+  font-size: 14px;
   outline: none;
 }
 
@@ -1023,7 +1082,7 @@ body.yonkou-login-page {
   color: #000000;
   border: 1px solid #ff8800;
   font-family: 'Dela Gothic One', sans-serif;
-  font-size: 15px;
+  font-size: 17px;
   line-height: 1.0;
   padding: 8px 16px;
   cursor: pointer;
@@ -1048,7 +1107,7 @@ body.yonkou-login-page {
   width: 88px;
   color: #804400;
   font-family: 'Sligoil', 'Courier New', monospace;
-  font-size: 12px;
+  font-size: 13px;
   vertical-align: top;
   padding-top: 10px !important;
 }
@@ -1109,7 +1168,7 @@ body.yonkou-login-page {
   color: #ff8800;
   border: 1px solid #ff8800;
   font-family: 'Sligoil', 'Courier New', monospace;
-  font-size: 11px;
+  font-size: 12px;
   cursor: pointer;
 }
 
@@ -1331,6 +1390,163 @@ body.yonkou-login-page {
   font-family: 'Courier New', monospace;
   font-size: 12px;
   color: #804400;
+}
+
+body.updates-page {
+  overflow-y: auto;
+}
+
+#updates-wrap {
+  padding: 0;
+}
+
+#updates-shell #top-nav {
+  position: static;
+  background: transparent;
+  font-family: 'Sligoil', 'Courier New', monospace;
+  font-size: 13px;
+  color: #804400;
+}
+
+#updates-header {
+  border: none;
+  padding: 20px 0 16px 0;
+}
+
+#updates-list {
+  background-color: #000000;
+}
+
+.system-update-item {
+  border-bottom: 1px solid #333333;
+  padding: 14px 4px;
+}
+
+.system-update-item h2 {
+  font-family: 'Dela Gothic One', sans-serif;
+  font-size: 18px;
+  color: #ff8800;
+  margin: 4px 0 8px 0;
+}
+
+.system-update-item p,
+.system-update-item li,
+#updates-empty,
+#updates-loading {
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  color: #ff8800;
+  line-height: 1.6;
+}
+
+.system-update-item ul {
+  margin: 8px 0 0 18px;
+  padding: 0;
+}
+
+#updates-admin-cell {
+  padding-top: 20px;
+}
+
+#updates-admin {
+  padding-top: 0;
+}
+
+#updates-admin h2 {
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  color: #ff8800;
+  border-bottom: 1px solid #ff8800;
+  margin: 0 0 10px 0;
+  padding-bottom: 2px;
+  text-transform: uppercase;
+}
+
+#updates-form-table {
+  margin-bottom: 8px;
+}
+
+#updates-history {
+  margin-top: 14px;
+  border-top: 1px solid #333333;
+  padding-top: 10px;
+}
+
+#dash-update-title {
+  font-family: 'Dela Gothic One', sans-serif;
+  font-size: 20px;
+  color: #ff8800;
+  margin: 4px 0 8px 0;
+}
+
+#dash-update-bullets {
+  margin-top: 8px;
+}
+
+.update-bullet {
+  font-family: 'Courier New', monospace;
+  font-size: 13px;
+  color: #ff8800;
+  line-height: 1.5;
+}
+
+#updates-form-header-table {
+  margin-bottom: 12px;
+}
+
+#yonkou-tabs {
+  height: 30px;
+  border-bottom: 1px solid #ff8800;
+  margin-bottom: 10px;
+  white-space: nowrap;
+}
+
+.yonkou-tab {
+  position: relative;
+  display: inline-block;
+  width: 156px;
+  height: 30px;
+  margin: 0 0 0 0;
+  padding: 0 10px;
+  background-color: #000000;
+  color: #ff8800;
+  border: 1px solid #804400;
+  border-bottom: 1px solid #ff8800;
+  border-right: none;
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 28px;
+  cursor: pointer;
+  vertical-align: top;
+  text-align: center;
+  box-sizing: border-box;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.yonkou-tab:hover {
+  border-color: #ff8800;
+}
+
+.yonkou-tab-active {
+  background-color: #ff8800;
+  color: #000000;
+  border-color: #ff8800;
+  border-bottom: 1px solid #000000;
+  font-weight: bold;
+}
+
+
+#tab-som-panel,
+#tab-updates-panel {
+  border: none;
+  padding: 12px 0 0 0;
+  min-height: 328px;
+}
+
+#tab-som-panel #dashboard-table,
+#tab-updates-panel #updates-dashboard-table {
+  margin: 0;
 }
 
 #page-index {
